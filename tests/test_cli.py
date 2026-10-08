@@ -47,9 +47,9 @@ class ProjectWorkflowTests(unittest.TestCase):
         init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
 
     @staticmethod
-    def spec_page(chapter):
+    def spec_page(chapter, role="content", number=1):
         return (
-            f"## Slide 1 — {chapter}\n页面 ID：{slug(chapter)}-01\n"
+            f"## Slide {number} — {chapter}\n页面 ID：{slug(chapter)}-{number:02d}\n页面角色：{role}\n"
             "### 目的\nExplain the decision.\n### 核心结论\nEvidence supports the conclusion.\n"
             "### 展示内容\nSummary of approved report content.\n### 证据与来源\nSource link.\n"
             "### 限定条件\nState limits.\n### 报告段落映射\nMap to the report section.\n"
@@ -162,7 +162,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertTrue((self.base / ".state" / "revisions" / "report" / report_digest / "manifest.json").exists())
         for chapter in self.cfg["chapters"]:
             (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-                self.spec_page(chapter), encoding="utf-8"
+                self.spec_page(chapter, "cover" if chapter == self.cfg["chapters"][0] else "content"), encoding="utf-8"
             )
         self.assertEqual(validate_spec(self.base, self.cfg), [])
         _, errors = approve_revision(self.base, self.cfg, "spec")
@@ -172,6 +172,21 @@ class ProjectWorkflowTests(unittest.TestCase):
         report.write_text(report.read_text(encoding="utf-8") + "\nUpdated.", encoding="utf-8")
         self.assertFalse(approval_is_current(self.base, "report", self.cfg))
         self.assertFalse(approval_is_current(self.base, "spec", self.cfg))
+
+    def test_spec_requires_one_opening_cover_and_project_unique_page_ids(self):
+        self.init()
+        for chapter in self.cfg["chapters"]:
+            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
+            (self.base / "specs" / f"{slug(chapter)}.md").write_text(self.spec_page(chapter, role), encoding="utf-8")
+        second = self.base / "specs" / f"{slug(self.cfg['chapters'][1])}.md"
+        second.write_text(self.spec_page(self.cfg["chapters"][1], "content").replace(
+            f"{slug(self.cfg['chapters'][1])}-01", f"{slug(self.cfg['chapters'][0])}-01"
+        ), encoding="utf-8")
+        errors = validate_spec(self.base, self.cfg)
+        self.assertTrue(any("页面 ID 重复" in error for error in errors), errors)
+        second.write_text(self.spec_page(self.cfg["chapters"][1], "cover"), encoding="utf-8")
+        errors = validate_spec(self.base, self.cfg)
+        self.assertTrue(any("只能包含一个 cover" in error for error in errors), errors)
 
     def test_slide_build_requires_valid_notes(self):
         self.init()
@@ -210,7 +225,7 @@ class ProjectWorkflowTests(unittest.TestCase):
             encoding="utf-8",
         )
         (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            '<section class="slide"><h1>Approved data</h1>'
+            '<section class="slide" data-page-role="content"><h1>Approved data</h1>'
             '<script type="application/json" class="mls-echarts-spec">'
             '{"type":"bar","categories":["2024","2025"],"values":[10,15],"unit":"亿元"}'
             '</script><script type="application/json" class="slide-notes">{"title":"Chart","script":"Explain the chart","notes":[]}</script></section>',
@@ -259,7 +274,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         _, errors = approve_revision(self.base, cfg, "report")
         self.assertEqual(errors, [])
         chart = {"type": "bar", "title": "Revenue", "categories": ["2024", "2025"], "values": [10, 14], "unit": "亿元", "source": f"../reports/{slug(chapter)}.md"}
-        spec = self.spec_page(chapter).replace(
+        spec = self.spec_page(chapter, "cover") + self.spec_page(chapter, "content", 2).replace(
             "### 布局意图", "```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n### 布局意图"
         ).replace("### 图标需求\n无", "### 图标需求\narrow-right")
         (self.base / "specs" / f"{slug(chapter)}.md").write_text(spec, encoding="utf-8")
@@ -267,7 +282,9 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(errors, [])
         fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
         fragment.write_text(
-            '<section class="slide active"><h1>Revenue</h1>'
+            '<section class="slide active" data-page-role="cover"><h1>Demo investment report</h1>'
+            '<script type="application/json" class="slide-notes">{"title":"Cover","script":"Introduce the project.","notes":[]}</script></section>'
+            '<section class="slide" data-page-role="content"><h1>Revenue</h1>'
             '<script type="application/json" class="mls-echarts-spec">' + json.dumps(chart, ensure_ascii=False) + '</script>'
             '<script type="application/json" class="mls-lucide-spec">{"name":"arrow-right"}</script>'
             '<script type="application/json" class="slide-notes">{"title":"Revenue","script":"Revenue grew.","notes":["10 to 14"]}</script>'
@@ -314,7 +331,8 @@ class ProjectWorkflowTests(unittest.TestCase):
                 f"# {chapter}\n\nSynthetic example: supported analysis with explicit assumptions. [Source](../../sources/metrics.md).\n",
                 encoding="utf-8",
             )
-            spec_text = self.spec_page(chapter).replace("Source link.", f"[Approved report](../reports/{report_path.name})")
+            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
+            spec_text = self.spec_page(chapter, role).replace("Source link.", f"[Approved report](../reports/{report_path.name})")
             if chapter == finance_chapter:
                 spec_text = spec_text.replace("### 布局意图", "```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n### 布局意图")
             if chapter == "投资概要":
@@ -331,7 +349,8 @@ class ProjectWorkflowTests(unittest.TestCase):
 
         for chapter in self.cfg["chapters"]:
             fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
-            body = '<section class="slide active"><h1>' + chapter + '</h1><p>Synthetic investment committee summary.</p>'
+            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
+            body = '<section class="slide active" data-page-role="' + role + '"><h1>' + chapter + '</h1><p>Synthetic investment committee summary.</p>'
             if chapter == finance_chapter:
                 body += '<script type="application/json" class="mls-echarts-spec">' + json.dumps(chart, ensure_ascii=False) + '</script>'
             if chapter == "投资概要":

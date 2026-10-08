@@ -365,10 +365,11 @@ Wiki 索引：wiki/index.md
 
 {common}
 
-只根据已经确认的投资报告生成 Spec。逐章输出到 specs/，每页按以下 Markdown 结构编写，页面 ID 在全项目内唯一：
+只根据已经确认的投资报告生成 Spec。逐章输出到 specs/，每页按以下 Markdown 结构编写，页面 ID 在全项目内唯一。全套第一张页面且仅此一张使用 `页面角色：cover`；其他页面使用 `页面角色：content`。封面应简洁呈现项目名称与投资汇报主题，不添加报告没有提供的信息。每个实质性报告段落至少映射到一张 content 页面：
 
 ## Slide 1 — 页面标题
 页面 ID：chapter-slug-01
+页面角色：content
 ### 目的
 ### 核心结论
 ### 展示内容
@@ -392,11 +393,11 @@ Wiki 索引：wiki/index.md
 
 {common}
 
-只根据已确认的 Presentation Spec，按章节生成 HTML Slides 页面片段，保存为 slides/chapters/章节 slug.html。使用统一 1920×1080、16:9 浅色专业 IC 风格，品牌色 {cfg.get("brand_color", "#A6192E")}。在设计画布尺寸下正文不小于 28px，辅助文字通常不小于 20px。页面包含逐页备注；数据图表使用受限 ECharts 数据标记，图标使用 Lucide 名称标记。使用本机安装的 bluedusk/html-slides skill 生成页面，不引入 CDN 资源。
+只根据已确认的 Presentation Spec，按章节生成 HTML Slides 页面片段，保存为 slides/chapters/章节 slug.html。使用统一 1920×1080、16:9 浅色专业 IC 风格，品牌色 {cfg.get("brand_color", "#A6192E")}。在设计画布尺寸下正文不小于 28px，辅助文字通常不小于 20px。页面包含逐页备注；数据图表使用受限 ECharts 数据标记，图标使用 Lucide 名称标记。使用本机安装的 bluedusk/html-slides skill 生成页面，不引入 CDN 资源。全套第一张页面是唯一封面，根元素需设置 `data-page-role="cover"`；其余页面设置 `data-page-role="content"`，顺序与 Spec 一致。
 
 每个 section class=slide 内必须包含一条 application/json 的 slide-notes 脚本，内容为 JSON 对象。数据图表以 application/json 的 mls-echarts-spec 标记嵌入，图标以 mls-lucide-spec 标记嵌入；CLI 会将它们渲染成内联 SVG。图表只使用 bar、dot、line、multi-line、scatter、time-scatter、stacked-bar、waterfall 类型；所有数值必须明确给出，单位必须一致。图表数据格式为 categories + values，或 categories + series，散点用 points。图标 JSON 至少包含 name 字段，名称使用 Lucide kebab-case。每章 CSS 规则置于 style 元素，并将选择器限制在该章节根节点下。
 
-生成各章后运行 my-slides slides build 合并成可离线打开的 HTML。ECharts/Lucide 本地 SVG 渲染在 Slides 完整实现阶段接入。
+生成各章后运行 my-slides slides build 合并成可离线打开的 HTML，再用 my-slides slides check --browser 检查桌面和手机视口。
 """
     output.write_text(body, encoding="utf-8")
     emit(args, {"task_file": str(output), "kind": kind}, f"已生成交接材料：{output}")
@@ -470,6 +471,8 @@ def validate_report(base: Path, cfg: dict[str, Any]) -> list[str]:
 def validate_spec(base: Path, cfg: dict[str, Any]) -> list[str]:
     folder = base / "specs"
     errors = []
+    page_ids: set[str] = set()
+    page_roles: list[str] = []
     for chapter in cfg.get("chapters", []):
         path = folder / f"{slug(chapter)}.md"
         if not path.exists():
@@ -485,11 +488,27 @@ def validate_spec(base: Path, cfg: dict[str, Any]) -> list[str]:
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             page = text[match.start():end]
             slide_number = match.group(1)
-            if not re.search(r"页面 ID\s*[：:]\s*\S+", page):
+            page_id_match = re.search(r"^页面 ID\s*[：:]\s*(\S+)\s*$", page, flags=re.MULTILINE)
+            if not page_id_match:
                 errors.append(f"{path.name} Slide {slide_number}：缺少页面 ID")
+            elif page_id_match.group(1) in page_ids:
+                errors.append(f"{path.name} Slide {slide_number}：页面 ID 重复：{page_id_match.group(1)}")
+            else:
+                page_ids.add(page_id_match.group(1))
+            role_match = re.search(r"^页面角色\s*[：:]\s*(cover|content)\s*$", page, flags=re.MULTILINE | re.IGNORECASE)
+            if not role_match:
+                errors.append(f"{path.name} Slide {slide_number}：页面角色必须填写 cover 或 content")
+                page_roles.append("")
+            else:
+                page_roles.append(role_match.group(1).lower())
+                if role_match.group(1).lower() == "cover" and re.search(r"```echarts-spec\s*\n", page):
+                    errors.append(f"{path.name} Slide {slide_number}：cover 页面不能包含定量图表")
             for heading in required:
                 if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page, flags=re.MULTILINE):
                     errors.append(f"{path.name} Slide {slide_number}：缺少 ### {heading}")
+            mapping = re.search(r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)", page, flags=re.MULTILINE | re.DOTALL)
+            if mapping and not mapping.group(1).strip():
+                errors.append(f"{path.name} Slide {slide_number}：报告段落映射不能为空")
             for raw in re.findall(r"```echarts-spec\s*\n(.*?)\n```", page, flags=re.DOTALL):
                 try:
                     spec = json.loads(raw)
@@ -509,6 +528,13 @@ def validate_spec(base: Path, cfg: dict[str, Any]) -> list[str]:
             local = target.split("#", 1)[0].split("?", 1)[0]
             if local and not (path.parent / local).resolve().exists():
                 errors.append(f"{path.name}：来源链接目标不存在：{target}")
+    if page_roles:
+        if page_roles[0] != "cover":
+            errors.append("全套 Spec 的第一张页面必须是 cover")
+        if page_roles.count("cover") != 1:
+            errors.append("全套 Spec 必须且只能包含一个 cover 页面")
+        if any(role not in {"cover", "content"} for role in page_roles):
+            errors.append("Spec 页面角色无效")
     return errors
 
 
@@ -576,7 +602,8 @@ class SlideFragmentParser(HTMLParser):
                 if tag not in {"section", "div"}:
                     self.errors.append("slide 根元素必须是 <section> 或 <div>")
                 slide_id = attr.get("id", "")
-                self.active = {"html": [], "notes": [], "assets": [], "has_notes": False, "id": slide_id}
+                self.active = {"html": [], "notes": [], "assets": [], "has_notes": False, "id": slide_id,
+                               "role": attr.get("data-page-role", "")}
                 self.stack = []
         if self.active:
             self.active["html"].append(self.render_tag(tag, attrs))
@@ -661,11 +688,16 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
     assets_to_render: list[dict[str, Any]] = []
     approved_chart_specs: set[str] = set()
     approved_icons: set[str] = set()
+    expected_page_roles: list[str] = []
     for chapter in cfg.get("chapters", []):
         spec_path = base / "specs" / f"{slug(chapter)}.md"
         if not spec_path.exists():
             continue
         spec_text = spec_path.read_text(encoding="utf-8")
+        for page in re.split(r"(?=^##\s+Slide\s+\d+\s+[—-])", spec_text, flags=re.MULTILINE)[1:]:
+            role_match = re.search(r"^页面角色\s*[：:]\s*(cover|content)\s*$", page, flags=re.MULTILINE | re.IGNORECASE)
+            if role_match:
+                expected_page_roles.append(role_match.group(1).lower())
         for raw_spec in re.findall(r"```echarts-spec\s*\n(.*?)\n```", spec_text, flags=re.DOTALL):
             try:
                 chart_spec = json.loads(raw_spec)
@@ -739,6 +771,11 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
         return None, errors
     if not all_slides:
         return None, ["没有可合并的 slide"]
+    actual_page_roles = [slide["role"] for _, slide in all_slides]
+    if expected_page_roles and actual_page_roles != expected_page_roles:
+        return None, ["HTML Slides 的页面角色或顺序必须与已批准 Spec 完全一致"]
+    if expected_page_roles and actual_page_roles and (actual_page_roles[0] != "cover" or actual_page_roles.count("cover") != 1):
+        return None, ["整套 HTML Slides 必须以唯一的 cover 页面开场"]
     try:
         brand_color = cfg.get("brand_color", "#A6192E")
         if not isinstance(brand_color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
