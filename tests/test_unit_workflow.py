@@ -43,7 +43,6 @@ class UnitWorkflowTests(unittest.TestCase):
                 source_dir=None,
                 force=False,
                 json=False,
-                format="v2",
             )
         )
         self.assertEqual(detect_format_version(self.base), "v2")

@@ -19,7 +19,12 @@ class FormalMigrateTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.base = self.root / "my-slides"
         self.chapters = template_chapters()
-        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1"))
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        units = self.base / "units.json"
+        if units.exists():
+            units.unlink()
+        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
+
 
     def tearDown(self):
         self.temp.cleanup()

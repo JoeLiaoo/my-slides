@@ -33,7 +33,7 @@ class AssemblyTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.base = self.root / "my-slides"
         init_project(
-            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v2")
+            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False)
         )
 
     def tearDown(self):
