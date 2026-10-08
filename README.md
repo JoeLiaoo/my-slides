@@ -52,7 +52,7 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 ### 版本
 
-用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新；有实质功能变更时请在该处提高版本号。
+用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新。**合并进 `main` 的 PR 必须在同一 PR 内把 `[project].version` 的 patch +1**（见 [`AGENTS.md`](./AGENTS.md)）；勿依赖 CI。
 
 ### 最小冒烟（命令骨架）
 

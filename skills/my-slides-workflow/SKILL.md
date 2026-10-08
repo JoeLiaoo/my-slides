@@ -13,6 +13,10 @@ Projects without `units.json` need `my-slides init` before other commands.
 
 `slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
 
+## Repository version bump (when changing this package)
+
+If your PR merges code or docs into the **my-slides** repo `main`: bump `pyproject.toml` `[project].version` patch by +1 in that same PR before merge. `my-slides --version` must match. Do not rely on CI. Full rule: repo-root `AGENTS.md`.
+
 ## Working rules
 
 - Treat original project documents as read-only. The CLI scans Markdown sources; the agent reads them and edits only `my-slides/` outputs.

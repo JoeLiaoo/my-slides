@@ -1,0 +1,18 @@
+# Repository instructions for coding agents
+
+Read [README.md](./README.md) and [skills/my-slides-workflow/SKILL.md](./skills/my-slides-workflow/SKILL.md) before changing product behavior. This file applies to Cursor, Codex, Claude Code, and any other coding agent working in this repository.
+
+## Version bump (mandatory)
+
+**Every PR that merges meaningful code or docs into `main` MUST bump the patch version in `pyproject.toml` `[project].version` in that same PR** (e.g. `0.2.0` → `0.2.1`).
+
+- Do this **before merge**, in the same PR as the change. Do **not** rely on CI (this repo has no GitHub Actions version automation).
+- After the bump, `my-slides --version` (editable install) must match `pyproject.toml`.
+- Exception: a pure version-bump-only or chore PR that already bumped. If the PR has no user-visible change, still prefer bumping when anything lands on `main` so `--version` tracks freshness.
+- Minor/major bumps only when a human explicitly asks.
+
+## Contributing (brief)
+
+- Prefer topic branches and pull requests into `main`.
+- Run local tests (`./scripts/run-quick-tests.sh` or full suite); do not assume CI will catch misses.
+- Keep original investment project sources read-only; agents edit only `my-slides/` outputs inside user projects.
