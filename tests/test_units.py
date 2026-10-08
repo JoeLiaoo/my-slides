@@ -37,9 +37,12 @@ class UnitsFormatTests(unittest.TestCase):
         self.temp.cleanup()
 
     def init_v1(self):
-        init_project(
-            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1")
-        )
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        units = self.base / "units.json"
+        if units.exists():
+            units.unlink()
+        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
+
 
     def write_v2(self, units: list[Unit], *, reports: dict[str, str] | None = None):
         self.init_v1()
@@ -187,8 +190,8 @@ class UnitsFormatTests(unittest.TestCase):
             [sys.executable, "-m", "my_slides.cli", "units", "list", "--project", str(self.root), "--json"],
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
-        self.assertEqual(listed.returncode, 0, listed.stderr + listed.stdout)
-        self.assertEqual(json.loads(listed.stdout)["format_version"], "v1")
+        self.assertEqual(listed.returncode, 2, listed.stderr + listed.stdout)
+        self.assertIn("units.json", json.loads(listed.stdout).get("error", ""))
 
         chapter = self.chapters[0]
         (self.base / "specs" / f"{slug(chapter)}.md").write_text(

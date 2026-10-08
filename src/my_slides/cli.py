@@ -55,39 +55,23 @@ V2_UNSUPPORTED_CHAPTER_ACTIONS = frozenset({
     "slides check",
 })
 
-V1_DEPRECATION_MESSAGE = (
-    "警告：当前项目仍为 v1 章节格式，已进入弃用窗口。"
-    "请尽快运行 `my-slides migrate --to-units --dry-run` 预检，"
-    "确认后执行 `my-slides migrate --to-units` 迁移到 v2 单元格式；"
-    "可用 `my-slides migrate --rollback` 回滚。"
-    "窗口结束后将移除 v1 路径。"
-    "设置环境变量 MY_SLIDES_ALLOW_V1=1 可暂时静默此警告。"
+V1_UNSUPPORTED_MESSAGE = (
+    "当前项目没有 my-slides/units.json，已不再支持 v1 章节格式。"
+    "请用仍含迁移功能的版本运行 `my-slides migrate --to-units --dry-run` 预检后，"
+    "再执行 `my-slides migrate --to-units`；或从 `.state/migrate-backups/` 回滚后使用旧版工具。"
+    "新项目请重新 `my-slides init`（仅创建 v2）。"
 )
 
 
-def v1_warnings_silenced() -> bool:
-    """Return True when MY_SLIDES_ALLOW_V1 requests quiet v1 compatibility mode."""
-    return os.environ.get("MY_SLIDES_ALLOW_V1", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def annotate_v1_deprecation(base: Path, data: dict[str, Any], human: str) -> tuple[dict[str, Any], str]:
-    """Mark v1 projects as deprecated in JSON; optionally prepend a Chinese warning."""
-    if detect_format_version(base) != "v1":
-        annotated = dict(data)
-        annotated.setdefault("deprecated", False)
-        return annotated, human
-    annotated = dict(data)
-    annotated["deprecated"] = True
-    annotated["deprecation_warning"] = V1_DEPRECATION_MESSAGE
-    if not v1_warnings_silenced():
-        human = f"{V1_DEPRECATION_MESSAGE}\n{human}"
-    return annotated, human
+def require_v2_project(base: Path) -> None:
+    """Phase 9: daily workflow requires units.json. Migrate remains the escape hatch."""
+    if detect_format_version(base) != "v2":
+        raise ValueError(V1_UNSUPPORTED_MESSAGE)
 
 
 def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = False) -> None:
     """v2 projects reject chapter-wide approve/build unless a unit selector is used."""
-    if detect_format_version(base) != "v2":
-        return
+    require_v2_project(base)
     if action not in V2_UNSUPPORTED_CHAPTER_ACTIONS:
         return
     if unit_mode and action in {
@@ -101,10 +85,9 @@ def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = F
         "slides build",
         "slides check",
     }:
-        # Phase 4–6: per-unit report/spec/slides build/check paths are available.
         return
     raise ValueError(
-        f"当前项目为 v2 单元格式，暂不支持章节级命令：{action}。"
+        f"当前项目为 v2 单元格式，不支持章节级命令：{action}。"
         "请改用带 --unit / --changed / --all 的单元命令。"
     )
 
@@ -409,15 +392,9 @@ def init_project(args: argparse.Namespace) -> int:
     brand_color = existing.get("brand_color", "#A6192E")
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
         raise ValueError("project.yaml 的 brand_color 必须是 #RRGGBB 格式")
-    # Phase 8: new projects default to v2. Explicit --format v1 remains for the deprecation window.
-    format_choice = getattr(args, "format", None) or "v2"
-    if format_choice not in {"v1", "v2"}:
-        raise ValueError("format 只能是 v1 或 v2")
+    # Phase 9: only v2. Ignore legacy --format if still passed by older scripts.
     base.mkdir(parents=True, exist_ok=True)
-    folders = ["research", "wiki", "reports", "specs", "slides", ".state"]
-    if format_choice == "v1":
-        folders.append("slides/chapters")
-    for folder in folders:
+    for folder in ("research", "wiki", "reports", "specs", "slides", ".state"):
         (base / folder).mkdir(parents=True, exist_ok=True)
     wiki_readme = base / "wiki" / "README.md"
     if not wiki_readme.exists():
@@ -430,62 +407,52 @@ def init_project(args: argparse.Namespace) -> int:
     for folder, title in (("reports", "投资报告"), ("specs", "Presentation Specs"), ("slides", "HTML Slides")):
         readme = base / folder / "README.md"
         if not readme.exists():
-            if format_choice == "v2":
-                readme.write_text(
-                    f"# {title}\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n",
-                    encoding="utf-8",
-                )
-            else:
-                readme.write_text(f"# {title}\n\n由当前 agent 按项目 Wiki 和章节配置生成内容。\n", encoding="utf-8")
+            readme.write_text(
+                f"# {title}\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n",
+                encoding="utf-8",
+            )
     write_config(cfg_path, root, source_dirs, chapters, brand_color)
-    unit_ids: list[str] = []
-    if format_choice == "v2":
-        ensure_v2_directories(base)
-        seed = [
-            Unit(id="cover", chapter=chapters[0], role="cover"),
-            *[
-                Unit(
-                    id=f"{unit_id_prefix(chapter, fallback=f'chapter-{index:02d}')}-01",
-                    chapter=chapter,
-                    role="content",
-                )
-                for index, chapter in enumerate(chapters, start=1)
-            ],
-        ]
-        # Deduplicate IDs if prefix collision.
-        seen: set[str] = set()
-        unique: list[Unit] = []
-        for unit in seed:
-            unit_id = unit.id
-            suffix = 2
-            while unit_id in seen:
-                unit_id = f"{unit.id}-{suffix}"
-                suffix += 1
-            seen.add(unit_id)
-            unique.append(Unit(id=unit_id, chapter=unit.chapter, role=unit.role))
-        from .units import write_units_manifest
+    ensure_v2_directories(base)
+    seed = [
+        Unit(id="cover", chapter=chapters[0], role="cover"),
+        *[
+            Unit(
+                id=f"{unit_id_prefix(chapter, fallback=f'chapter-{index:02d}')}-01",
+                chapter=chapter,
+                role="content",
+            )
+            for index, chapter in enumerate(chapters, start=1)
+        ],
+    ]
+    seen: set[str] = set()
+    unique: list[Unit] = []
+    for unit in seed:
+        unit_id = unit.id
+        suffix = 2
+        while unit_id in seen:
+            unit_id = f"{unit.id}-{suffix}"
+            suffix += 1
+        seen.add(unit_id)
+        unique.append(Unit(id=unit_id, chapter=unit.chapter, role=unit.role))
+    from .units import write_units_manifest
 
-        write_units_manifest(base, unique)
-        unit_ids = [unit.id for unit in unique]
+    write_units_manifest(base, unique)
+    unit_ids = [unit.id for unit in unique]
     _, pending, removed = scan_sources(root, base, read_config(cfg_path))
     result = {
         "project": str(root),
         "workspace": str(base),
         "chapters": chapters,
-        "format_version": format_choice,
+        "format_version": "v2",
         "units": unit_ids,
         "pending_sources": pending,
         "removed_sources": removed,
-        "deprecated": format_choice == "v1",
+        "deprecated": False,
     }
-    human = f"已初始化项目工作区：{base}\n报告章节：{len(chapters)}\n待整理 Markdown：{len(pending)}"
-    if format_choice == "v2":
-        human += f"\n格式：v2（{len(unit_ids)} 个种子单元）"
-    else:
-        human += "\n格式：v1（已弃用；新项目请使用默认 v2 或省略 --format）"
-        if not v1_warnings_silenced():
-            human = f"{V1_DEPRECATION_MESSAGE}\n{human}"
-        result["deprecation_warning"] = V1_DEPRECATION_MESSAGE
+    human = (
+        f"已初始化项目工作区：{base}\n报告章节主题：{len(chapters)}\n"
+        f"格式：v2（{len(unit_ids)} 个种子单元）\n待整理 Markdown：{len(pending)}"
+    )
     emit(args, result, human)
     return 0
 
@@ -494,7 +461,9 @@ def prepare(args: argparse.Namespace) -> int:
     root = project_root(args.project)
     base, cfg = ensure_project(root)
     kind = args.kind
-    if detect_format_version(base) == "v2" and kind in {"report", "spec", "slides"} and v2_unit_mode(args):
+    if kind in {"report", "spec", "slides"}:
+        require_v2_project(base)
+        refuse_unsupported_v2_action(base, f"prepare {kind}", unit_mode=v2_unit_mode(args))
         units = resolve_unit_selection(
             base,
             cfg,
@@ -513,38 +482,15 @@ def prepare(args: argparse.Namespace) -> int:
         if kind == "report":
             snapshot_wiki(base, stamp)
         output = prepare_unit_handoff(base, root, units, kind, stamp=stamp)
-        data, human = annotate_v1_deprecation(
-            base,
-            {"task_file": str(output), "kind": kind, "units": [u.id for u in units]},
+        emit(
+            args,
+            {"task_file": str(output), "kind": kind, "units": [u.id for u in units], "deprecated": False},
             f"已生成单元交接材料：{output}",
         )
-        emit(args, data, human)
         return 0
-    if kind == "spec":
-        errors = validate_report(base, cfg)
-        if errors:
-            raise ValueError("请先完成所有报告章节：" + "；".join(errors))
-        if not approval_is_current(base, "report", cfg):
-            raise ValueError("请先审阅当前报告并运行 my-slides approve report")
-    if kind == "slides":
-        errors = validate_spec(base, cfg)
-        if errors:
-            raise ValueError("请先完成所有 Spec 章节：" + "；".join(errors))
-        if not approval_is_current(base, "report", cfg):
-            raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
-        if not approval_is_current(base, "spec", cfg):
-            raise ValueError("请先审阅当前 Spec 并运行 my-slides approve spec")
-    if kind == "report":
-        _, pending, removed = scan_sources(root, base, cfg)
-        if pending or removed:
-            raise ValueError("请先整理有变化或已移除的资料，并运行 my-slides sources mark-ingested")
-        wiki_errors = validate_wiki(base, cfg)
-        if wiki_errors:
-            raise ValueError("请先修复 Wiki 链接：" + "；".join(wiki_errors))
     out_dir = base / "work"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    wiki_snapshot = snapshot_wiki(base, stamp) if kind == "report" else None
     output = out_dir / f"{stamp}-{kind}.md"
     chapters = cfg.get("chapters", [])
     common = f"项目目录：{root}\n工作区：{base}\n章节顺序：" + "、".join(chapters)
@@ -577,69 +523,10 @@ def prepare(args: argparse.Namespace) -> int:
 
 原始资料保持只读。若资料之间存在口径冲突，在相关页面用自然语言记下差异和待核实问题。
 """
-    elif kind == "report":
-        body = f"""# 投资报告撰写任务
-
-{common}
-
-先从 wiki/index.md 按报告章节定位相关页面，阅读后按章节生成完整投资报告。章节与写作要点以项目配置和下方模板为准。资料以普通 Markdown 链接引用 Wiki 或原始资料。不得臆造事实；资料缺口、相互冲突的口径及预测假设请在相关章节说明。
-
-## 输出
-在 reports/ 下按章节 slug 创建独立 Markdown 文件，每章以一级标题写明章节名称。保留论证、证据、计算依据和必要限定条件，避免把模板中的每个要点压缩成一句话。
-
-Wiki 索引：wiki/index.md
-本次写作依据快照：{wiki_snapshot.relative_to(base).as_posix() if wiki_snapshot else ""}
-使用该快照核对撰写依据；报告引用仍链接回对应 Wiki 页面或原始资料。
-
-## 投资报告章节模板
-{report_template_text()}
-"""
-    elif kind == "spec":
-        body = f"""# Presentation Spec 生成任务
-
-{common}
-
-只根据已经确认的投资报告生成 Spec。逐章输出到 specs/，每页按以下 Markdown 结构编写，页面 ID 在全项目内唯一。全套第一张页面且仅此一张使用 `页面角色：cover`；其他页面使用 `页面角色：content`。封面应简洁呈现项目名称与投资汇报主题，不添加报告没有提供的信息。每个实质性报告段落至少映射到一张 content 页面：
-
-## Slide 1 — 页面标题
-页面 ID：chapter-slug-01
-页面角色：content
-### 目的
-### 核心结论
-### 展示内容
-### 证据与来源
-### 限定条件
-### 报告段落映射
-### 布局意图
-### 图标需求
-列出 Lucide kebab-case 图标名；不需要时写“无”。
-
-需要定量图表时，在相应页面加入一个或多个 `echarts-spec` JSON 围栏，使用受限图表类型 bar、dot、line、multi-line、scatter、time-scatter、stacked-bar 或 waterfall。示例：
-
-```echarts-spec
-{{"type":"bar","title":"收入","categories":["2024","2025"],"values":[10,14],"unit":"亿元","source":"../wiki/财务.md"}}
-```
-
-禁止缺失值、臆造数字或混用单位；图表来源应链接报告中引用的同一来源。保留报告论证与信息，不添加新事实。图表仅在数据支持且能改善理解时使用。
-"""
     else:
-        body = f"""# HTML Slides 生成任务
-
-{common}
-
-只根据已确认的 Presentation Spec，按章节生成 HTML Slides 页面片段，保存为 slides/chapters/章节 slug.html。使用统一 1920×1080、16:9 浅色专业 IC 风格，品牌色 {cfg.get("brand_color", "#A6192E")}。在设计画布尺寸下正文不小于 28px，辅助文字通常不小于 20px。页面包含逐页备注；数据图表使用受限 ECharts 数据标记，图标使用 Lucide 名称标记。使用本机安装的 bluedusk/html-slides skill 生成页面，不引入 CDN 资源。全套第一张页面是唯一封面，根元素需设置 `data-page-role="cover"`；其余页面设置 `data-page-role="content"`，顺序与 Spec 一致。
-
-每个 section class=slide 内必须包含一条 application/json 的 slide-notes 脚本，内容为 JSON 对象。数据图表以 application/json 的 mls-echarts-spec 标记嵌入，图标以 mls-lucide-spec 标记嵌入；CLI 会将它们渲染成内联 SVG。图表只使用 bar、dot、line、multi-line、scatter、time-scatter、stacked-bar、waterfall 类型；所有数值必须明确给出，单位必须一致。图表数据格式为 categories + values，或 categories + series，散点用 points。图标 JSON 至少包含 name 字段，名称使用 Lucide kebab-case。每章 CSS 规则置于 style 元素，并将选择器限制在该章节根节点下。
-
-生成各章后运行 my-slides slides build 合并成可离线打开的 HTML，再用 my-slides slides check --browser 检查桌面和手机视口。
-"""
+        raise ValueError(f"未知 prepare 类型：{kind}")
     output.write_text(body, encoding="utf-8")
-    data, human = annotate_v1_deprecation(
-        base,
-        {"task_file": str(output), "kind": kind},
-        f"已生成交接材料：{output}",
-    )
-    emit(args, data, human)
+    emit(args, {"task_file": str(output), "kind": kind, "deprecated": False}, f"已生成交接材料：{output}")
     return 0
 
 
@@ -1641,18 +1528,12 @@ def install_agent_workflow(root: Path) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="my-slides", description="投资项目 Wiki、报告与 HTML Slides 本地工作流")
-    parser.add_argument("--version", action="version", version="my-slides 0.1.0")
+    parser.add_argument("--version", action="version", version="my-slides 0.2.0")
     sub = parser.add_subparsers(dest="command", required=True)
-    init = sub.add_parser("init", help="初始化投资项目工作区")
+    init = sub.add_parser("init", help="初始化 v2 单元格式投资项目工作区")
     init.add_argument("--project", help="项目目录，默认当前目录")
     init.add_argument("--source-dir", action="append", help="资料目录（相对项目目录，可重复指定）")
     init.add_argument("--force", action="store_true", help="补全基础文件并重写项目配置")
-    init.add_argument(
-        "--format",
-        choices=("v1", "v2"),
-        default="v2",
-        help="v2=单元格式（默认，创建 units.json）；v1=章节格式（已弃用，仅兼容窗口）",
-    )
     init.add_argument("--json", action="store_true")
     sources = sub.add_parser("sources", help="扫描或确认资料")
     source_sub = sources.add_subparsers(dest="sources_command", required=True)
@@ -1767,9 +1648,13 @@ def main() -> None:
             base, cfg = ensure_project(root)
             format_version = detect_format_version(base)
             if args.command == "prepare":
-                refuse_unsupported_v2_action(base, f"prepare {args.kind}", unit_mode=v2_unit_mode(args))
+                if args.kind == "wiki":
+                    require_v2_project(base)
+                else:
+                    refuse_unsupported_v2_action(base, f"prepare {args.kind}", unit_mode=v2_unit_mode(args))
                 code = prepare(args)
             elif args.command == "sources":
+                require_v2_project(base)
                 state, pending, removed = scan_sources(root, base, cfg)
                 if args.sources_command == "mark-ingested":
                     selected = args.paths or (pending + removed)
@@ -1788,8 +1673,18 @@ def main() -> None:
                 emit(args, data, human)
                 code = 0
             elif args.command == "validate":
-                refuse_unsupported_v2_action(base, f"validate {args.kind}", unit_mode=v2_unit_mode(args))
-                if format_version == "v2" and args.kind in {"report", "spec"} and v2_unit_mode(args):
+                if args.kind == "wiki":
+                    require_v2_project(base)
+                    errors = validate_wiki(base, cfg)
+                    emit(
+                        args,
+                        {"valid": not errors, "errors": errors},
+                        "检查通过。" if not errors else "检查未通过：\n" + "\n".join(f"- {e}" for e in errors),
+                        error=bool(errors),
+                    )
+                    code = 1 if errors else 0
+                else:
+                    refuse_unsupported_v2_action(base, f"validate {args.kind}", unit_mode=v2_unit_mode(args))
                     units = resolve_unit_selection(
                         base,
                         cfg,
@@ -1797,7 +1692,7 @@ def main() -> None:
                         changed=bool(getattr(args, "changed", False)),
                         all_units=bool(getattr(args, "all_units", False)),
                     )
-                    errors: list[str] = []
+                    errors = []
                     for unit in units:
                         errors.extend(
                             validate_unit_report(base, unit) if args.kind == "report" else validate_unit_spec(base, unit)
@@ -1809,66 +1704,43 @@ def main() -> None:
                         error=bool(errors),
                     )
                     code = 1 if errors else 0
-                else:
-                    checkers = {
-                        "wiki": lambda: validate_wiki(base, cfg),
-                        "report": lambda: validate_report(base, cfg),
-                        "spec": lambda: validate_spec(base, cfg),
-                    }
-                    errors = checkers[args.kind]()
-                    emit(args, {"valid": not errors, "errors": errors},
-                         "检查通过。" if not errors else "检查未通过：\n" + "\n".join(f"- {e}" for e in errors),
-                         error=bool(errors))
-                    code = 1 if errors else 0
             elif args.command == "approve":
                 refuse_unsupported_v2_action(base, f"approve {args.kind}", unit_mode=v2_unit_mode(args))
-                if format_version == "v2" and v2_unit_mode(args):
-                    units = resolve_unit_selection(
-                        base,
-                        cfg,
-                        unit_ids=getattr(args, "units", None),
-                        changed=bool(getattr(args, "changed", False)),
-                        all_units=bool(getattr(args, "all_units", False)),
-                    )
-                    approved: list[dict[str, Any]] = []
-                    stamp = now()
-                    for unit in units:
-                        if args.kind == "report":
-                            state = approve_unit_report(base, unit, when=stamp, project_root=root)
-                        else:
-                            state = approve_unit_spec(base, unit, when=stamp, project_root=root)
-                        approved.append({"id": unit.id, "sha256": state[args.kind]["approved_sha256"]})
-                    assembled = None
-                    assemble_errors: list[str] = []
+                units = resolve_unit_selection(
+                    base,
+                    cfg,
+                    unit_ids=getattr(args, "units", None),
+                    changed=bool(getattr(args, "changed", False)),
+                    all_units=bool(getattr(args, "all_units", False)),
+                )
+                approved = []
+                stamp = now()
+                for unit in units:
                     if args.kind == "report":
-                        assembled, assemble_errors = assemble_after_report_approvals(base)
-                    emit(
-                        args,
-                        {
-                            "approved": True,
-                            "kind": args.kind,
-                            "units": approved,
-                            "assembled_report": assembled is not None and not assemble_errors,
-                            "assemble_errors": assemble_errors,
-                        },
-                        f"已批准 {len(approved)} 个单元的 {args.kind}"
-                        + ("" if not assemble_errors else "；组装报告失败：" + "；".join(assemble_errors)),
-                        error=bool(assemble_errors),
-                    )
-                    code = 1 if assemble_errors else 0
-                else:
-                    digest, errors = approve_revision(base, cfg, args.kind)
-                    if errors:
-                        emit(args, {"approved": False, "errors": errors},
-                             "无法批准：\n" + "\n".join(f"- {e}" for e in errors), error=True)
-                        code = 1
+                        state = approve_unit_report(base, unit, when=stamp, project_root=root)
                     else:
-                        emit(args, {"approved": True, "kind": args.kind, "sha256": digest},
-                             f"已记录 {args.kind} 批准版本：{digest[:12] if digest else ''}")
-                        code = 0
+                        state = approve_unit_spec(base, unit, when=stamp, project_root=root)
+                    approved.append({"id": unit.id, "sha256": state[args.kind]["approved_sha256"]})
+                assembled = None
+                assemble_errors: list[str] = []
+                if args.kind == "report":
+                    assembled, assemble_errors = assemble_after_report_approvals(base)
+                emit(
+                    args,
+                    {
+                        "approved": True,
+                        "kind": args.kind,
+                        "units": approved,
+                        "assembled_report": assembled is not None and not assemble_errors,
+                        "assemble_errors": assemble_errors,
+                    },
+                    f"已批准 {len(approved)} 个单元的 {args.kind}"
+                    + ("" if not assemble_errors else "；组装报告失败：" + "；".join(assemble_errors)),
+                    error=bool(assemble_errors),
+                )
+                code = 1 if assemble_errors else 0
             elif args.command == "assemble":
-                if format_version != "v2":
-                    raise ValueError("assemble 仅适用于 v2 单元项目（存在 units.json）")
+                require_v2_project(base)
                 document, errors = assemble_after_report_approvals(base)
                 emit(
                     args,
@@ -1885,69 +1757,35 @@ def main() -> None:
                 browser_result = None
                 output: Path | None = None
                 errors: list[str] = []
-                if format_version == "v2":
-                    if not v2_unit_mode(args):
-                        raise ValueError("v2 项目请使用 my-slides slides build|check --unit/--changed/--all")
-                    selected = resolve_unit_selection(
+                selected = resolve_unit_selection(
+                    base,
+                    cfg,
+                    unit_ids=getattr(args, "units", None),
+                    changed=bool(getattr(args, "changed", False)),
+                    all_units=bool(getattr(args, "all_units", False)),
+                )
+                selected_ids = [unit.id for unit in selected]
+                if args.slides_command == "build":
+                    from .assembly import build_units_deck
+
+                    output, errors, plan = build_units_deck(
                         base,
                         cfg,
                         unit_ids=getattr(args, "units", None),
                         changed=bool(getattr(args, "changed", False)),
                         all_units=bool(getattr(args, "all_units", False)),
+                        write=True,
                     )
-                    selected_ids = [unit.id for unit in selected]
-                    if args.slides_command == "build":
-                        from .assembly import build_units_deck
-
-                        output, errors, plan = build_units_deck(
-                            base,
-                            cfg,
-                            unit_ids=getattr(args, "units", None),
-                            changed=bool(getattr(args, "changed", False)),
-                            all_units=bool(getattr(args, "all_units", False)),
-                            write=True,
-                        )
-                    else:
-                        output = base / "slides" / "index.html"
-                        from .browser import check_units_on_deck
-
-                        check_result = check_units_on_deck(
-                            base, output, selected_ids, browser=bool(args.browser)
-                        )
-                        errors = list(check_result["errors"])
-                        browser_result = check_result.get("browser")
-                        plan = {"selected_units": selected_ids, "measured": bool(args.browser)}
                 else:
-                    if not approval_is_current(base, "report", cfg):
-                        raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
-                    if not approval_is_current(base, "spec", cfg):
-                        raise ValueError("当前 Spec 版本需要重新审阅，请运行 my-slides approve spec")
-                    output, errors = build_slides(base, cfg, write=args.slides_command == "build")
-                    if args.browser and not errors and output and (args.slides_command == "build" or output.exists()):
-                        from .browser import check_deck
-                        browser_result = check_deck(output)
-                        errors.extend(browser_result["errors"])
-                    if args.slides_command == "check" and not errors:
-                        if not output or not output.exists():
-                            errors.append("缺少 slides/index.html；请先运行 my-slides slides build")
-                        else:
-                            generated = output.read_text(encoding="utf-8")
-                            if '<meta name="generator" content="my-slides">' not in generated:
-                                errors.append("slides/index.html 缺少生成器标记")
-                            if generated.count('class="slide ') + generated.count('class="slide"') < len(cfg.get("chapters", [])):
-                                errors.append("合并后的演示文稿页面数量异常")
-                            state_path = base / ".state" / "slides.json"
-                            if not state_path.exists():
-                                errors.append("缺少 Slides 构建状态；请重新运行 my-slides slides build")
-                            else:
-                                state = json.loads(state_path.read_text(encoding="utf-8"))
-                                output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
-                                if state.get("html_sha256") != output_hash:
-                                    errors.append("slides/index.html 在构建后已被修改")
-                                if state.get("report_sha256") != approval_digest(base, "report", cfg):
-                                    errors.append("Slides 所依据的报告版本与当前批准版本不一致")
-                                if state.get("spec_sha256") != approval_digest(base, "spec", cfg):
-                                    errors.append("Slides 所依据的 Spec 版本与当前批准版本不一致")
+                    output = base / "slides" / "index.html"
+                    from .browser import check_units_on_deck
+
+                    check_result = check_units_on_deck(
+                        base, output, selected_ids, browser=bool(args.browser)
+                    )
+                    errors = list(check_result["errors"])
+                    browser_result = check_result.get("browser")
+                    plan = {"selected_units": selected_ids, "measured": bool(args.browser)}
                 data = {
                     "valid": not errors,
                     "output": str(output) if output else None,
@@ -1963,19 +1801,17 @@ def main() -> None:
                 emit(args, data, human, error=bool(errors))
                 code = 1 if errors else 0
             elif args.command == "units":
+                require_v2_project(base)
                 data = list_units_status(base, cfg.get("chapters", []))
-                if data["format_version"] == "v1":
-                    human = data["message"]
-                else:
-                    human = (
-                        f"格式：v2\n单元数：{len(data['units'])}\n"
-                        f"缺失产物：{len(data['missing'])}"
+                human = (
+                    f"格式：v2\n单元数：{len(data['units'])}\n"
+                    f"缺失产物：{len(data['missing'])}"
+                )
+                if data["missing"]:
+                    human += "\n" + "\n".join(
+                        f"- {item['id']} 缺少 {item['artifact']}（{item['path']}）"
+                        for item in data["missing"]
                     )
-                    if data["missing"]:
-                        human += "\n" + "\n".join(
-                            f"- {item['id']} 缺少 {item['artifact']}（{item['path']}）"
-                            for item in data["missing"]
-                        )
                 emit(args, data, human, error=bool(data.get("missing")))
                 code = 1 if data.get("missing") else 0
             elif args.command == "migrate":
@@ -2027,35 +1863,53 @@ def main() -> None:
                     except UnitsError as exc:
                         unit_errors.append(str(exc))
                         missing.append("units.json（无效）")
+                else:
+                    missing.append("units.json")
+                    unit_errors.append(V1_UNSUPPORTED_MESSAGE)
                 renderer = renderer_status()
                 browser = browser_status()
-                ok = not missing and not unit_errors and not slug_errors
-                doctor_data, doctor_human = annotate_v1_deprecation(
-                    base,
-                    {
-                        "ok": ok,
-                        "workspace": str(base),
-                        "format_version": format_version,
-                        "missing": missing,
-                        "unit_errors": unit_errors,
-                        "slug_errors": slug_errors,
-                        "renderer": renderer,
-                        "browser": browser,
-                    },
-                    "工作区结构完整。" if ok else "缺少：" + ", ".join(missing + unit_errors + slug_errors),
-                )
+                ok = format_version == "v2" and not missing and not unit_errors and not slug_errors
+                doctor_data = {
+                    "ok": ok,
+                    "workspace": str(base),
+                    "format_version": format_version,
+                    "deprecated": format_version == "v1",
+                    "missing": missing,
+                    "unit_errors": unit_errors,
+                    "slug_errors": slug_errors,
+                    "renderer": renderer,
+                    "browser": browser,
+                }
+                if format_version == "v1":
+                    doctor_data["deprecation_warning"] = V1_UNSUPPORTED_MESSAGE
+                    doctor_human = V1_UNSUPPORTED_MESSAGE
+                else:
+                    doctor_human = "工作区结构完整。" if ok else "缺少：" + ", ".join(missing + unit_errors + slug_errors)
                 emit(args, doctor_data, doctor_human, error=not ok)
                 code = 0 if ok else 1
             else:
-                _, pending, removed = scan_sources(root, base, cfg)
-                if format_version == "v2":
+                # status
+                if format_version != "v2":
+                    data = {
+                        "project": str(root),
+                        "format_version": "v1",
+                        "deprecated": True,
+                        "deprecation_warning": V1_UNSUPPORTED_MESSAGE,
+                        "pending_sources": [],
+                        "removed_sources": [],
+                        "approvals": {},
+                        "slides": {"supported": False, "built": False, "current": False},
+                    }
+                    emit(args, data, V1_UNSUPPORTED_MESSAGE, error=True)
+                    code = 1
+                else:
+                    _, pending, removed = scan_sources(root, base, cfg)
                     unit_status = collect_units_status(
                         base,
                         selected=getattr(args, "units", None),
                         chapters=cfg.get("chapters", []),
                         project_root=root,
                     )
-                    # Unit-level report/spec/slides paths are live (phases 4–6).
                     approval_status = {
                         "report": {
                             "supported": True,
@@ -2082,49 +1936,24 @@ def main() -> None:
                         f"阻塞：{len(unit_status['blocked_units'])}\n"
                         "提示：用 --json 查看各单元批准/构建/检查状态"
                     )
-                else:
-                    if getattr(args, "units", None):
-                        raise ValueError("当前项目为 v1 章节格式，不支持 --unit；请先迁移或去掉该参数")
-                    approvals_path = base / ".state" / "approvals.json"
-                    approvals = json.loads(approvals_path.read_text(encoding="utf-8")) if approvals_path.exists() else {}
-                    approval_status = {
-                        kind: {"supported": True, "approved": item, "current": approval_is_current(base, kind, cfg)}
-                        for kind, item in approvals.items()
+                    data = {
+                        "project": str(root),
+                        "format_version": "v2",
+                        "deprecated": False,
+                        "pending_sources": pending,
+                        "removed_sources": removed,
+                        "approvals": approval_status,
+                        "slides": slide_status,
+                        "selected_units": unit_status["selected_units"],
+                        "affected_units": unit_status["affected_units"],
+                        "reused_units": unit_status["reused_units"],
+                        "blocked_units": unit_status["blocked_units"],
+                        "reasons": unit_status["reasons"],
+                        "units": unit_status["units"],
+                        "dependency_graph": unit_status["dependency_graph"],
                     }
-                    slide_status = {
-                        "supported": True,
-                        "built": (base / "slides" / "index.html").exists(),
-                        "current": slides_is_current(base, cfg),
-                    }
-                    human = (
-                        f"项目：{root}\n格式：v1（已弃用）\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
-                        f"报告已审阅且未变化：{'是' if approval_status.get('report', {}).get('current') else '否'}\n"
-                        f"Spec 已审阅且未变化：{'是' if approval_status.get('spec', {}).get('current') else '否'}\n"
-                        f"Slides 与当前批准版本一致：{'是' if slide_status['current'] else '否'}"
-                    )
-                data = {
-                    "project": str(root),
-                    "format_version": format_version,
-                    "pending_sources": pending,
-                    "removed_sources": removed,
-                    "approvals": approval_status,
-                    "slides": slide_status,
-                }
-                if format_version == "v2":
-                    data.update(
-                        {
-                            "selected_units": unit_status["selected_units"],
-                            "affected_units": unit_status["affected_units"],
-                            "reused_units": unit_status["reused_units"],
-                            "blocked_units": unit_status["blocked_units"],
-                            "reasons": unit_status["reasons"],
-                            "units": unit_status["units"],
-                            "dependency_graph": unit_status["dependency_graph"],
-                        }
-                    )
-                data, human = annotate_v1_deprecation(base, data, human)
-                emit(args, data, human)
-                code = 0
+                    emit(args, data, human)
+                    code = 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError, UnitsError) as exc:
         message = str(exc)
         if getattr(args, "json", False):

@@ -51,10 +51,15 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.temp.cleanup()
 
     def init(self):
-        # Phase 8 keeps v1 fixtures for the deprecation window; pass format explicitly.
-        init_project(
-            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1")
-        )
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+
+    def demote_to_legacy_chapters(self):
+        """Remove units.json so chapter-library helpers behave as pre-v2 fixtures."""
+        units = self.base / "units.json"
+        if units.exists():
+            units.unlink()
+        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
+
 
     @staticmethod
     def spec_page(chapter, role="content", number=1):
@@ -134,19 +139,23 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_report_prepare_captures_a_wiki_content_snapshot(self):
         self.init()
-        args = argparse.Namespace(project=str(self.root), kind="report", question=None, json=False)
+        args = argparse.Namespace(
+            project=str(self.root), kind="report", question=None, json=False,
+            units=["cover"], changed=False, all_units=False,
+        )
         self.assertEqual(prepare(args), 0)
         snapshots = list((self.base / ".state" / "snapshots" / "wiki").glob("*/manifest.json"))
         self.assertEqual(len(snapshots), 1)
         manifest = json.loads(snapshots[0].read_text(encoding="utf-8"))
         self.assertIn("index.md", {item["path"] for item in manifest["files"]})
-        task = next((self.base / "work").glob("*-report.md")).read_text(encoding="utf-8")
-        self.assertIn(".state/snapshots/wiki/", task)
+        task = next((self.base / "work").glob("*-report-units.md")).read_text(encoding="utf-8")
+        self.assertIn("cover", task)
 
     def test_source_change_invalidates_approved_report(self):
         source = self.root / "source.md"
         source.write_text("Initial facts.", encoding="utf-8")
         self.init()
+        self.demote_to_legacy_chapters()
         _, pending, _ = scan_sources(self.root, self.base, {"source_dirs": ["."]})
         self.assertEqual(mark_ingested(self.base, pending), 1)
         for chapter in self.cfg["chapters"]:
@@ -161,6 +170,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_report_revision_invalidates_spec_approval(self):
         self.init()
+        self.demote_to_legacy_chapters()
         for chapter in self.cfg["chapters"]:
             (self.base / "reports" / f"{slug(chapter)}.md").write_text(
                 f"# {chapter}\n\n" + "Evidence-backed report text. " * 4, encoding="utf-8"
@@ -185,6 +195,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_spec_requires_one_opening_cover_and_project_unique_page_ids(self):
         self.init()
+        self.demote_to_legacy_chapters()
         for chapter in self.cfg["chapters"]:
             role = "cover" if chapter == self.cfg["chapters"][0] else "content"
             (self.base / "specs" / f"{slug(chapter)}.md").write_text(self.spec_page(chapter, role), encoding="utf-8")
@@ -200,6 +211,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slide_build_requires_valid_notes(self):
         self.init()
+        self.demote_to_legacy_chapters()
         # A one-chapter configuration keeps this test focused on the HTML contract.
         cfg = {"project": "Demo", "chapters": [self.cfg["chapters"][0]]}
         fragment = self.base / "slides" / "chapters" / f"{slug(cfg['chapters'][0])}.html"
@@ -227,6 +239,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slides_chart_data_must_match_spec_exactly(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         spec = {"type": "bar", "categories": ["2024", "2025"], "values": [10, 14], "unit": "亿元"}
@@ -277,6 +290,7 @@ class ProjectWorkflowTests(unittest.TestCase):
     @unittest.skipUnless(browser_status()["chromium_installed"], "optional Playwright Chromium browser is not installed")
     def test_full_chart_icon_slide_build_is_offline_and_archives_rebuilds(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         report = self.base / "reports" / f"{slug(chapter)}.md"
@@ -323,10 +337,10 @@ class ProjectWorkflowTests(unittest.TestCase):
         sources.mkdir()
         (sources / "metrics.md").write_text("# Synthetic metrics\nRevenue: 10, 14, 19. Margin: 20%, 22%, 24%.\n", encoding="utf-8")
         init_project(
-            argparse.Namespace(
-                project=str(self.root), source_dir=["sources"], force=False, json=False, format="v1"
-            )
+            argparse.Namespace(project=str(self.root), source_dir=["sources"], force=False, json=False)
         )
+        self.demote_to_legacy_chapters()
+
         wiki_page = self.base / "wiki" / "company.md"
         wiki_page.write_text("# Synthetic company\n\nRevenue and margin trend [from the synthetic source](../../sources/metrics.md).\n", encoding="utf-8")
         index = self.base / "wiki" / "index.md"
@@ -335,7 +349,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         _, pending, removed = scan_sources(self.root, self.base, {"source_dirs": ["sources"]})
         self.assertEqual(pending, ["sources/metrics.md"])
         self.assertEqual(mark_ingested(self.base, pending), 1)
-        self.assertEqual(prepare(argparse.Namespace(project=str(self.root), kind="report", question=None, json=False)), 0)
+        # Library-level chapter merge fixture (CLI daily path is v2-only after Phase 9).
 
         finance_chapter = "财务分析与回报分析"
         chart = {"type": "line", "title": "Revenue trend", "categories": ["2024", "2025", "2026"], "values": [10, 14, 19], "unit": "亿元", "source": "../../sources/metrics.md"}
@@ -355,11 +369,9 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(validate_report(self.base, self.cfg), [])
         _, errors = approve_revision(self.base, self.cfg, "report")
         self.assertEqual(errors, [])
-        self.assertEqual(prepare(argparse.Namespace(project=str(self.root), kind="spec", question=None, json=False)), 0)
         self.assertEqual(validate_spec(self.base, self.cfg), [])
         _, errors = approve_revision(self.base, self.cfg, "spec")
         self.assertEqual(errors, [])
-        self.assertEqual(prepare(argparse.Namespace(project=str(self.root), kind="slides", question=None, json=False)), 0)
 
         for chapter in self.cfg["chapters"]:
             fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
@@ -382,12 +394,6 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertTrue(slides_is_current(self.base, self.cfg), diagnostics)
         browser_result = check_deck(output)
         self.assertTrue(browser_result["valid"], browser_result)
-        command = subprocess.run(
-            [sys.executable, "-m", "my_slides.cli", "slides", "check", "--browser", "--project", str(self.root), "--json"],
-            capture_output=True, text=True, encoding="utf-8", env=os.environ.copy(),
-        )
-        self.assertEqual(command.returncode, 0, command.stderr + command.stdout)
-        self.assertTrue(json.loads(command.stdout)["valid"])
 
     def _notes(self, title="Demo"):
         return (
@@ -397,6 +403,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slide_security_rejects_javascript_entity_bypass(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
@@ -409,6 +416,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slide_security_rejects_form_action_javascript(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
@@ -421,6 +429,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slide_security_rejects_meta_refresh_and_external_media(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
@@ -445,6 +454,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_slide_merge_preserves_active_in_body_text(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
@@ -463,6 +473,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_v1_report_accepts_percent_encoded_local_links(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         report = self.base / "reports" / f"{slug(chapter)}.md"
         wiki_notes = self.base / "wiki" / "my notes.md"
@@ -477,6 +488,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_css_scope_escape_is_rejected(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
@@ -492,6 +504,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_marker_substring_class_does_not_crash_build(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter]}
         # slide-notes class contains substring that previously confused the replace regex.
@@ -507,6 +520,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_report_accepts_footnotes_and_titled_links(self):
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         wiki = self.base / "wiki" / "a.md"
         wiki.write_text("# Company\n", encoding="utf-8")
@@ -536,6 +550,7 @@ class ProjectWorkflowTests(unittest.TestCase):
             {"trending-up"},
         )
         self.init()
+        self.demote_to_legacy_chapters()
         chapter = self.cfg["chapters"][0]
         cfg = {"project": "Demo", "chapters": [chapter], "brand_color": "#A6192E"}
         (self.base / "specs" / f"{slug(chapter)}.md").write_text(
@@ -654,51 +669,30 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(payload["format_version"], "v2")
         self.assertFalse(payload.get("deprecated"))
 
-    def test_v1_status_and_doctor_mark_deprecated(self):
+    def test_legacy_project_without_units_is_refused(self):
         self.init()
+        self.demote_to_legacy_chapters()
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
-        env.pop("MY_SLIDES_ALLOW_V1", None)
-        for command in ("status", "doctor"):
-            result = subprocess.run(
-                [sys.executable, "-m", "my_slides.cli", command, "--project", str(self.root), "--json"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                env=env,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            payload = json.loads(result.stdout)
-            self.assertTrue(payload["deprecated"], command)
-            self.assertIn("弃用", payload["deprecation_warning"])
-            # Human path also warns unless silenced.
-            human = subprocess.run(
-                [sys.executable, "-m", "my_slides.cli", command, "--project", str(self.root)],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                env=env,
-            )
-            self.assertIn("弃用", human.stdout)
-        quiet_env = {**env, "MY_SLIDES_ALLOW_V1": "1"}
-        quiet = subprocess.run(
-            [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=quiet_env,
-        )
-        self.assertEqual(quiet.returncode, 0)
-        self.assertNotIn("MY_SLIDES_ALLOW_V1", quiet.stdout)
-        self.assertNotIn("警告：当前项目仍为 v1", quiet.stdout)
-        quiet_json = subprocess.run(
+        status = subprocess.run(
             [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root), "--json"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=quiet_env,
+            capture_output=True, text=True, encoding="utf-8", env=env,
         )
-        payload = json.loads(quiet_json.stdout)
+        self.assertEqual(status.returncode, 1)
+        payload = json.loads(status.stdout)
         self.assertTrue(payload["deprecated"])
+        self.assertIn("units.json", payload["deprecation_warning"])
+        refused = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "prepare", "report", "--project", str(self.root), "--json"],
+            capture_output=True, text=True, encoding="utf-8", env=env,
+        )
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("units.json", json.loads(refused.stdout).get("error", ""))
+        doctor = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "doctor", "--project", str(self.root), "--json"],
+            capture_output=True, text=True, encoding="utf-8", env=env,
+        )
+        self.assertEqual(doctor.returncode, 1)
+        self.assertFalse(json.loads(doctor.stdout)["ok"])
 
 
 if __name__ == "__main__":

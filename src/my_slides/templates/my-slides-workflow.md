@@ -9,7 +9,7 @@ Use this skill when working inside an investment project that contains `my-slide
 
 **Prefer v2.** New projects from `my-slides init` are v2 (`units.json` + unit directories). If `my-slides/units.json` exists, run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
 
-**v1 chapter projects** (no `units.json`) still work during the deprecation window but print a migration warning. Plan to run `my-slides migrate --to-units --dry-run`, then `my-slides migrate --to-units`. Do not start new work on v1.
+Projects without `units.json` are unsupported for daily commands. Run `my-slides migrate --to-units` (or re-`init`) before continuing.
 
 ## Working rules
 
@@ -26,10 +26,6 @@ Use this skill when working inside an investment project that contains `my-slide
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → user review → `approve report --unit <id>`. Optionally `assemble`.
 3. `prepare spec --unit <id>` → write one-page Spec in `specs/units/<id>.md` (page ID = unit ID) → validate → user review → `approve spec --unit <id>`.
 4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` → `slides build --unit <id>` → `slides check --unit <id> --browser`.
-
-## v1 compatibility (deprecated)
-
-Chapter-wide `prepare` / `approve` / `slides build` without unit selectors remain for projects without `units.json`. Set `MY_SLIDES_ALLOW_V1=1` to silence warnings. Migrate before the window closes.
 
 ## Useful commands
 

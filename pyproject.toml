@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "my-slides"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local agent workflow for investment project wikis, reports, and HTML slides"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,4 +24,5 @@ include-package-data = true
 where = ["src"]
 
 [tool.setuptools.package-data]
-my_slides = ["templates/*.md", "renderer/*.mjs", "renderer/*.json", "skills/my-slides-workflow/*.md"]
+# Skill text ships as templates/my-slides-workflow.md (single source copied from skills/).
+my_slides = ["templates/*.md", "renderer/*.mjs", "renderer/*.json"]
