@@ -128,11 +128,9 @@
 
 目标：一个报告内容单元 ↔ 一个 Presentation Spec 单元 ↔ 一张 HTML Slide，支持局部审批、增量构建与检查。
 
-**已实现（截至弃用窗口／阶段 8）**：`units.json` 读取校验、依赖与状态、按单元 prepare/validate/approve、报告组装、增量 slides build/check、正式 `migrate --to-units`（备份／回滚）、`init` 默认 v2、v1 弃用警告。
+**已实现（v2 全面切换／阶段 10）**：`units.json` 与单元目录为唯一日常路径；按单元 prepare/validate/approve、组装、增量 build/check、`migrate --to-units`（备份／回滚）；无 `units.json` 时 CLI 拒绝并提示迁移；本地 `scripts/run-full-tests.sh` 做完整回归（**不用 GitHub Actions**）。
 
-**计划中（尚未作为交付承诺）**：目录页自动生成、每章独立预览入口的产品化包装、报告段落覆盖率仪表盘、Wiki 产品大升级、文档转换流水线。
-
-**即将移除**：v1 章节主路径（`slides/chapters/` 整章合并、无 `units.json` 的章节级批准）将在阶段 9 删除；请在迁移窗口内完成 `migrate --to-units`。
+**计划中（尚未作为交付承诺，P3-4）**：目录页自动生成、每章独立预览入口的产品化包装、报告段落覆盖率仪表盘、Wiki 产品大升级、文档转换流水线。
 
 ## 验收标准
 

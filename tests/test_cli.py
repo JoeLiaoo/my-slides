@@ -40,6 +40,15 @@ from my_slides.cli import (
 from my_slides.units import resolve_local_markdown_path
 
 
+def require_optional(ready: bool, reason: str) -> None:
+    """Skip optional deps unless MY_SLIDES_FULL_TESTS=1, then fail instead."""
+    if ready:
+        return
+    if os.environ.get("MY_SLIDES_FULL_TESTS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise AssertionError(f"完整测试要求已安装依赖，但：{reason}")
+    raise unittest.SkipTest(reason)
+
+
 class ProjectWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
