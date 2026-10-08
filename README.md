@@ -59,12 +59,21 @@ my-slides migrate --rollback --project <路径>
 
 ## 测试
 
+本仓库**没有 GitHub Actions**。请在本地跑：
+
+```bash
+# 快速（缺渲染器/浏览器时相关用例会 skip）
+./scripts/run-quick-tests.sh
+
+# 完整门禁：安装渲染器 + Chromium，缺依赖则失败
+./scripts/run-full-tests.sh
+```
+
+Windows PowerShell 快速跑：
+
 ```powershell
 $env:PYTHONPATH = "src"
-$env:MY_SLIDES_RENDERER_HOME = Join-Path $env:LOCALAPPDATA "MySlides\renderer"
 python -m unittest discover -s tests -v
 ```
 
-完整本地验收（含可选渲染器／浏览器）见 `scripts/run-full-tests.sh`（阶段 10）。
-
-实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)。
+说明见 [`docs/testing.md`](docs/testing.md)。实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)。

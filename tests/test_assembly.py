@@ -82,6 +82,27 @@ class AssemblyTests(unittest.TestCase):
         self.assertTrue(errors)
         self.assertEqual((self.base / "slides" / "index.html").read_text(encoding="utf-8"), prior)
 
+    def test_incremental_unit_build_matches_full_rebuild(self):
+        """Same inputs: --unit incremental assemble equals --all (content parity)."""
+        self._seed()
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        full, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        full_html = full.read_text(encoding="utf-8")
+        # Touch one page and rebuild only that unit, then rebuild all again.
+        page = unit_paths(self.base, "summary-01").page
+        page.write_text(page.read_text(encoding="utf-8").replace("<h1>summary-01</h1>", "<h1>summary-01 revised</h1>"), encoding="utf-8")
+        inc, errors, plan = build_units_deck(self.base, cfg, unit_ids=["summary-01"], write=True)
+        self.assertEqual(errors, [])
+        self.assertIn("summary-01", plan["rebuild"])
+        after_inc = inc.read_text(encoding="utf-8")
+        again, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        after_all = again.read_text(encoding="utf-8")
+        self.assertEqual(after_inc, after_all)
+        self.assertIn("summary-01 revised", after_all)
+        self.assertNotEqual(full_html, after_all)
+
 
 if __name__ == "__main__":
     unittest.main()
