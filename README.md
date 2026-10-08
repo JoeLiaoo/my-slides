@@ -42,12 +42,29 @@ my-slides prepare spec --unit <id>
 my-slides approve spec --unit <id>
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
-my-slides slides check --unit <id> --browser
+my-slides slides check --unit <id>          # 结构检查（单元集合/顺序、封面）
+my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 ```
 
-也可用 `--changed` 或 `--all`。
+也可用 `--changed` 或 `--all`。默认的 `slides check` 只做结构检查；加 `--browser` 才跑桌面/手机视口测量。
 
-旧版章节格式项目：无 `units.json` 时 CLI 会拒绝执行；**不支持**章节迁移，请重新 `my-slides init`。
+无 `units.json` 时 CLI 会拒绝执行；请重新 `my-slides init`。
+
+### 最小冒烟（命令骨架）
+
+在任意空投资项目目录：
+
+```text
+my-slides init --project <项目根>
+my-slides prepare wiki && …整理 wiki… && my-slides validate wiki
+my-slides sources mark-ingested
+my-slides prepare report --unit <id> && …撰写… && validate/approve report --unit <id>
+my-slides assemble
+my-slides prepare spec --unit <id> && …撰写… && validate/approve spec --unit <id>
+my-slides prepare slides --unit <id> && …写单页 HTML…
+my-slides slides build --all
+my-slides slides check --all
+```
 
 ## 测试
 

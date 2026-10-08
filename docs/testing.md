@@ -31,10 +31,19 @@ chmod +x scripts/run-full-tests.sh   # 首次
 
 前置：本机已安装 **Python 3.11+**、**Node.js / npm**。首次完整跑会下载 Chromium。
 
+## `slides check`：结构 vs 浏览器
+
+| 命令 | 需要什么 | 检查什么 |
+| --- | --- | --- |
+| `my-slides slides check [--unit\|--all]` | 仅已生成的 `slides/index.html` | 结构：生成器标记、`data-unit-id` 集合/顺序与 `units.json` 一致、唯一封面 |
+| `… --browser` | 另需 `my-slides browser install`（Playwright Chromium） | 在桌面/手机视口逐页激活后测溢出、重叠、可见性等 |
+
+快速套件默认不装浏览器；缺依赖时带 `--browser` 的用例会 skip。完整门禁用 `./scripts/run-full-tests.sh`。
+
 ## 建议验收清单（issue #1 §9 子集）
 
 - 快速套件绿。
 - 完整套件绿（含图表 SVG、浏览器桌面/手机视口）。
-- v2 多单元：`--unit` 增量构建与 `--all` 全量构建在相同输入下内容一致（见 `tests/test_assembly.py`）。
-- 无 `units.json` 的项目被 CLI 拒绝；旧版章节迁移已不支持。
+- v2 多单元：`--unit` 增量构建与 `--all` 全量构建在相同输入下内容一致；组装后每个单元恰好一个 `data-unit-id`（见 `tests/test_assembly.py`）。
+- 无 `units.json` 的项目被 CLI 拒绝。
 - 新人只读 README + `skills/my-slides-workflow/SKILL.md` 可走通 v2 流程。

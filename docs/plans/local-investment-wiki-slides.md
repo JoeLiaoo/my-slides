@@ -18,18 +18,26 @@
 投资项目目录/
 ├── 原有资料及人工转换的 Markdown
 └── my-slides/
-    ├── project.yaml       # 资料范围、报告章节、视觉配置
-    ├── research/          # 按需联网研究的来源记录
+    ├── project.yaml              # 资料范围、报告章节、视觉配置
+    ├── units.json                # v2 单元身份、章节、角色与顺序（唯一格式）
+    ├── research/                 # 按需联网研究的来源记录
     ├── wiki/
-    │   ├── README.md      # 简短的 Wiki 维护约定
-    │   ├── index.md       # 按 presentation 章节组织的页面索引
-    │   ├── log.md         # 追加记录资料整理、研究与维护活动
-    │   └── *.md           # 按实际需要创建的专题与综合分析页面
-    ├── reports/           # 分章正文与审阅版本
-    ├── specs/             # 分章分页与视觉规格
-    ├── slides/            # 章节产物、整套 HTML、检查结果
-    └── .state/            # 扫描指纹、内容快照和审阅记录
+    │   ├── README.md             # 简短的 Wiki 维护约定
+    │   ├── index.md              # 按 presentation 章节组织的页面索引
+    │   ├── log.md                # 追加记录资料整理、研究与维护活动
+    │   └── *.md                  # 按实际需要创建的专题与综合分析页面
+    ├── reports/
+    │   ├── units/<id>.md         # 可编辑报告单元
+    │   └── report.md             # assemble 组装的完整报告
+    ├── specs/units/<id>.md       # 每单元一页 Spec
+    ├── slides/
+    │   ├── pages/<id>.html       # 可编辑单页 HTML
+    │   ├── previews/<id>.html    # 单页预览
+    │   └── index.html            # 正式离线整套
+    └── .state/                   # 扫描指纹、单元状态、缓存与审阅记录
 ```
+
+无 `units.json` 的旧章节布局已不支持；**没有** `migrate` 命令，请重新 `init`。
 
 初始化时默认扫描项目内 Markdown，排除工具产物、Git、依赖目录和 agent 指令文件；支持显式配置资料目录。原始资料保留在原位置。
 

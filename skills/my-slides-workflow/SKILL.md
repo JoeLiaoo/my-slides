@@ -7,9 +7,11 @@ description: Use the local my-slides CLI to maintain an investment project's Mar
 
 Use this skill when working inside an investment project that contains `my-slides/project.yaml`.
 
-**Prefer v2.** New projects from `my-slides init` are v2 (`units.json` + unit directories). If `my-slides/units.json` exists, run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
+**v2 only.** Projects use `units.json` + unit directories (`my-slides init`). Run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
 
-Projects without `units.json` are unsupported. Legacy chapter migration is unsupported; re-`init` for a v2 project.
+Projects without `units.json` are unsupported — re-`init`. There is no chapter migrate command.
+
+`slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
 
 ## Working rules
 
@@ -25,7 +27,7 @@ Projects without `units.json` are unsupported. Legacy chapter migration is unsup
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → user review → `approve report --unit <id>`. Optionally `assemble`.
 3. `prepare spec --unit <id>` → write one-page Spec in `specs/units/<id>.md` (page ID = unit ID) → validate → user review → `approve spec --unit <id>`.
-4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` → `slides build --unit <id>` → `slides check --unit <id> --browser`.
+4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`.
 
 ## Useful commands
 
@@ -44,6 +46,7 @@ my-slides prepare spec --unit <id>
 my-slides approve spec --unit <id>
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
+my-slides slides check --unit <id>
 my-slides slides check --unit <id> --browser
 ```
 

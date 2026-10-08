@@ -70,6 +70,27 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn('data-unit-id="summary-01"', html)
         self.assertIn("cover", plan["rebuild"] + plan["reused"])
 
+    def test_assembled_deck_has_exactly_one_data_unit_id_per_unit(self):
+        """Pages already carry data-unit-id; assemble must not inject a duplicate."""
+        import re
+
+        units = self._seed()
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        # compile_unit_page may also stamp data-unit-id; seed pages already have it.
+        for unit in units:
+            fragment, errors = compile_unit_page(
+                self.base, unit, brand_color=cfg["brand_color"], write_preview=True
+            )
+            self.assertEqual(errors, [], errors)
+            self.assertEqual(len(re.findall(r'data-unit-id=', fragment)), 1, fragment)
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [], errors)
+        html = output.read_text(encoding="utf-8")
+        found = re.findall(r'data-unit-id="([^"]+)"', html)
+        self.assertEqual(found, [unit.id for unit in units], found)
+        for unit_id in found:
+            self.assertEqual(found.count(unit_id), 1, found)
+
     def test_partial_unit_keeps_prior_index_when_others_blocked(self):
         units = self._seed()
         cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
