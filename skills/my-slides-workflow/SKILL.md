@@ -7,9 +7,9 @@ description: Use the local my-slides CLI to maintain an investment project's Mar
 
 Use this skill when working inside an investment project that contains `my-slides/project.yaml`.
 
-**v2 only.** Projects use `units.json` + unit directories (`my-slides init`). Run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
+Projects use `units.json` and unit directories (created by `my-slides init`). Run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
 
-Projects without `units.json` are unsupported — re-`init`. There is no chapter migrate command.
+Projects without `units.json` need `my-slides init` before other commands.
 
 `slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
 
@@ -17,12 +17,12 @@ Projects without `units.json` are unsupported — re-`init`. There is no chapter
 
 - Treat original project documents as read-only. The CLI scans Markdown sources; the agent reads them and edits only `my-slides/` outputs.
 - Read `my-slides/wiki/README.md` and `my-slides/wiki/index.md` before updating or querying the Wiki. Use ordinary Markdown and links. Do not invent tags, frontmatter, per-source IDs, or fact/forecast classifications.
-- Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). In v2, delivery structure comes from `units.json`.
+- Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). Delivery structure comes from `units.json`.
 - State evidence gaps, conflicting figures, assumptions, and dates in natural prose.
 - Never approve a report or Spec on the user's behalf; approval commands record an explicit user review decision.
 - Generate HTML only from approved Specs. Keep styles scoped; include one `slide-notes` JSON block on every slide. Use only approved `echarts-spec` and Lucide markers. Do not use a CDN.
 
-## v2 workflow
+## Workflow
 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → user review → `approve report --unit <id>`. Optionally `assemble`.
