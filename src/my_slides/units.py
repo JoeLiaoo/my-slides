@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
@@ -73,6 +72,21 @@ def encode_link_path(relative: Path) -> str:
         else:
             parts.append(quote(segment, safe=""))
     return "/".join(parts)
+
+
+def resolve_local_markdown_path(target: str, base_file: Path) -> Path | None:
+    """Resolve one local Markdown link from base_file; None means external/skip.
+
+    Shared by v1 validators and v2 assemble so `%20` / percent-encoding behave the same.
+    """
+    target = (target or "").strip()
+    if _is_external_link(target):
+        return None
+    raw_path, _, _ = target.partition("#")
+    decoded = unquote(raw_path.split("?", 1)[0])
+    if not decoded:
+        return None
+    return (base_file.parent / decoded).resolve()
 
 
 def units_manifest_path(base: Path) -> Path:
@@ -323,14 +337,8 @@ def validate_local_markdown_links(text: str, base_file: Path) -> list[str]:
     """Ensure rewritten local Markdown targets resolve from base_file's directory."""
     errors: list[str] = []
     for target in iter_local_markdown_targets(text):
-        if _is_external_link(target):
-            continue
-        raw_path, _, _ = target.partition("#")
-        decoded = unquote(raw_path)
-        if not decoded:
-            continue
-        resolved = (base_file.parent / decoded).resolve()
-        if not resolved.exists():
+        resolved = resolve_local_markdown_path(target, base_file)
+        if resolved is not None and not resolved.exists():
             errors.append(f"组装后本地链接失效：{target}")
     return errors
 
@@ -397,39 +405,23 @@ def assemble_report(base: Path, units: list[Unit] | None = None, *, write: bool 
     return document, []
 
 
-class _SlideBoundaryParser(HTMLParser):
-    """Collect top-level .slide roots and their ids/roles for migration preview."""
+def _parse_chapter_html_boundaries(html_text: str) -> tuple[list[dict[str, str]], list[str]]:
+    """Reuse the merge-time SlideFragmentParser so unclosed tags behave identically."""
+    # Lazy import: cli imports units at module load; avoid a circular import at import time.
+    from .cli import SlideFragmentParser
 
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.slides: list[dict[str, str]] = []
-        self._depth = 0
-        self._in_slide = False
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attr = {name: (value or "") for name, value in attrs}
-        classes = attr.get("class", "").split()
-        if "slide" in classes and not self._in_slide:
-            self._in_slide = True
-            self._depth = 1
-            self.slides.append({
-                "id": attr.get("id", ""),
-                "role": attr.get("data-page-role", ""),
-                "tag": tag,
-            })
-            return
-        if self._in_slide and tag not in {"br", "hr", "img", "meta", "link", "input", "source", "track", "wbr", "area", "base", "col", "embed", "param"}:
-            self._depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if not self._in_slide:
-            return
-        if tag in {"br", "hr", "img", "meta", "link", "input", "source", "track", "wbr", "area", "base", "col", "embed", "param"}:
-            return
-        self._depth -= 1
-        if self._depth <= 0:
-            self._in_slide = False
-            self._depth = 0
+    parser = SlideFragmentParser()
+    parser.feed(html_text)
+    parser.close()
+    slides = [
+        {
+            "id": slide.get("id", "") or "",
+            "role": slide.get("role", "") or "",
+            "tag": "section",
+        }
+        for slide in parser.slides
+    ]
+    return slides, list(parser.errors)
 
 
 def _extract_spec_pages(text: str) -> list[dict[str, str]]:
@@ -458,8 +450,9 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
             "format_version": "v2",
             "can_migrate": False,
             "candidate_units": [],
-            "conflicts": ["项目已是 v2 单元格式，无需迁移"],
-            "warnings": [],
+            # Not a conflict — the project is already on the target format.
+            "conflicts": [],
+            "warnings": ["项目已是 v2 单元格式，无需迁移"],
             "missing_report_mappings": [],
             "html_boundaries": [],
             "blocked_units": [],
@@ -505,11 +498,12 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
 
         html_slides: list[dict[str, str]] = []
         if html_path.is_file():
-            parser = _SlideBoundaryParser()
             try:
-                parser.feed(html_path.read_text(encoding="utf-8"))
-                parser.close()
-                html_slides = parser.slides
+                html_slides, parse_errors = _parse_chapter_html_boundaries(
+                    html_path.read_text(encoding="utf-8")
+                )
+                for issue in parse_errors:
+                    warnings.append(f"slides/chapters/{chapter_slug}.html：{issue}")
             except Exception as exc:  # noqa: BLE001 - preview must stay read-only and resilient
                 conflicts.append(f"HTML 解析失败：slides/chapters/{chapter_slug}.html（{exc}）")
             html_boundaries.append({

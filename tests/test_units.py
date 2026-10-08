@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from my_slides.cli import approve_revision, init_project, slug, template_chapters
+from my_slides.cli import SlideFragmentParser
 from my_slides.units import (
     UNIT_ID_RE,
     UnitsError,
@@ -17,6 +18,7 @@ from my_slides.units import (
     list_units_status,
     load_units_manifest,
     migrate_to_units_preview,
+    resolve_local_markdown_path,
     unit_paths,
     validate_units,
     write_units_manifest,
@@ -410,6 +412,57 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(failed, "")
         self.assertTrue(any("本地链接失效" in error for error in fail_errors), fail_errors)
         self.assertEqual(report.read_text(encoding="utf-8"), original)
+
+    def test_v2_project_migrate_preview_does_not_list_noop_as_conflict(self):
+        units = [Unit(id="cover", chapter=self.chapters[0], role="cover")]
+        self.write_v2(units)
+        preview = migrate_to_units_preview(self.base, self.chapters)
+        self.assertEqual(preview["format_version"], "v2")
+        self.assertFalse(preview["can_migrate"])
+        self.assertEqual(preview["conflicts"], [])
+        self.assertTrue(any("无需迁移" in item for item in preview["warnings"]))
+
+    def test_migrate_html_boundaries_match_slide_fragment_parser(self):
+        self.init_v1()
+        chapter = self.chapters[0]
+        # Unclosed <p> previously made the migrate preview under-count slides vs merge.
+        html = (
+            '<section class="slide" id="cover" data-page-role="cover"><p>unclosed'
+            '<script type="application/json" class="slide-notes">'
+            '{"title":"Cover","script":"Hi","notes":[]}</script></section>'
+            '<section class="slide" id="summary-01" data-page-role="content"><h1>Summary</h1>'
+            '<script type="application/json" class="slide-notes">'
+            '{"title":"Summary","script":"Hi","notes":[]}</script></section>'
+        )
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(html, encoding="utf-8")
+        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
+            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
+            "## Slide 2 — Summary\n页面 ID：summary-01\n页面角色：content\n",
+            encoding="utf-8",
+        )
+        (self.base / "reports" / f"{slug(chapter)}.md").write_text(
+            f"# {chapter}\n\nEnough report text for the chapter.\n", encoding="utf-8"
+        )
+        parser = SlideFragmentParser()
+        parser.feed(html)
+        parser.close()
+        preview = migrate_to_units_preview(self.base, [chapter])
+        boundary = preview["html_boundaries"][0]
+        self.assertEqual(len(parser.slides), 2)
+        self.assertEqual(boundary["slide_count"], len(parser.slides))
+        self.assertEqual([slide["id"] for slide in boundary["slides"]], ["cover", "summary-01"])
+        # build_slides uses the same parser; slide list length matches even when nesting warns.
+        self.assertEqual(len(parser.slides), 2)
+
+    def test_shared_local_link_resolution_matches_percent_encoding(self):
+        self.init_v1()
+        report = self.base / "reports" / f"{slug(self.chapters[0])}.md"
+        target = self.base / "wiki" / "my notes.md"
+        target.write_text("# Notes\n", encoding="utf-8")
+        encoded = resolve_local_markdown_path("../wiki/my%20notes.md", report)
+        literal = resolve_local_markdown_path("../wiki/my notes.md", report)
+        self.assertEqual(encoded, target.resolve())
+        self.assertEqual(literal, target.resolve())
 
 
 if __name__ == "__main__":

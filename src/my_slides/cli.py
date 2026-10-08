@@ -18,11 +18,13 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 from .units import (
+    MARKDOWN_LINK_RE,
     UnitsError,
     detect_format_version,
     list_units_status,
     load_units_manifest,
     migrate_to_units_preview,
+    resolve_local_markdown_path,
 )
 
 APP_DIR = "my-slides"
@@ -440,7 +442,7 @@ Wiki 索引：wiki/index.md
 def markdown_links(path: Path) -> list[str]:
     if not path.exists():
         return []
-    return re.findall(r"\[[^\]]*\]\(([^)]+)\)", path.read_text(encoding="utf-8"))
+    return [match.group(1).strip() for match in MARKDOWN_LINK_RE.finditer(path.read_text(encoding="utf-8"))]
 
 
 def validate_wiki(base: Path, cfg: dict[str, Any] | None = None) -> list[str]:
@@ -458,10 +460,9 @@ def validate_wiki(base: Path, cfg: dict[str, Any] | None = None) -> list[str]:
                 errors.append(f"wiki/index.md：缺少报告章节分组：{chapter}")
         indexed_pages = set()
         for link in markdown_links(index):
-            target = link.split("#", 1)[0]
-            if not target or re.match(r"^[a-z]+://", target, flags=re.I) or target.startswith("mailto:"):
+            resolved = resolve_local_markdown_path(link, index)
+            if resolved is None:
                 continue
-            resolved = (index.parent / target).resolve()
             try:
                 indexed_pages.add(resolved.relative_to(wiki.resolve()).as_posix())
             except ValueError:
@@ -472,12 +473,9 @@ def validate_wiki(base: Path, cfg: dict[str, Any] | None = None) -> list[str]:
                 errors.append(f"wiki/index.md：专题页面尚未加入索引：{relative}")
     for page in pages:
         for link in markdown_links(page):
-            target = link.split("#", 1)[0]
-            if not target or re.match(r"^[a-z]+://", target, flags=re.I) or target.startswith("mailto:"):
-                continue
-            resolved = (page.parent / target).resolve()
-            if not resolved.exists():
-                errors.append(f"{page.relative_to(wiki).as_posix()}：链接目标不存在：{target}")
+            resolved = resolve_local_markdown_path(link, page)
+            if resolved is not None and not resolved.exists():
+                errors.append(f"{page.relative_to(wiki).as_posix()}：链接目标不存在：{link}")
     return errors
 
 
@@ -493,10 +491,8 @@ def validate_report(base: Path, cfg: dict[str, Any]) -> list[str]:
         if len(text) < 30:
             errors.append(f"报告章节内容过短：{path.name}")
         for target in markdown_links(path):
-            if not target or target.startswith("#") or re.match(r"^(?:https?|mailto|data):", target, flags=re.I):
-                continue
-            local = target.split("#", 1)[0].split("?", 1)[0]
-            if local and not (path.parent / local).resolve().exists():
+            resolved = resolve_local_markdown_path(target, path)
+            if resolved is not None and not resolved.exists():
                 errors.append(f"{path.name}：引用目标不存在：{target}")
     return errors
 
@@ -556,10 +552,8 @@ def validate_spec(base: Path, cfg: dict[str, Any]) -> list[str]:
                 except (json.JSONDecodeError, ValueError) as exc:
                     errors.append(f"{path.name} Slide {slide_number}：图表规格无效：{exc}")
         for target in markdown_links(path):
-            if not target or target.startswith("#") or re.match(r"^(?:https?|mailto|data):", target, flags=re.I):
-                continue
-            local = target.split("#", 1)[0].split("?", 1)[0]
-            if local and not (path.parent / local).resolve().exists():
+            resolved = resolve_local_markdown_path(target, path)
+            if resolved is not None and not resolved.exists():
                 errors.append(f"{path.name}：来源链接目标不存在：{target}")
     if page_roles:
         if page_roles[0] != "cover":
@@ -575,6 +569,39 @@ class SlideFragmentParser(HTMLParser):
     """Collect slide sections from one agent-produced chapter fragment."""
 
     VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+    # Whitelist: presentation HTML + common SVG. Dangerous tags are rejected outright.
+    ALLOWED_TAGS = frozenset({
+        "section", "div", "span", "header", "footer", "main", "article", "aside", "nav",
+        "h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr", "ul", "ol", "li", "dl", "dt", "dd",
+        "a", "strong", "em", "b", "i", "u", "s", "small", "mark", "abbr", "time", "sub", "sup",
+        "code", "pre", "blockquote", "q", "cite", "figure", "figcaption",
+        "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
+        "img", "picture", "source",
+        "svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse",
+        "text", "tspan", "defs", "use", "symbol", "clippath", "lineargradient", "radialgradient",
+        "stop", "title", "desc", "mask", "pattern", "marker",
+        "script", "style",
+    })
+    FORBIDDEN_TAGS = frozenset({
+        "meta", "form", "animate", "set", "animatetransform", "animatemotion",
+        "iframe", "object", "embed", "base", "link", "input", "button", "textarea", "select",
+        "option", "applet", "frame", "frameset", "video", "audio", "portal", "foreignobject",
+    })
+    ALLOWED_ATTRS = frozenset({
+        "id", "class", "lang", "dir", "title", "role", "tabindex", "hidden", "type",
+        "href", "alt", "width", "height", "loading", "decoding", "colspan", "rowspan", "scope", "span",
+        "viewbox", "xmlns", "xmlns:xlink", "fill", "stroke", "stroke-width", "stroke-linecap",
+        "stroke-linejoin", "opacity", "transform", "d", "cx", "cy", "r", "rx", "ry",
+        "x", "y", "x1", "y1", "x2", "y2", "points", "preserveaspectratio", "clip-path",
+        "fill-rule", "clip-rule", "font-size", "font-family", "font-weight", "text-anchor",
+        "dominant-baseline", "gradientunits", "gradienttransform", "offset", "stop-color",
+        "stop-opacity", "xlink:href", "href", "aria-hidden", "aria-label", "aria-labelledby",
+        "focusable", "overflow", "vector-effect", "style",
+    })
+    URL_ATTRS = frozenset({
+        "href", "action", "formaction", "xlink:href", "poster", "background", "to", "values", "from",
+    })
+    SRC_ATTRS = frozenset({"src", "srcset"})
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
@@ -587,19 +614,85 @@ class SlideFragmentParser(HTMLParser):
         self.note_script = False
         self.asset_script: str | None = None
         self.asset_data: list[str] = []
+        self._skip_depth = 0
 
     @staticmethod
     def render_tag(tag: str, attrs: list[tuple[str, str | None]], closed: bool = False) -> str:
         rendered = "".join(f' {name}="{html.escape(value or "", quote=True)}"' for name, value in attrs)
         return f"<{tag}{rendered}{' /' if closed else ''}>"
 
+    @staticmethod
+    def normalize_url_candidate(value: str) -> str:
+        """Decode entities, strip whitespace/controls, lowercase — for protocol checks."""
+        decoded = html.unescape(value or "")
+        return re.sub(r"[\s\x00-\x1f\x7f]+", "", decoded).lower()
+
+    @classmethod
+    def is_allowed_url(cls, value: str) -> bool:
+        normalized = cls.normalize_url_candidate(value)
+        if not normalized:
+            return True
+        if normalized.startswith("#"):
+            return True
+        if normalized.startswith("//"):
+            return False
+        if normalized.startswith("https:") or normalized.startswith("mailto:"):
+            return True
+        # Block any other scheme (javascript:, data:, http:, vbscript:, …).
+        if re.match(r"^[a-z][a-z0-9+.-]*:", normalized):
+            return False
+        return True
+
+    def sanitize_attrs(self, tag: str, attrs: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
+        cleaned: list[tuple[str, str | None]] = []
+        for name, value in attrs:
+            lower = name.lower()
+            if lower.startswith("on"):
+                self.errors.append(f"章节片段不允许内联事件属性：{name}")
+                continue
+            if lower.startswith("data-") or lower.startswith("aria-"):
+                cleaned.append((name, value))
+                continue
+            if lower in self.SRC_ATTRS:
+                if value and not value.strip().lower().startswith("data:"):
+                    self.errors.append(f"章节片段包含外部资源：{value}")
+                    continue
+                cleaned.append((name, value))
+                continue
+            if lower in self.URL_ATTRS:
+                if value and not self.is_allowed_url(value):
+                    self.errors.append(f"章节片段包含不安全链接属性 {name}：{value}")
+                    continue
+                cleaned.append((name, value))
+                continue
+            if lower == "style" and value and re.search(r"url\s*\(|@import", value, flags=re.I):
+                self.errors.append("章节片段的 style 属性包含外部导入或 URL")
+                continue
+            if lower not in self.ALLOWED_ATTRS:
+                self.errors.append(f"章节片段不允许属性：{name}")
+                continue
+            cleaned.append((name, value))
+        return cleaned
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attr = dict(attrs)
+        lower_tag = tag.lower()
+        if self._skip_depth:
+            if lower_tag not in self.VOID:
+                self._skip_depth += 1
+            return
+        attr = {name: value for name, value in attrs}
         classes = (attr.get("class") or "").split()
-        if tag == "script":
+        if lower_tag in self.FORBIDDEN_TAGS or lower_tag not in self.ALLOWED_TAGS:
+            self.errors.append(f"章节片段不允许使用 <{tag}>")
+            if lower_tag not in self.VOID:
+                self._skip_depth = 1
+            return
+        if lower_tag == "script":
             allowed = {"slide-notes", "mls-echarts-spec", "mls-lucide-spec"}
             if attr.get("type") != "application/json" or not (allowed & set(classes)):
                 self.errors.append("章节片段包含脚本；只允许 slide-notes、mls-echarts-spec 或 mls-lucide-spec JSON 标记")
+                self._skip_depth = 1
+                return
             if "slide-notes" in classes:
                 if self.active and self.active["has_notes"]:
                     self.errors.append("每张 slide 只能包含一个 slide-notes 对象")
@@ -614,48 +707,50 @@ class SlideFragmentParser(HTMLParser):
                     self.errors.append("ECharts/Lucide 标记必须位于 slide 内")
                 self.asset_script = next(iter(asset_classes))
                 self.asset_data = []
-        if tag in {"iframe", "object", "embed", "base", "link"}:
-            self.errors.append(f"章节片段不允许使用 <{tag}>")
-        for name, value in attrs:
-            if name.lower().startswith("on"):
-                self.errors.append(f"章节片段不允许内联事件属性：{name}")
-            if name.lower() in {"src", "srcset"} and value and not value.startswith("data:"):
-                self.errors.append(f"章节片段包含外部资源：{value}")
-            if name.lower() == "href" and value and value.strip().lower().startswith("javascript:"):
-                self.errors.append("章节片段不允许 javascript: 链接")
-            if name.lower() == "style" and value and re.search(r"url\s*\(|@import", value, flags=re.I):
-                self.errors.append("章节片段的 style 属性包含外部导入或 URL")
-        if tag == "style":
+        safe_attrs = self.sanitize_attrs(lower_tag, attrs)
+        if lower_tag == "style":
             self.style = True
         is_slide = "slide" in classes
         if is_slide:
             if self.active:
                 self.errors.append("章节片段中不允许嵌套 slide")
             else:
-                if tag not in {"section", "div"}:
+                if lower_tag not in {"section", "div"}:
                     self.errors.append("slide 根元素必须是 <section> 或 <div>")
-                slide_id = attr.get("id", "")
+                slide_id = attr.get("id", "") or ""
                 self.active = {"html": [], "notes": [], "assets": [], "has_notes": False, "id": slide_id,
-                               "role": attr.get("data-page-role", "")}
+                               "role": attr.get("data-page-role", "") or ""}
                 self.stack = []
         if self.active:
-            self.active["html"].append(self.render_tag(tag, attrs))
-            if tag not in self.VOID:
-                self.stack.append(tag)
-        if tag in self.VOID and self.active and is_slide:
+            self.active["html"].append(self.render_tag(tag, safe_attrs))
+            if lower_tag not in self.VOID:
+                self.stack.append(lower_tag)
+        if lower_tag in self.VOID and self.active and is_slide:
             self.errors.append("slide 根元素必须是 section 或 div")
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        rendered = self.render_tag(tag, attrs, closed=True)
+        lower_tag = tag.lower()
+        if self._skip_depth:
+            return
+        if lower_tag in self.FORBIDDEN_TAGS or lower_tag not in self.ALLOWED_TAGS:
+            self.errors.append(f"章节片段不允许使用 <{tag}>")
+            return
+        safe_attrs = self.sanitize_attrs(lower_tag, attrs)
+        rendered = self.render_tag(tag, safe_attrs, closed=True)
         if self.active:
             self.active["html"].append(rendered)
-        elif tag == "style":
+        elif lower_tag == "style":
             self.errors.append("style 元素不能为空")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag == "style":
+        lower_tag = tag.lower()
+        if self._skip_depth:
+            if lower_tag not in self.VOID:
+                self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if lower_tag == "style":
             self.style = False
-        if tag == "script":
+        if lower_tag == "script":
             self.note_script = False
             if self.asset_script:
                 try:
@@ -671,11 +766,11 @@ class SlideFragmentParser(HTMLParser):
                 self.asset_data = []
         if self.active:
             self.active["html"].append(f"</{tag}>")
-            if self.stack and self.stack[-1] == tag:
+            if self.stack and self.stack[-1] == lower_tag:
                 self.stack.pop()
-            elif tag in self.stack:
+            elif lower_tag in self.stack:
                 self.errors.append(f"HTML 标签嵌套顺序错误：</{tag}>")
-                self.stack = self.stack[:self.stack.index(tag)]
+                self.stack = self.stack[:self.stack.index(lower_tag)]
             if not self.stack:
                 slide = self.active
                 self.slides.append(slide)
@@ -683,6 +778,8 @@ class SlideFragmentParser(HTMLParser):
                 self.note_script = False
 
     def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
         if self.style:
             self.css.append(data)
         if self.active:
@@ -693,6 +790,8 @@ class SlideFragmentParser(HTMLParser):
                 self.asset_data.append(data)
 
     def handle_entityref(self, name: str) -> None:
+        if self._skip_depth:
+            return
         raw = f"&{name};"
         if self.active:
             self.active["html"].append(raw)
@@ -702,6 +801,8 @@ class SlideFragmentParser(HTMLParser):
                 self.asset_data.append(raw)
 
     def handle_charref(self, name: str) -> None:
+        if self._skip_depth:
+            return
         raw = f"&#{name};"
         if self.active:
             self.active["html"].append(raw)
@@ -711,6 +812,8 @@ class SlideFragmentParser(HTMLParser):
                 self.asset_data.append(raw)
 
     def handle_comment(self, data: str) -> None:
+        if self._skip_depth:
+            return
         if self.active:
             self.active["html"].append(f"<!--{data}-->")
 
@@ -834,13 +937,20 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
             return None, [f"{chapter}：Slides 渲染标记解析数量不一致"]
         source = re.sub(r'\sdata-slide=["\'][^"\']*["\']', "", source, count=1)
         marker = f'data-slide="{number}" data-chapter="{html.escape(slug(chapter), quote=True)}"'
-        source = re.sub(r'\bclass=["\']([^"\']*\bslide\b[^"\']*)["\']',
-                        lambda match: f'class="{match.group(1)}" {marker}', source, count=1)
-        if number:
-            source = re.sub(r'\sactive(?=[\s>])', "", source, count=1)
-        elif re.search(r'\bclass=["\'][^"\']*\bactive\b', source) is None:
-            source = re.sub(r'\bclass=["\']([^"\']*\bslide\b[^"\']*)["\']',
-                            lambda match: f'class="{match.group(1)} active"', source, count=1)
+
+        def rewrite_root_slide_class(match: re.Match[str]) -> str:
+            # Only the slide root class list — never rewrite body text like "active".
+            classes = [token for token in match.group(1).split() if token != "active"]
+            if not number:
+                classes.append("active")
+            return f'class="{" ".join(classes)}" {marker}'
+
+        source = re.sub(
+            r'\bclass=["\']([^"\']*\bslide\b[^"\']*)["\']',
+            rewrite_root_slide_class,
+            source,
+            count=1,
+        )
         sections.append(source)
     title = cfg.get("project", "Investment presentation")
     brand_color = cfg.get("brand_color", "#A6192E")
