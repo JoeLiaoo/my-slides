@@ -9,6 +9,7 @@ from pathlib import Path
 
 from my_slides.browser import check_deck
 from my_slides.cli import (
+    SlideFragmentParser,
     approval_is_current,
     approval_digest,
     approve_revision,
@@ -31,6 +32,7 @@ from my_slides.cli import (
     validate_spec,
     validate_wiki,
 )
+from my_slides.units import resolve_local_markdown_path
 
 
 class ProjectWorkflowTests(unittest.TestCase):
@@ -374,6 +376,92 @@ class ProjectWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(command.returncode, 0, command.stderr + command.stdout)
         self.assertTrue(json.loads(command.stdout)["valid"])
+
+    def _notes(self, title="Demo"):
+        return (
+            f'<script type="application/json" class="slide-notes">'
+            f'{{"title":"{title}","script":"Present.","notes":[]}}</script>'
+        )
+
+    def test_slide_security_rejects_javascript_entity_bypass(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            f'<section class="slide"><a href="java&#9;script:void(window.PWN=1)">x</a>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        output, errors = build_slides(self.base, cfg)
+        self.assertIsNone(output)
+        self.assertTrue(any("不安全链接" in error or "javascript" in error.lower() for error in errors), errors)
+
+    def test_slide_security_rejects_form_action_javascript(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            f'<section class="slide"><form action="javascript:void(window.PWN=1)"><button>go</button></form>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        output, errors = build_slides(self.base, cfg)
+        self.assertIsNone(output)
+        self.assertTrue(any("form" in error.lower() for error in errors), errors)
+
+    def test_slide_security_rejects_meta_refresh_and_external_media(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
+        fragment.write_text(
+            f'<section class="slide"><meta http-equiv="refresh" content="0;url=https://evil.example">{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        _, errors = build_slides(self.base, cfg)
+        self.assertTrue(any("meta" in error.lower() for error in errors), errors)
+        fragment.write_text(
+            f'<section class="slide"><video poster="https://evil.example/p.png"></video>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        _, errors = build_slides(self.base, cfg)
+        self.assertTrue(any("video" in error.lower() or "不安全" in error for error in errors), errors)
+        fragment.write_text(
+            f'<section class="slide"><svg><image href="https://evil.example/i.png"></image></svg>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        _, errors = build_slides(self.base, cfg)
+        self.assertTrue(any("不安全链接" in error or "image" in error.lower() for error in errors), errors)
+
+    def test_slide_merge_preserves_active_in_body_text(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            f'<section class="slide active" data-page-role="cover"><h1>Cover</h1>{self._notes("Cover")}</section>'
+            f'<section class="slide active" data-page-role="content">'
+            f"<p>The market is active today</p>{self._notes('Body')}</section>",
+            encoding="utf-8",
+        )
+        output, errors = build_slides(self.base, cfg)
+        self.assertEqual(errors, [])
+        html_text = output.read_text(encoding="utf-8")
+        self.assertIn("The market is active today", html_text)
+        # Second slide must not keep the root active class, but body text stays.
+        second = html_text.split('data-slide="1"', 1)[1]
+        self.assertNotRegex(second.split("</section>", 1)[0], r'class="[^"]*\bactive\b')
+
+    def test_v1_report_accepts_percent_encoded_local_links(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        report = self.base / "reports" / f"{slug(chapter)}.md"
+        wiki_notes = self.base / "wiki" / "my notes.md"
+        wiki_notes.write_text("# Notes\n", encoding="utf-8")
+        report.write_text(
+            f"# {chapter}\n\nEnough report text with a link to [notes](../wiki/my%20notes.md).\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_report(self.base, {"chapters": [chapter]}), [])
+        resolved = resolve_local_markdown_path("../wiki/my%20notes.md", report)
+        self.assertEqual(resolved, wiki_notes.resolve())
 
 
 if __name__ == "__main__":
