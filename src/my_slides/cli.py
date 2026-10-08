@@ -35,10 +35,7 @@ from .units import (
     ensure_v2_directories,
     list_units_status,
     load_units_manifest,
-    migrate_to_units,
-    migrate_to_units_preview,
     resolve_local_markdown_path,
-    rollback_units_migration,
     unit_id_prefix,
 )
 
@@ -57,14 +54,12 @@ V2_UNSUPPORTED_CHAPTER_ACTIONS = frozenset({
 
 V1_UNSUPPORTED_MESSAGE = (
     "当前项目没有 my-slides/units.json，已不再支持 v1 章节格式。"
-    "请用仍含迁移功能的版本运行 `my-slides migrate --to-units --dry-run` 预检后，"
-    "再执行 `my-slides migrate --to-units`；或从 `.state/migrate-backups/` 回滚后使用旧版工具。"
-    "新项目请重新 `my-slides init`（仅创建 v2）。"
+    "旧版章节迁移（migrate）已移除；请重新 `my-slides init` 创建 v2 项目。"
 )
 
 
 def require_v2_project(base: Path) -> None:
-    """Phase 9: daily workflow requires units.json. Migrate remains the escape hatch."""
+    """Daily workflow requires units.json (v2 only)."""
     if detect_format_version(base) != "v2":
         raise ValueError(V1_UNSUPPORTED_MESSAGE)
 
@@ -1595,13 +1590,6 @@ def build_parser() -> argparse.ArgumentParser:
     units_list = units_sub.add_parser("list", help="列出单元身份、章节与产物是否齐全")
     units_list.add_argument("--project")
     units_list.add_argument("--json", action="store_true")
-    migrate = sub.add_parser("migrate", help="项目格式迁移（预检 / 正式迁移 / 回滚）")
-    migrate.add_argument("--to-units", action="store_true", help="预检或执行章节格式到单元格式的迁移")
-    migrate.add_argument("--dry-run", action="store_true", help="只读扫描，不改写项目文件")
-    migrate.add_argument("--rollback", action="store_true", help="回滚最近一次正式迁移备份")
-    migrate.add_argument("--stamp", help="回滚指定备份时间戳（默认最新）")
-    migrate.add_argument("--project")
-    migrate.add_argument("--json", action="store_true")
     doctor = sub.add_parser("doctor", help="检查项目工作区基础结构")
     doctor.add_argument("--project")
     doctor.add_argument("--json", action="store_true")
@@ -1814,44 +1802,6 @@ def main() -> None:
                     )
                 emit(args, data, human, error=bool(data.get("missing")))
                 code = 1 if data.get("missing") else 0
-            elif args.command == "migrate":
-                if args.rollback:
-                    data = rollback_units_migration(base, getattr(args, "stamp", None))
-                    emit(args, data, data.get("message", "已回滚"), error=not data.get("rolled_back"))
-                    code = 0 if data.get("rolled_back") else 1
-                else:
-                    if not args.to_units:
-                        raise ValueError(
-                            "请指定迁移目标或回滚，例如：my-slides migrate --to-units --dry-run"
-                            " 或 my-slides migrate --rollback"
-                        )
-                    if args.dry_run:
-                        data = migrate_to_units_preview(base, cfg.get("chapters", []))
-                    else:
-                        data = migrate_to_units(base, cfg.get("chapters", []))
-                    conflicts = data.get("conflicts") or []
-                    mapping_gaps = data.get("missing_report_mappings") or []
-                    can_migrate = bool(data.get("can_migrate", data.get("migrated")))
-                    human = (
-                        f"{data.get('message', '迁移完成')}\n"
-                        f"预检完成：{'是' if data.get('preview_ok', True) else '否'}\n"
-                        f"可迁移/已迁移：{'是' if can_migrate else '否'}\n"
-                        f"候选/完成单元：{len(data.get('candidate_units') or data.get('units') or [])}\n"
-                        f"冲突：{len(conflicts)}\n"
-                        f"警告：{len(data.get('warnings') or [])}\n"
-                        f"待确认报告映射：{len(mapping_gaps)}"
-                    )
-                    if conflicts:
-                        human += "\n冲突明细：\n" + "\n".join(f"- {item}" for item in conflicts)
-                    if mapping_gaps and not data.get("migrated"):
-                        human += "\n映射阻断：\n" + "\n".join(
-                            f"- {item['unit_id']}：{item['reason']}" for item in mapping_gaps[:8]
-                        )
-                    emit(args, data, human, error=bool(data.get("migrated") is False and not args.dry_run and not data.get("preview_ok", True)))
-                    if args.dry_run:
-                        code = 0 if data.get("preview_ok", True) else 1
-                    else:
-                        code = 0 if data.get("migrated") else 1
             elif args.command == "doctor":
                 required = ["project.yaml", "wiki/README.md", "wiki/index.md", "wiki/log.md", "reports", "specs", "slides"]
                 missing = [name for name in required if not (base / name).exists()]

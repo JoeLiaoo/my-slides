@@ -36,5 +36,5 @@ chmod +x scripts/run-full-tests.sh   # 首次
 - 快速套件绿。
 - 完整套件绿（含图表 SVG、浏览器桌面/手机视口）。
 - v2 多单元：`--unit` 增量构建与 `--all` 全量构建在相同输入下内容一致（见 `tests/test_assembly.py`）。
-- 无 `units.json` 的项目被 CLI 拒绝并提示 `migrate`。
+- 无 `units.json` 的项目被 CLI 拒绝；旧版章节迁移已不支持。
 - 新人只读 README + `skills/my-slides-workflow/SKILL.md` 可走通 v2 流程。
