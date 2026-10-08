@@ -29,7 +29,9 @@ class DependencyStateTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.base = self.root / "my-slides"
         self.chapters = template_chapters()
-        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        init_project(
+            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1")
+        )
 
     def tearDown(self):
         self.temp.cleanup()

@@ -2,39 +2,47 @@
 
 面向投资研究的本地 Agent 工具。用户在投资项目目录中使用 Codex、Claude Code 或 DeepSeek harness，通过统一 CLI 整理项目资料、维护 Wiki、撰写投资报告，并生成可离线浏览的 HTML 投资汇报 Slides。
 
-第一版本地工作流已打通，后续按路线图完善 Wiki、Reports 和 Slides。工具由本地 CLI 与当前 Agent 协同工作：Agent 负责分析与内容生成，工具负责项目文件组织、来源追溯、版本和审阅状态、图表图标渲染及 Slides 检查。当前以 Markdown 为资料输入，文档转换由用户预先完成。
+工具由本地 CLI 与当前 Agent 协同工作：Agent 负责分析与内容生成，工具负责项目文件组织、来源追溯、版本和审阅状态、图表图标渲染及 Slides 检查。当前以 Markdown 为资料输入，文档转换由用户预先完成。
 
-## 目标工作流
+## 目标工作流（v2 单元格式）
 
 ```text
 项目 Markdown 资料
         ↓
 项目 Wiki 与来源追溯
         ↓
-完整投资报告（用户审阅）
+报告单元（reports/units/<id>.md）→ 用户按单元审阅
         ↓
-分章 Presentation Spec（用户审阅）
+Spec 单元（specs/units/<id>.md）→ 用户按单元审阅
         ↓
-分章 HTML Slides → 合并为整套离线演示文稿
+单页 HTML（slides/pages/<id>.html）→ 增量合并为整套离线演示文稿
 ```
 
-预期能力包括：
+每个单元有稳定 ID（见 `my-slides/units.json`），对应一份报告、一份 Spec、一页 HTML。改单元 A 时只处理 A 及真正依赖它的部分。
 
-- 为每个投资项目建立独立的 Markdown Wiki，以普通专题页面和页面链接积累知识，并按报告章节组织索引；来源、判断与待核实事项按需写入正文，不强制标签分类。
-- 增量发现新增、修改和删除的资料，标出受影响的 Wiki 页面和报告章节。
-- 按可配置的 PE／IC 章节模板生成有证据、有来源映射的完整投资报告。
-- 将报告按章节整理为分页 Spec，逐页记录结论、证据、来源、布局和图表数据。
-- 使用 `bluedusk/html-slides` 作为页面生成指导，结合 ECharts 和 Lucide 生成统一主题的 HTML Slides，并进行页面合并和浏览器检查。
-- 在报告与 Spec 阶段保留用户审阅节点；内容变更后更新下游状态，同时保留历史版本。
+## 迁移窗口（v1 → v2）
 
-计划中的 Slides 默认采用 16:9 专业 IC 风格，以红色作为品牌色。最终演示文稿预期为单个可离线打开的 HTML 文件。
+**新项目默认 v2。** `my-slides init` 会创建 `units.json` 与 `reports/units/`、`specs/units/`、`slides/pages/` 等目录，不再把 `slides/chapters/` 当作主路径。
 
-## Roadmap
+仍在使用 **v1 章节格式**（无 `units.json`、按章整文件）的项目在弃用窗口内可继续运行，但 `status` / `doctor` / `prepare` 会提示迁移。`--json` 输出含 `"deprecated": true`。设置 `MY_SLIDES_ALLOW_V1=1` 可暂时静默人机警告（JSON 仍标记 `deprecated`）。
 
-1. **实现第一版本**：建立 CLI 与项目目录基础，打通从 Markdown 资料到 Wiki、投资报告、Spec 和 HTML Slides 的最小端到端流程；支持基本来源追溯及报告、Spec 审阅。
-2. **完善 Wiki 功能**：强化增量更新、页面关联、来源版本、冲突识别、待核实事项和资料变化影响分析。
-3. **完善 Reports 功能**：完善 PE／IC 章节模板、证据与计算依据、Wiki 引用映射、按章节修订及版本管理。
-4. **完成 Slides 功能**：完善分章生成与合并、统一主题、ECharts 图表、Lucide 图标、离线输出及桌面和手机浏览器质量检查。
+### 如何迁移
+
+```text
+my-slides migrate --to-units --dry-run --project <路径>   # 只读预检
+my-slides migrate --to-units --project <路径>            # 正式迁移（先备份）
+my-slides migrate --rollback --project <路径>            # 回滚最近备份
+```
+
+窗口结束后将删除 v1 章节主路径；请在真实项目上完成迁移后再依赖新版本。
+
+### 窗口期内还能做什么 / 不能指望什么
+
+| 能做 | 不要指望 |
+| --- | --- |
+| 旧 v1 项目继续 prepare / validate / approve / slides build | 新 `init` 再创建 v1 默认结构（需显式 `--format v1`，且已弃用） |
+| `migrate --dry-run` / 正式迁移 / 回滚 | 永久双轨；阶段 9 将移除 v1 |
+| v2 按单元批准、增量构建与检查 | 把整套旧批准自动继承为所有单元已批准 |
 
 ## 开始使用
 
@@ -51,15 +59,28 @@ my-slides sources scan --project "C:\Projects\某投资项目"
 my-slides prepare wiki --project "C:\Projects\某投资项目"
 ```
 
-`my-slides agent install` 会在项目 `.agents/skills/` 与 `.claude/skills/` 安装工作流技能，并保留已有同名文件。DeepSeek harness 可读取同一技能说明或每个 `prepare` 命令生成的交接材料。Agent 按项目内 Wiki 约定和索引整理资料；完成后运行 `my-slides sources mark-ingested`，再用 `prepare report`、`prepare spec` 和 `prepare slides` 依次获取下一阶段的交接材料。报告与 Spec 经用户审阅后，运行对应的 `approve` 命令。
+默认 `init` 得到 v2 项目。接着按单元推进：
 
-包含图表或图标的项目需先运行 `my-slides renderer install`；使用 `slides check --browser` 前运行 `my-slides browser install`。随后把 HTML 章节片段放入项目 my-slides/slides/chapters/，运行 `my-slides slides build` 合并为 my-slides/slides/index.html。渲染依赖固定为 ECharts 6.1.0 与 lucide-static 1.52.0，并安装在用户本机的工具运行目录中；最终 HTML 将图表和图标内联为 SVG，附带第三方许可与来源信息。
+```text
+my-slides prepare report --unit <id>
+my-slides validate report --unit <id>
+my-slides approve report --unit <id>
+my-slides prepare spec --unit <id>
+my-slides approve spec --unit <id>
+my-slides prepare slides --unit <id>
+my-slides slides build --unit <id>
+my-slides slides check --unit <id> --browser
+```
+
+也可用 `--changed` 或 `--all`。组装完整报告：`my-slides assemble`。
+
+`my-slides agent install` 会在项目 `.agents/skills/` 与 `.claude/skills/` 安装工作流技能，并保留已有同名文件。包含图表或图标的项目需先运行 `my-slides renderer install`；使用 `slides check --browser` 前运行 `my-slides browser install`。渲染依赖固定为 ECharts 6.1.0 与 lucide-static 1.52.0。
 
 ## 当前状态
 
-CLI 已提供项目初始化、按报告章节建立和补齐 Wiki 索引、Markdown 变化扫描、Agent 交接材料与项目级工作流技能、Wiki／报告／Spec 检查、报告与 Spec 审批版本联动、图表与图标本地 SVG 渲染、章节 HTML 合并，以及 Chromium 桌面和手机视口检查。自动回归覆盖六章合成项目的端到端流程；生成内容仍由当前 Agent 撰写，真实项目的页面质量需要逐页审阅。
-
-单元化改造（issue #1）已落地步骤 1：`units.json` 读取与校验、报告单元组装、`my-slides units list`，以及 `my-slides migrate --to-units --dry-run` 只读迁移预检。现有项目仍默认走 v1 章节路径；存在 `my-slides/units.json` 时识别为 v2。
+- **v2（默认）**：单元清单、依赖与状态、按单元 prepare/validate/approve、报告组装、增量 slides build/check、正式迁移与回滚。
+- **v1**：弃用窗口内仍可用；请计划迁移。
+- 生成内容仍由当前 Agent 撰写；真实项目需逐页审阅。
 
 运行基础回归测试：
 
@@ -69,4 +90,4 @@ $env:MY_SLIDES_RENDERER_HOME = Join-Path $env:LOCALAPPDATA "MySlides\renderer"
 python -m unittest discover -s tests -v
 ```
 
-实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)，报告章节来自 [`docs/templates/投资报告章节.md`](docs/templates/投资报告章节.md)。
+实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)，报告章节主题见 [`docs/templates/投资报告章节.md`](docs/templates/投资报告章节.md)。

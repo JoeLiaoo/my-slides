@@ -55,6 +55,34 @@ V2_UNSUPPORTED_CHAPTER_ACTIONS = frozenset({
     "slides check",
 })
 
+V1_DEPRECATION_MESSAGE = (
+    "警告：当前项目仍为 v1 章节格式，已进入弃用窗口。"
+    "请尽快运行 `my-slides migrate --to-units --dry-run` 预检，"
+    "确认后执行 `my-slides migrate --to-units` 迁移到 v2 单元格式；"
+    "可用 `my-slides migrate --rollback` 回滚。"
+    "窗口结束后将移除 v1 路径。"
+    "设置环境变量 MY_SLIDES_ALLOW_V1=1 可暂时静默此警告。"
+)
+
+
+def v1_warnings_silenced() -> bool:
+    """Return True when MY_SLIDES_ALLOW_V1 requests quiet v1 compatibility mode."""
+    return os.environ.get("MY_SLIDES_ALLOW_V1", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def annotate_v1_deprecation(base: Path, data: dict[str, Any], human: str) -> tuple[dict[str, Any], str]:
+    """Mark v1 projects as deprecated in JSON; optionally prepend a Chinese warning."""
+    if detect_format_version(base) != "v1":
+        annotated = dict(data)
+        annotated.setdefault("deprecated", False)
+        return annotated, human
+    annotated = dict(data)
+    annotated["deprecated"] = True
+    annotated["deprecation_warning"] = V1_DEPRECATION_MESSAGE
+    if not v1_warnings_silenced():
+        human = f"{V1_DEPRECATION_MESSAGE}\n{human}"
+    return annotated, human
+
 
 def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = False) -> None:
     """v2 projects reject chapter-wide approve/build unless a unit selector is used."""
@@ -381,9 +409,15 @@ def init_project(args: argparse.Namespace) -> int:
     brand_color = existing.get("brand_color", "#A6192E")
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
         raise ValueError("project.yaml 的 brand_color 必须是 #RRGGBB 格式")
-    format_choice = getattr(args, "format", "v1") or "v1"
+    # Phase 8: new projects default to v2. Explicit --format v1 remains for the deprecation window.
+    format_choice = getattr(args, "format", None) or "v2"
+    if format_choice not in {"v1", "v2"}:
+        raise ValueError("format 只能是 v1 或 v2")
     base.mkdir(parents=True, exist_ok=True)
-    for folder in ("research", "wiki", "reports", "specs", "slides/chapters", ".state"):
+    folders = ["research", "wiki", "reports", "specs", "slides", ".state"]
+    if format_choice == "v1":
+        folders.append("slides/chapters")
+    for folder in folders:
         (base / folder).mkdir(parents=True, exist_ok=True)
     wiki_readme = base / "wiki" / "README.md"
     if not wiki_readme.exists():
@@ -396,7 +430,13 @@ def init_project(args: argparse.Namespace) -> int:
     for folder, title in (("reports", "投资报告"), ("specs", "Presentation Specs"), ("slides", "HTML Slides")):
         readme = base / folder / "README.md"
         if not readme.exists():
-            readme.write_text(f"# {title}\n\n由当前 agent 按项目 Wiki 和章节配置生成内容。\n", encoding="utf-8")
+            if format_choice == "v2":
+                readme.write_text(
+                    f"# {title}\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n",
+                    encoding="utf-8",
+                )
+            else:
+                readme.write_text(f"# {title}\n\n由当前 agent 按项目 Wiki 和章节配置生成内容。\n", encoding="utf-8")
     write_config(cfg_path, root, source_dirs, chapters, brand_color)
     unit_ids: list[str] = []
     if format_choice == "v2":
@@ -432,14 +472,20 @@ def init_project(args: argparse.Namespace) -> int:
         "project": str(root),
         "workspace": str(base),
         "chapters": chapters,
-        "format_version": "v2" if format_choice == "v2" else "v1",
+        "format_version": format_choice,
         "units": unit_ids,
         "pending_sources": pending,
         "removed_sources": removed,
+        "deprecated": format_choice == "v1",
     }
     human = f"已初始化项目工作区：{base}\n报告章节：{len(chapters)}\n待整理 Markdown：{len(pending)}"
     if format_choice == "v2":
         human += f"\n格式：v2（{len(unit_ids)} 个种子单元）"
+    else:
+        human += "\n格式：v1（已弃用；新项目请使用默认 v2 或省略 --format）"
+        if not v1_warnings_silenced():
+            human = f"{V1_DEPRECATION_MESSAGE}\n{human}"
+        result["deprecation_warning"] = V1_DEPRECATION_MESSAGE
     emit(args, result, human)
     return 0
 
@@ -467,7 +513,12 @@ def prepare(args: argparse.Namespace) -> int:
         if kind == "report":
             snapshot_wiki(base, stamp)
         output = prepare_unit_handoff(base, root, units, kind, stamp=stamp)
-        emit(args, {"task_file": str(output), "kind": kind, "units": [u.id for u in units]}, f"已生成单元交接材料：{output}")
+        data, human = annotate_v1_deprecation(
+            base,
+            {"task_file": str(output), "kind": kind, "units": [u.id for u in units]},
+            f"已生成单元交接材料：{output}",
+        )
+        emit(args, data, human)
         return 0
     if kind == "spec":
         errors = validate_report(base, cfg)
@@ -583,7 +634,12 @@ Wiki 索引：wiki/index.md
 生成各章后运行 my-slides slides build 合并成可离线打开的 HTML，再用 my-slides slides check --browser 检查桌面和手机视口。
 """
     output.write_text(body, encoding="utf-8")
-    emit(args, {"task_file": str(output), "kind": kind}, f"已生成交接材料：{output}")
+    data, human = annotate_v1_deprecation(
+        base,
+        {"task_file": str(output), "kind": kind},
+        f"已生成交接材料：{output}",
+    )
+    emit(args, data, human)
     return 0
 
 
@@ -1594,8 +1650,8 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument(
         "--format",
         choices=("v1", "v2"),
-        default="v1",
-        help="v1=章节格式（默认）；v2=创建 units.json 与单元目录",
+        default="v2",
+        help="v2=单元格式（默认，创建 units.json）；v1=章节格式（已弃用，仅兼容窗口）",
     )
     init.add_argument("--json", action="store_true")
     sources = sub.add_parser("sources", help="扫描或确认资料")
@@ -1974,8 +2030,8 @@ def main() -> None:
                 renderer = renderer_status()
                 browser = browser_status()
                 ok = not missing and not unit_errors and not slug_errors
-                emit(
-                    args,
+                doctor_data, doctor_human = annotate_v1_deprecation(
+                    base,
                     {
                         "ok": ok,
                         "workspace": str(base),
@@ -1987,8 +2043,8 @@ def main() -> None:
                         "browser": browser,
                     },
                     "工作区结构完整。" if ok else "缺少：" + ", ".join(missing + unit_errors + slug_errors),
-                    error=not ok,
                 )
+                emit(args, doctor_data, doctor_human, error=not ok)
                 code = 0 if ok else 1
             else:
                 _, pending, removed = scan_sources(root, base, cfg)
@@ -1999,24 +2055,24 @@ def main() -> None:
                         chapters=cfg.get("chapters", []),
                         project_root=root,
                     )
-                    # Do not reuse v1 chapter approval digests for v2 unit projects.
+                    # Unit-level report/spec/slides paths are live (phases 4–6).
                     approval_status = {
                         "report": {
-                            "supported": False,
+                            "supported": True,
                             "current": False,
-                            "message": "v2 单元级报告批准将在阶段 4 接通；当前仅提供状态骨架",
+                            "message": "使用 approve report --unit / --changed / --all；状态见 --json 的 units 字段",
                         },
                         "spec": {
-                            "supported": False,
+                            "supported": True,
                             "current": False,
-                            "message": "v2 单元级 Spec 批准将在阶段 4 接通；当前仅提供状态骨架",
+                            "message": "使用 approve spec --unit / --changed / --all；状态见 --json 的 units 字段",
                         },
                     }
                     slide_status = {
-                        "supported": False,
+                        "supported": True,
                         "built": (base / "slides" / "index.html").exists(),
                         "current": False,
-                        "message": "v2 单元级 slides 构建尚未实现；勿沿用章节合并状态",
+                        "message": "使用 slides build|check --unit / --changed / --all",
                     }
                     human = (
                         f"项目：{root}\n格式：v2\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
@@ -2024,7 +2080,7 @@ def main() -> None:
                         f"受影响：{len(unit_status['affected_units'])}\n"
                         f"可复用：{len(unit_status['reused_units'])}\n"
                         f"阻塞：{len(unit_status['blocked_units'])}\n"
-                        "提示：完整单元批准/构建在后续阶段提供；可用 --json 查看状态骨架"
+                        "提示：用 --json 查看各单元批准/构建/检查状态"
                     )
                 else:
                     if getattr(args, "units", None):
@@ -2041,7 +2097,7 @@ def main() -> None:
                         "current": slides_is_current(base, cfg),
                     }
                     human = (
-                        f"项目：{root}\n格式：v1\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
+                        f"项目：{root}\n格式：v1（已弃用）\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
                         f"报告已审阅且未变化：{'是' if approval_status.get('report', {}).get('current') else '否'}\n"
                         f"Spec 已审阅且未变化：{'是' if approval_status.get('spec', {}).get('current') else '否'}\n"
                         f"Slides 与当前批准版本一致：{'是' if slide_status['current'] else '否'}"
@@ -2066,6 +2122,7 @@ def main() -> None:
                             "dependency_graph": unit_status["dependency_graph"],
                         }
                     )
+                data, human = annotate_v1_deprecation(base, data, human)
                 emit(args, data, human)
                 code = 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError, UnitsError) as exc:
