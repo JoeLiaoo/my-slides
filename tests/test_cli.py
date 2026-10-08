@@ -15,20 +15,25 @@ from my_slides.cli import (
     approve_revision,
     browser_status,
     build_slides,
+    extract_approved_icons,
+    find_slug_collisions,
     install_agent_workflow,
     init_project,
     mark_ingested,
     prepare,
     project_root,
+    read_config,
     render_assets,
     renderer_status,
     scan_sources,
     slug,
     slides_is_current,
+    strip_markdown_link_target,
     sync_wiki_index,
     template_chapters,
     validate_report,
     validate_chart_spec,
+    validate_scoped_css,
     validate_spec,
     validate_wiki,
 )
@@ -462,6 +467,166 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(validate_report(self.base, {"chapters": [chapter]}), [])
         resolved = resolve_local_markdown_path("../wiki/my%20notes.md", report)
         self.assertEqual(resolved, wiki_notes.resolve())
+
+    def test_css_scope_escape_is_rejected(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            "<style>h1{color:red} } body{display:none!important} @scope (x) { p{}</style>"
+            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        output, errors = build_slides(self.base, cfg)
+        self.assertIsNone(output)
+        self.assertTrue(any("作用域" in error or "括号" in error for error in errors), errors)
+        self.assertTrue(validate_scoped_css("h1{color:red}", label="ok") == [])
+        self.assertTrue(any("作用域" in e for e in validate_scoped_css("a{} } b{c:d}", label="x")))
+
+    def test_marker_substring_class_does_not_crash_build(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter]}
+        # slide-notes class contains substring that previously confused the replace regex.
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>'
+            f'<script type="application/json" class="slide-notes old-mls-lucide-spec">'
+            f'{{"title":"Cover","script":"Hi","notes":[]}}</script></section>',
+            encoding="utf-8",
+        )
+        output, errors = build_slides(self.base, cfg)
+        self.assertEqual(errors, [], errors)
+        self.assertIsNotNone(output)
+
+    def test_report_accepts_footnotes_and_titled_links(self):
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        wiki = self.base / "wiki" / "a.md"
+        wiki.write_text("# Company\n", encoding="utf-8")
+        report = self.base / "reports" / f"{slug(chapter)}.md"
+        report.write_text(
+            f"# {chapter}\n\n"
+            "结论见脚注[^1]与[公司](../wiki/a.md \"公司页\").\n\n"
+            "[^1]: 来自管理层访谈，2024 年\n\n"
+            "代码里的 `[假链接](../wiki/missing.md)` 应忽略。\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(validate_report(self.base, {"chapters": [chapter]}), [])
+        self.assertEqual(
+            strip_markdown_link_target('../wiki/a.md "公司页"'),
+            "../wiki/a.md",
+        )
+
+    def test_icon_allowlist_requires_list_items_not_embedded_wu(self):
+        self.assertEqual(extract_approved_icons("无"), set())
+        self.assertEqual(
+            extract_approved_icons("- trending-up（无需动画）\n- bar-chart-2\n"),
+            {"trending-up", "bar-chart-2"},
+        )
+        # Prose containing 无 must not wipe the declared icons.
+        self.assertEqual(
+            extract_approved_icons("- trending-up（无需动画）\n"),
+            {"trending-up"},
+        )
+        self.init()
+        chapter = self.cfg["chapters"][0]
+        cfg = {"project": "Demo", "chapters": [chapter], "brand_color": "#A6192E"}
+        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
+            self.spec_page(chapter, role="cover")
+            .replace("### 图标需求\n无\n", "### 图标需求\n- trending-up（无需动画）\n"),
+            encoding="utf-8",
+        )
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>'
+            f'<script type="application/json" class="mls-lucide-spec">'
+            f'{{"name":"trending-up"}}</script>{self._notes()}</section>',
+            encoding="utf-8",
+        )
+        if not renderer_status()["ready"]:
+            self.skipTest("renderer not installed")
+        output, errors = build_slides(self.base, cfg)
+        self.assertEqual(errors, [], errors)
+        self.assertIsNotNone(output)
+
+    def test_project_yaml_rejects_inline_list_and_strips_comments(self):
+        self.init()
+        path = self.base / "project.yaml"
+        path.write_text(
+            'project: "Demo"\nbrand_color: "#A6192E" # 品牌色\nsource_dirs:\n  - "."\n'
+            "chapters:\n  - \"投资概要\"\n",
+            encoding="utf-8",
+        )
+        cfg = read_config(path)
+        self.assertEqual(cfg["brand_color"], "#A6192E")
+        self.assertEqual(cfg["chapters"], ["投资概要"])
+        path.write_text(
+            'project: "Demo"\nbrand_color: "#A6192E"\nsource_dirs:\n  - "."\n'
+            "chapters: [投资概要, 公司概况]\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            read_config(path)
+        self.assertIn("行内列表", str(ctx.exception))
+
+    def test_slug_collision_is_detected(self):
+        errors = find_slug_collisions(["财务分析/回报分析", "财务分析 回报分析"])
+        self.assertTrue(any("slug 冲突" in error for error in errors), errors)
+        self.assertEqual(find_slug_collisions(["投资概要", "公司概况"]), [])
+        self.init()
+        path = self.base / "project.yaml"
+        path.write_text(
+            'project: "Demo"\nbrand_color: "#A6192E"\nsource_dirs:\n  - "."\n'
+            'chapters:\n  - "财务分析/回报分析"\n  - "财务分析 回报分析"\n',
+            encoding="utf-8",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            read_config(path)
+        self.assertIn("slug 冲突", str(ctx.exception))
+
+    def test_chart_spec_rejects_bad_date_and_dimensions(self):
+        with self.assertRaises(ValueError) as ctx:
+            validate_chart_spec(
+                {
+                    "type": "time-scatter",
+                    "xUnit": "日期",
+                    "yUnit": "%",
+                    "points": [{"date": "not-a-date", "y": 1.0}],
+                }
+            )
+        self.assertIn("date", str(ctx.exception).lower())
+        with self.assertRaises(ValueError) as ctx:
+            validate_chart_spec(
+                {
+                    "type": "bar",
+                    "categories": ["A"],
+                    "values": [1],
+                    "width": 10,
+                    "height": 10,
+                }
+            )
+        self.assertIn("宽高", str(ctx.exception))
+        validate_chart_spec(
+            {
+                "type": "time-scatter",
+                "xUnit": "日期",
+                "yUnit": "%",
+                "points": [{"date": "2024-01-15", "y": 1.0}],
+            }
+        )
+
+    def test_json_mode_errors_emit_json_object(self):
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        result = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "doctor", "--project", "/no/such/path", "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        self.assertEqual(result.returncode, 2)
+        payload = json.loads(result.stdout.strip() or result.stderr.strip())
+        self.assertIn("error", payload)
+        self.assertTrue(payload["error"])
 
 
 if __name__ == "__main__":
