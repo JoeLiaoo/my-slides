@@ -7,8 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import init_project, slug, template_chapters
+from my_slides.cli import approve_revision, init_project, slug, template_chapters
 from my_slides.units import (
+    UNIT_ID_RE,
     UnitsError,
     assemble_report,
     detect_format_version,
@@ -149,10 +150,14 @@ class UnitsFormatTests(unittest.TestCase):
         }
         self.assertEqual(before, after)
         self.assertTrue(preview["dry_run"])
+        self.assertTrue(preview["preview_ok"])
         ids = [unit["id"] for unit in preview["candidate_units"]]
         self.assertIn("cover", ids)
         self.assertIn("investment-summary-01", ids)
         self.assertTrue(any("报告单元拆分" in item["reason"] for item in preview["missing_report_mappings"]))
+        # Mapping gaps block migration even when the dry-run itself succeeds.
+        self.assertFalse(preview["can_migrate"])
+        self.assertIn("cover", preview["blocked_units"])
 
     def test_migrate_dry_run_reports_cross_chapter_id_conflicts(self):
         self.init_v1()
@@ -195,7 +200,10 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
         payload = json.loads(preview.stdout)
         self.assertTrue(payload["dry_run"])
+        self.assertTrue(payload["preview_ok"])
         self.assertIn("cover", payload["selected_units"])
+        # Preview success is not the same as ready-to-migrate.
+        self.assertFalse(payload["can_migrate"])
 
         blocked = subprocess.run(
             [sys.executable, "-m", "my_slides.cli", "migrate", "--to-units", "--project", str(self.root)],
@@ -213,6 +221,100 @@ class UnitsFormatTests(unittest.TestCase):
         self.init_v1()
         with self.assertRaises(UnitsError):
             load_units_manifest(self.base, self.chapters)
+
+    def test_v2_refuses_legacy_approve_and_status_does_not_reuse_chapter_approval(self):
+        self.init_v1()
+        cfg = {"chapters": self.chapters, "source_dirs": ["."]}
+        for chapter in self.chapters:
+            (self.base / "reports" / f"{slug(chapter)}.md").write_text(
+                f"# {chapter}\n\n" + "Evidence-backed report text. " * 4, encoding="utf-8"
+            )
+        digest, errors = approve_revision(self.base, cfg, "report")
+        self.assertEqual(errors, [])
+        self.assertTrue(digest)
+        # Switch to v2 without creating report units — legacy approve must not succeed.
+        write_units_manifest(self.base, [Unit(id="cover", chapter=self.chapters[0], role="cover")])
+        refused, refuse_errors = approve_revision(self.base, cfg, "report")
+        self.assertIsNone(refused)
+        self.assertTrue(any("v2" in error for error in refuse_errors), refuse_errors)
+
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        status = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root), "--json"],
+            capture_output=True, text=True, encoding="utf-8", env=env,
+        )
+        self.assertEqual(status.returncode, 0, status.stderr + status.stdout)
+        payload = json.loads(status.stdout)
+        self.assertEqual(payload["format_version"], "v2")
+        self.assertFalse(payload["approvals"]["report"]["current"])
+        self.assertFalse(payload["approvals"]["report"]["supported"])
+        approve_cli = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "approve", "report", "--project", str(self.root), "--json"],
+            capture_output=True, text=True, encoding="utf-8", env=env,
+        )
+        self.assertEqual(approve_cli.returncode, 2, approve_cli.stderr + approve_cli.stdout)
+        self.assertIn("v2", approve_cli.stderr)
+
+    def test_migrate_fallback_ids_are_ascii_and_validated(self):
+        self.init_v1()
+        for chapter in self.chapters:
+            (self.base / "reports" / f"{slug(chapter)}.md").write_text(
+                f"# {chapter}\n\nEnough report text for the chapter.\n", encoding="utf-8"
+            )
+        preview = migrate_to_units_preview(self.base, self.chapters)
+        self.assertTrue(preview["preview_ok"])
+        ids = [unit["id"] for unit in preview["candidate_units"]]
+        self.assertEqual(ids[0], "cover")
+        for unit_id in ids:
+            self.assertRegex(unit_id, UNIT_ID_RE.pattern, unit_id)
+            self.assertNotRegex(unit_id, r"[\u3400-\u9fff]")
+        self.assertTrue(any(unit_id.startswith("chapter-") for unit_id in ids[1:]), ids)
+        self.assertFalse(any("候选单元 ID 非法" in item for item in preview["conflicts"]))
+
+    def test_missing_report_mappings_block_can_migrate_but_preview_ok(self):
+        self.init_v1()
+        chapter = self.chapters[0]
+        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
+            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
+            "## Slide 2 — Summary\n页面 ID：investment-summary-01\n页面角色：content\n",
+            encoding="utf-8",
+        )
+        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
+            '<section class="slide" id="cover" data-page-role="cover"></section>'
+            '<section class="slide" id="investment-summary-01" data-page-role="content"></section>',
+            encoding="utf-8",
+        )
+        preview = migrate_to_units_preview(self.base, self.chapters)
+        self.assertTrue(preview["preview_ok"])
+        self.assertFalse(preview["can_migrate"])
+        self.assertTrue(preview["missing_report_mappings"])
+        self.assertTrue(preview["blocked_units"])
+        self.assertEqual(preview["conflicts"], [])
+
+    def test_assemble_report_preserves_percent_encoded_path_chars(self):
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="summary-01", chapter=self.chapters[0], role="content"),
+        ]
+        self.write_v2(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening.\n",
+                "summary-01": (
+                    "# Summary\n\n"
+                    "See [round](../../wiki/round%231.md#section) and "
+                    "[notes](../../wiki/my%20notes.md).\n"
+                ),
+            },
+        )
+        (self.base / "wiki" / "round#1.md").write_text("# Round\n", encoding="utf-8")
+        (self.base / "wiki" / "my notes.md").write_text("# Notes\n", encoding="utf-8")
+        document, errors = assemble_report(self.base, units, write=True)
+        self.assertEqual(errors, [])
+        self.assertIn("[round](../wiki/round%231.md#section)", document)
+        self.assertIn("[notes](../wiki/my%20notes.md)", document)
+        self.assertNotIn("../wiki/round#1.md", document)
+        self.assertNotIn("../wiki/my notes.md", document)
 
 
 if __name__ == "__main__":

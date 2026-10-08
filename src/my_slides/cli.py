@@ -26,6 +26,30 @@ from .units import (
 )
 
 APP_DIR = "my-slides"
+V2_UNSUPPORTED_CHAPTER_ACTIONS = frozenset({
+    "prepare report",
+    "prepare spec",
+    "prepare slides",
+    "validate report",
+    "validate spec",
+    "approve report",
+    "approve spec",
+    "slides build",
+    "slides check",
+})
+
+
+def refuse_unsupported_v2_action(base: Path, action: str) -> None:
+    """Step-1 v2 projects keep units.json but chapter approve/generate paths are not ready."""
+    if detect_format_version(base) != "v2":
+        return
+    if action not in V2_UNSUPPORTED_CHAPTER_ACTIONS:
+        return
+    raise ValueError(
+        f"当前项目为 v2 单元格式，暂不支持章节级命令：{action}。"
+        "请使用 my-slides units list 查看单元清单；单元级 prepare/validate/approve/slides "
+        "将在后续步骤提供，勿再使用旧章节批准结果。"
+    )
 EXCLUDED_DIRS = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__"}
 EXCLUDED_FILES = {"agents.md", "claude.md", "gemini.md", "copilot-instructions.md"}
 
@@ -1101,6 +1125,11 @@ def install_browser() -> dict[str, Any]:
 
 
 def approve_revision(base: Path, cfg: dict[str, Any], kind: str) -> tuple[str | None, list[str]]:
+    if detect_format_version(base) == "v2":
+        return None, [
+            "当前项目为 v2 单元格式，暂不支持章节级 approve；"
+            "旧章节批准结果不可用于单元工作流"
+        ]
     errors = validate_report(base, cfg) if kind == "report" else validate_spec(base, cfg)
     if kind == "report":
         _, pending, removed = scan_sources(base.parent, base, cfg)
@@ -1249,7 +1278,9 @@ def main() -> None:
         else:
             root = project_root(args.project)
             base, cfg = ensure_project(root)
+            format_version = detect_format_version(base)
             if args.command == "prepare":
+                refuse_unsupported_v2_action(base, f"prepare {args.kind}")
                 code = prepare(args)
             elif args.command == "sources":
                 state, pending, removed = scan_sources(root, base, cfg)
@@ -1270,6 +1301,7 @@ def main() -> None:
                 emit(args, data, human)
                 code = 0
             elif args.command == "validate":
+                refuse_unsupported_v2_action(base, f"validate {args.kind}")
                 checkers = {
                     "wiki": lambda: validate_wiki(base, cfg),
                     "report": lambda: validate_report(base, cfg),
@@ -1281,6 +1313,7 @@ def main() -> None:
                      error=bool(errors))
                 code = 1 if errors else 0
             elif args.command == "approve":
+                refuse_unsupported_v2_action(base, f"approve {args.kind}")
                 digest, errors = approve_revision(base, cfg, args.kind)
                 if errors:
                     emit(args, {"approved": False, "errors": errors},
@@ -1291,6 +1324,7 @@ def main() -> None:
                          f"已记录 {args.kind} 批准版本：{digest[:12] if digest else ''}")
                     code = 0
             elif args.command == "slides":
+                refuse_unsupported_v2_action(base, f"slides {args.slides_command}")
                 if not approval_is_current(base, "report", cfg):
                     raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
                 if not approval_is_current(base, "spec", cfg):
@@ -1355,21 +1389,29 @@ def main() -> None:
                     )
                 data = migrate_to_units_preview(base, cfg.get("chapters", []))
                 conflicts = data.get("conflicts") or []
+                mapping_gaps = data.get("missing_report_mappings") or []
+                can_migrate = bool(data.get("can_migrate"))
                 human = (
                     f"{data.get('message', '迁移预检完成')}\n"
+                    f"预检完成：{'是' if data.get('preview_ok') else '否'}\n"
+                    f"可迁移：{'是' if can_migrate else '否'}\n"
                     f"候选单元：{len(data.get('candidate_units') or [])}\n"
                     f"冲突：{len(conflicts)}\n"
                     f"警告：{len(data.get('warnings') or [])}\n"
-                    f"待确认报告映射：{len(data.get('missing_report_mappings') or [])}"
+                    f"待确认报告映射：{len(mapping_gaps)}"
                 )
                 if conflicts:
                     human += "\n冲突明细：\n" + "\n".join(f"- {item}" for item in conflicts)
-                emit(args, data, human, error=bool(conflicts))
-                code = 1 if conflicts else 0
+                if mapping_gaps and not can_migrate:
+                    human += "\n映射阻断：\n" + "\n".join(
+                        f"- {item['unit_id']}：{item['reason']}" for item in mapping_gaps[:8]
+                    )
+                # Dry-run completed successfully even when not yet migratable.
+                emit(args, data, human, error=not data.get("preview_ok", True))
+                code = 0 if data.get("preview_ok", True) else 1
             elif args.command == "doctor":
                 required = ["project.yaml", "wiki/README.md", "wiki/index.md", "wiki/log.md", "reports", "specs", "slides"]
                 missing = [name for name in required if not (base / name).exists()]
-                format_version = detect_format_version(base)
                 unit_errors: list[str] = []
                 if format_version == "v2":
                     try:
@@ -1397,14 +1439,51 @@ def main() -> None:
                 code = 0 if ok else 1
             else:
                 _, pending, removed = scan_sources(root, base, cfg)
-                approvals_path = base / ".state" / "approvals.json"
-                approvals = json.loads(approvals_path.read_text(encoding="utf-8")) if approvals_path.exists() else {}
-                approval_status = {
-                    kind: {"approved": item, "current": approval_is_current(base, kind, cfg)}
-                    for kind, item in approvals.items()
-                }
-                slide_status = {"built": (base / "slides" / "index.html").exists(), "current": slides_is_current(base, cfg)}
-                format_version = detect_format_version(base)
+                if format_version == "v2":
+                    # Do not reuse v1 chapter approval digests for v2 unit projects.
+                    approval_status = {
+                        "report": {
+                            "supported": False,
+                            "current": False,
+                            "message": "v2 单元级报告批准尚未实现；忽略旧章节批准记录",
+                        },
+                        "spec": {
+                            "supported": False,
+                            "current": False,
+                            "message": "v2 单元级 Spec 批准尚未实现；忽略旧章节批准记录",
+                        },
+                    }
+                    slide_status = {
+                        "supported": False,
+                        "built": (base / "slides" / "index.html").exists(),
+                        "current": False,
+                        "message": "v2 单元级 slides 构建尚未实现；勿沿用章节合并状态",
+                    }
+                    human = (
+                        f"项目：{root}\n格式：v2\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
+                        "报告批准：不支持（勿使用旧章节批准）\n"
+                        "Spec 批准：不支持（勿使用旧章节批准）\n"
+                        "Slides：不支持章节合并状态\n"
+                        "提示：运行 my-slides units list 查看单元清单"
+                    )
+                else:
+                    approvals_path = base / ".state" / "approvals.json"
+                    approvals = json.loads(approvals_path.read_text(encoding="utf-8")) if approvals_path.exists() else {}
+                    approval_status = {
+                        kind: {"supported": True, "approved": item, "current": approval_is_current(base, kind, cfg)}
+                        for kind, item in approvals.items()
+                    }
+                    slide_status = {
+                        "supported": True,
+                        "built": (base / "slides" / "index.html").exists(),
+                        "current": slides_is_current(base, cfg),
+                    }
+                    human = (
+                        f"项目：{root}\n格式：v1\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
+                        f"报告已审阅且未变化：{'是' if approval_status.get('report', {}).get('current') else '否'}\n"
+                        f"Spec 已审阅且未变化：{'是' if approval_status.get('spec', {}).get('current') else '否'}\n"
+                        f"Slides 与当前批准版本一致：{'是' if slide_status['current'] else '否'}"
+                    )
                 data = {
                     "project": str(root),
                     "format_version": format_version,
@@ -1413,12 +1492,6 @@ def main() -> None:
                     "approvals": approval_status,
                     "slides": slide_status,
                 }
-                human = (
-                    f"项目：{root}\n格式：{format_version}\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
-                    f"报告已审阅且未变化：{'是' if approval_status.get('report', {}).get('current') else '否'}\n"
-                    f"Spec 已审阅且未变化：{'是' if approval_status.get('spec', {}).get('current') else '否'}\n"
-                    f"Slides 与当前批准版本一致：{'是' if slide_status['current'] else '否'}"
-                )
                 emit(args, data, human)
                 code = 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError, UnitsError) as exc:

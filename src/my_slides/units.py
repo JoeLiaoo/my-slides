@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 SCHEMA_VERSION = 2
 UNIT_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -51,6 +51,23 @@ class UnitsError(ValueError):
 def slug(value: str) -> str:
     value = re.sub(r"[^\w\u3400-\u9fff.-]+", "-", value.strip().lower(), flags=re.UNICODE)
     return value.strip("-.") or "section"
+
+
+def unit_id_prefix(value: str, *, fallback: str) -> str:
+    """Build a UNIT_ID_RE-safe prefix; Chinese chapter titles fall back to an ASCII token."""
+    cleaned = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return cleaned if UNIT_ID_RE.fullmatch(cleaned) else fallback
+
+
+def encode_link_path(relative: Path) -> str:
+    """Percent-encode each path segment so # and spaces stay in the path, not the fragment."""
+    parts: list[str] = []
+    for segment in relative.as_posix().split("/"):
+        if segment in {"", ".", ".."}:
+            parts.append(segment)
+        else:
+            parts.append(quote(segment, safe=""))
+    return "/".join(parts)
 
 
 def units_manifest_path(base: Path) -> Path:
@@ -244,17 +261,18 @@ def rewrite_relative_links(text: str, *, source_file: Path, destination_file: Pa
         target = match.group(1).strip()
         if _is_external_link(target):
             return match.group(0)
-        raw_path, anchor = (target.split("#", 1) + [""])[:2]
-        raw_path = unquote(raw_path)
-        if not raw_path:
+        # Split on an unencoded fragment marker before decoding path escapes like %23.
+        raw_path, separator, anchor = target.partition("#")
+        decoded_path = unquote(raw_path)
+        if not decoded_path:
             return match.group(0)
-        resolved = (source_file.parent / raw_path).resolve()
+        resolved = (source_file.parent / decoded_path).resolve()
         try:
             relative = Path(os_path_relative_to(resolved, destination_file.parent.resolve()))
         except ValueError:
             return match.group(0)
-        rewritten = relative.as_posix()
-        if anchor:
+        rewritten = encode_link_path(relative)
+        if separator:
             rewritten = f"{rewritten}#{anchor}"
         return match.group(0).replace(target, rewritten)
 
@@ -367,6 +385,7 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
     if detect_format_version(base) == "v2":
         return {
             "dry_run": True,
+            "preview_ok": True,
             "format_version": "v2",
             "can_migrate": False,
             "candidate_units": [],
@@ -374,6 +393,8 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
             "warnings": [],
             "missing_report_mappings": [],
             "html_boundaries": [],
+            "blocked_units": [],
+            "message": "项目已是 v2 单元格式；预检完成，但无需迁移。",
         }
 
     candidate_units: list[dict[str, Any]] = []
@@ -384,8 +405,24 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
     seen_ids: dict[str, str] = {}
     global_order = 0
 
-    for chapter in chapters:
+    def register_candidate(unit: dict[str, Any]) -> None:
+        nonlocal global_order
+        unit_id = unit["id"]
+        chapter = unit["chapter"]
+        if unit_id in seen_ids:
+            conflicts.append(f"跨章重复页面 ID：{unit_id}（{seen_ids[unit_id]} 与 {chapter}）")
+        else:
+            seen_ids[unit_id] = chapter
+        if not UNIT_ID_RE.fullmatch(unit_id):
+            conflicts.append(f"候选单元 ID 非法：{unit_id}（章节 {chapter}）")
+        if unit.get("role") not in UNIT_ROLES:
+            conflicts.append(f"候选单元角色非法：{unit.get('role')!r}（{unit_id}）")
+        candidate_units.append(unit)
+        global_order += 1
+
+    for chapter_index, chapter in enumerate(chapters, start=1):
         chapter_slug = slug(chapter)
+        id_prefix = unit_id_prefix(chapter, fallback=f"chapter-{chapter_index:02d}")
         report_path = base / "reports" / f"{chapter_slug}.md"
         spec_path = base / "specs" / f"{chapter_slug}.md"
         html_path = base / "slides" / "chapters" / f"{chapter_slug}.html"
@@ -418,9 +455,9 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
         if not spec_pages and not html_slides:
             # Fall back to one content candidate per chapter so dry-run still surfaces work.
             if report_exists or chapter == chapters[0]:
-                fallback_id = "cover" if not candidate_units else f"{chapter_slug}-01"
+                fallback_id = "cover" if not candidate_units else f"{id_prefix}-01"
                 role = "cover" if not candidate_units else "content"
-                candidate_units.append({
+                register_candidate({
                     "id": fallback_id,
                     "chapter": chapter,
                     "role": role,
@@ -453,20 +490,12 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
                 role = html_slide["role"] or role
                 source = "html-slide-id"
             else:
-                unit_id = "cover" if global_order == 0 else f"{chapter_slug}-{index + 1:02d}"
+                unit_id = "cover" if global_order == 0 else f"{id_prefix}-{index + 1:02d}"
                 role = "cover" if global_order == 0 else "content"
                 source = "generated-fallback"
                 warnings.append(
                     f"章节 {chapter} 第 {index + 1} 页缺少稳定页面 ID，预检仅给出候选 {unit_id}，正式迁移前需人工确认"
                 )
-
-            if unit_id in seen_ids:
-                conflicts.append(f"跨章重复页面 ID：{unit_id}（{seen_ids[unit_id]} 与 {chapter}）")
-            else:
-                seen_ids[unit_id] = chapter
-
-            if not UNIT_ID_RE.fullmatch(unit_id):
-                conflicts.append(f"候选单元 ID 非法：{unit_id}（章节 {chapter}）")
 
             if spec_page and html_slide:
                 if spec_page["id"] and html_slide["id"] and spec_page["id"] != html_slide["id"]:
@@ -504,7 +533,7 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
 
             if global_order == 0 and not role:
                 role = "cover"
-            candidate_units.append({
+            register_candidate({
                 "id": unit_id,
                 "chapter": chapter,
                 "role": role or "content",
@@ -515,7 +544,6 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
                 "spec_slide_number": spec_page["slide_number"] if spec_page else None,
                 "html_index": index if html_slide else None,
             })
-            global_order += 1
 
     if candidate_units:
         # Normalize cover: exactly the first candidate should be cover when possible.
@@ -538,12 +566,20 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
         seen_missing.add(key)
         deduped.append(item)
 
+    mapping_blockers = [item["unit_id"] for item in deduped]
+    conflict_blockers = [
+        unit["id"] for unit in candidate_units if any(unit["id"] in conflict for conflict in conflicts)
+    ]
+    blocked_units = list(dict.fromkeys(mapping_blockers + conflict_blockers))
+    can_migrate = not conflicts and not deduped
+
     return {
         "dry_run": True,
+        "preview_ok": True,
         "format_version": "v1",
         "target_format": "v2",
         "schema_version": SCHEMA_VERSION,
-        "can_migrate": not conflicts,
+        "can_migrate": can_migrate,
         "candidate_units": candidate_units,
         "conflicts": conflicts,
         "warnings": warnings,
@@ -552,12 +588,15 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
         "selected_units": [unit["id"] for unit in candidate_units],
         "affected_units": [unit["id"] for unit in candidate_units],
         "reused_units": [],
-        "blocked_units": [item["unit_id"] for item in deduped] + [
-            unit["id"] for unit in candidate_units if any(unit["id"] in conflict for conflict in conflicts)
-        ],
+        "blocked_units": blocked_units,
         "reasons": {
             **{item["unit_id"]: item["reason"] for item in deduped},
             **{f"conflict-{index}": conflict for index, conflict in enumerate(conflicts)},
         },
-        "message": "只读迁移预检完成；未修改项目文件。正式迁移（非 dry-run）将在后续步骤实现。",
+        "message": (
+            "只读迁移预检完成；未修改项目文件。"
+            + ("候选单元已通过可行性检查，可进入后续正式迁移。" if can_migrate
+               else "存在冲突或待确认报告映射，尚不能标记为可迁移。")
+            + "正式迁移（非 dry-run）将在后续步骤实现。"
+        ),
     }
