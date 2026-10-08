@@ -9,7 +9,7 @@ Use this skill when working inside an investment project that contains `my-slide
 
 **Prefer v2.** New projects from `my-slides init` are v2 (`units.json` + unit directories). If `my-slides/units.json` exists, run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
 
-Projects without `units.json` are unsupported for daily commands. Run `my-slides migrate --to-units` (or re-`init`) before continuing.
+Projects without `units.json` are unsupported. Legacy chapter migration is unsupported; re-`init` for a v2 project.
 
 ## Working rules
 
@@ -45,7 +45,6 @@ my-slides approve spec --unit <id>
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
 my-slides slides check --unit <id> --browser
-my-slides migrate --to-units --dry-run
 ```
 
 Use `--project <path>` when the agent's current directory is outside the project.

@@ -8,23 +8,19 @@ import unittest
 from pathlib import Path
 
 from my_slides.cli import approve_revision, init_project, slug, template_chapters
-from my_slides.cli import SlideFragmentParser
 from my_slides.units import (
-    UNIT_ID_RE,
     UnitsError,
     assemble_report,
     detect_format_version,
     dump_units_manifest,
     list_units_status,
     load_units_manifest,
-    migrate_to_units_preview,
     resolve_local_markdown_path,
     unit_paths,
     validate_units,
     write_units_manifest,
     Unit,
 )
-
 
 class UnitsFormatTests(unittest.TestCase):
     def setUp(self):
@@ -42,7 +38,6 @@ class UnitsFormatTests(unittest.TestCase):
         if units.exists():
             units.unlink()
         (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
-
 
     def write_v2(self, units: list[Unit], *, reports: dict[str, str] | None = None):
         self.init_v1()
@@ -123,66 +118,7 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(status["missing"][0]["id"], "summary-01")
         self.assertEqual(status["missing"][0]["artifact"], "page")
 
-    def test_migrate_dry_run_is_read_only_and_surfaces_page_ids(self):
-        self.init_v1()
-        chapter = self.chapters[0]
-        chapter_slug = slug(chapter)
-        (self.base / "reports" / f"{chapter_slug}.md").write_text(
-            f"# {chapter}\n\nEnough report text for the chapter.\n", encoding="utf-8"
-        )
-        (self.base / "specs" / f"{chapter_slug}.md").write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
-            "### 目的\nOpen\n### 核心结论\nX\n### 展示内容\nY\n### 证据与来源\nZ\n"
-            "### 限定条件\nN\n### 报告段落映射\nMap\n### 布局意图\nLayout\n### 图标需求\n无\n"
-            "## Slide 2 — Summary\n页面 ID：investment-summary-01\n页面角色：content\n"
-            "### 目的\nOpen\n### 核心结论\nX\n### 展示内容\nY\n### 证据与来源\nZ\n"
-            "### 限定条件\nN\n### 报告段落映射\nMap\n### 布局意图\nLayout\n### 图标需求\n无\n",
-            encoding="utf-8",
-        )
-        (self.base / "slides" / "chapters" / f"{chapter_slug}.html").write_text(
-            '<section class="slide" id="cover" data-page-role="cover"><h1>Cover</h1></section>'
-            '<section class="slide" id="investment-summary-01" data-page-role="content"><h1>Summary</h1></section>',
-            encoding="utf-8",
-        )
-        before = {
-            path.relative_to(self.base).as_posix(): path.read_bytes()
-            for path in self.base.rglob("*")
-            if path.is_file()
-        }
-        preview = migrate_to_units_preview(self.base, self.chapters)
-        after = {
-            path.relative_to(self.base).as_posix(): path.read_bytes()
-            for path in self.base.rglob("*")
-            if path.is_file()
-        }
-        self.assertEqual(before, after)
-        self.assertTrue(preview["dry_run"])
-        self.assertTrue(preview["preview_ok"])
-        ids = [unit["id"] for unit in preview["candidate_units"]]
-        self.assertIn("cover", ids)
-        self.assertIn("investment-summary-01", ids)
-        self.assertTrue(any("报告单元拆分" in item["reason"] for item in preview["missing_report_mappings"]))
-        # Mapping gaps block migration even when the dry-run itself succeeds.
-        self.assertFalse(preview["can_migrate"])
-        self.assertIn("cover", preview["blocked_units"])
-
-    def test_migrate_dry_run_reports_cross_chapter_id_conflicts(self):
-        self.init_v1()
-        first, second = self.chapters[0], self.chapters[1]
-        for chapter, page_id in ((first, "shared-id"), (second, "shared-id")):
-            (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-                f"## Slide 1 — {chapter}\n页面 ID：{page_id}\n页面角色：content\n",
-                encoding="utf-8",
-            )
-            (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-                f'<section class="slide" id="{page_id}" data-page-role="content"></section>',
-                encoding="utf-8",
-            )
-        preview = migrate_to_units_preview(self.base, self.chapters)
-        self.assertFalse(preview["can_migrate"])
-        self.assertTrue(any("跨章重复页面 ID" in item for item in preview["conflicts"]))
-
-    def test_cli_units_list_and_migrate_dry_run(self):
+    def test_cli_units_list_refuses_v1_without_units_json(self):
         self.init_v1()
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
 
@@ -191,36 +127,21 @@ class UnitsFormatTests(unittest.TestCase):
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
         self.assertEqual(listed.returncode, 2, listed.stderr + listed.stdout)
-        self.assertIn("units.json", json.loads(listed.stdout).get("error", ""))
+        error = json.loads(listed.stdout).get("error", "")
+        self.assertIn("units.json", error)
+        self.assertIn("迁移", error)
 
-        chapter = self.chapters[0]
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n", encoding="utf-8"
-        )
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            '<section class="slide" id="cover" data-page-role="cover"></section>', encoding="utf-8"
-        )
-        preview = subprocess.run(
-            [sys.executable, "-m", "my_slides.cli", "migrate", "--to-units", "--dry-run", "--project", str(self.root), "--json"],
+        # migrate command is removed
+        missing = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "migrate", "--to-units", "--dry-run", "--project", str(self.root)],
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
-        self.assertEqual(preview.returncode, 0, preview.stderr + preview.stdout)
-        payload = json.loads(preview.stdout)
-        self.assertTrue(payload["dry_run"])
-        self.assertTrue(payload["preview_ok"])
-        self.assertIn("cover", payload["selected_units"])
-        # Preview success is not the same as ready-to-migrate.
-        self.assertFalse(payload["can_migrate"])
-
-        blocked = subprocess.run(
-            [sys.executable, "-m", "my_slides.cli", "migrate", "--to-units", "--project", str(self.root)],
-            capture_output=True, text=True, encoding="utf-8", env=env,
-        )
-        self.assertEqual(blocked.returncode, 2)
-        # Formal migrate refuses when dry-run would report can_migrate=false.
+        self.assertNotEqual(missing.returncode, 0)
         self.assertTrue(
-            "拒绝正式迁移" in blocked.stderr or "待确认" in blocked.stderr,
-            blocked.stderr,
+            "invalid choice" in missing.stderr.lower()
+            or "unrecognized" in missing.stderr.lower()
+            or "migrate" in missing.stderr.lower(),
+            missing.stderr,
         )
 
     def test_dump_units_manifest_is_stable_json(self):
@@ -268,42 +189,6 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(approve_cli.returncode, 2, approve_cli.stderr + approve_cli.stdout)
         approve_payload = json.loads(approve_cli.stdout)
         self.assertIn("v2", approve_payload.get("error", ""))
-
-    def test_migrate_fallback_ids_are_ascii_and_validated(self):
-        self.init_v1()
-        for chapter in self.chapters:
-            (self.base / "reports" / f"{slug(chapter)}.md").write_text(
-                f"# {chapter}\n\nEnough report text for the chapter.\n", encoding="utf-8"
-            )
-        preview = migrate_to_units_preview(self.base, self.chapters)
-        self.assertTrue(preview["preview_ok"])
-        ids = [unit["id"] for unit in preview["candidate_units"]]
-        self.assertEqual(ids[0], "cover")
-        for unit_id in ids:
-            self.assertRegex(unit_id, UNIT_ID_RE.pattern, unit_id)
-            self.assertNotRegex(unit_id, r"[\u3400-\u9fff]")
-        self.assertTrue(any(unit_id.startswith("chapter-") for unit_id in ids[1:]), ids)
-        self.assertFalse(any("候选单元 ID 非法" in item for item in preview["conflicts"]))
-
-    def test_missing_report_mappings_block_can_migrate_but_preview_ok(self):
-        self.init_v1()
-        chapter = self.chapters[0]
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
-            "## Slide 2 — Summary\n页面 ID：investment-summary-01\n页面角色：content\n",
-            encoding="utf-8",
-        )
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            '<section class="slide" id="cover" data-page-role="cover"></section>'
-            '<section class="slide" id="investment-summary-01" data-page-role="content"></section>',
-            encoding="utf-8",
-        )
-        preview = migrate_to_units_preview(self.base, self.chapters)
-        self.assertTrue(preview["preview_ok"])
-        self.assertFalse(preview["can_migrate"])
-        self.assertTrue(preview["missing_report_mappings"])
-        self.assertTrue(preview["blocked_units"])
-        self.assertEqual(preview["conflicts"], [])
 
     def test_assemble_report_preserves_percent_encoded_path_chars(self):
         units = [
@@ -364,32 +249,6 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertTrue(any("重复" in error or "cover" in error for error in fail_errors), fail_errors)
         self.assertEqual(report.read_text(encoding="utf-8"), original)
 
-    def test_cover_not_first_blocks_can_migrate(self):
-        self.init_v1()
-        first, second = self.chapters[0], self.chapters[1]
-        (self.base / "reports" / f"{slug(first)}.md").write_text(
-            f"# {first}\n\nEnough report text for the chapter.\n", encoding="utf-8"
-        )
-        (self.base / "reports" / f"{slug(second)}.md").write_text(
-            f"# {second}\n\nEnough report text for the chapter.\n", encoding="utf-8"
-        )
-        (self.base / "specs" / f"{slug(first)}.md").write_text(
-            "## Slide 1 — Body\n页面 ID：body-01\n页面角色：content\n", encoding="utf-8"
-        )
-        (self.base / "specs" / f"{slug(second)}.md").write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n", encoding="utf-8"
-        )
-        (self.base / "slides" / "chapters" / f"{slug(first)}.html").write_text(
-            '<section class="slide" id="body-01" data-page-role="content"></section>', encoding="utf-8"
-        )
-        (self.base / "slides" / "chapters" / f"{slug(second)}.html").write_text(
-            '<section class="slide" id="cover" data-page-role="cover"></section>', encoding="utf-8"
-        )
-        preview = migrate_to_units_preview(self.base, [first, second])
-        self.assertTrue(preview["preview_ok"])
-        self.assertFalse(preview["can_migrate"])
-        self.assertTrue(any("首位" in item for item in preview["conflicts"]), preview["conflicts"])
-
     def test_assemble_rewrites_reference_style_links_and_validates(self):
         units = [
             Unit(id="cover", chapter=self.chapters[0], role="cover"),
@@ -424,47 +283,6 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(failed, "")
         self.assertTrue(any("本地链接失效" in error for error in fail_errors), fail_errors)
         self.assertEqual(report.read_text(encoding="utf-8"), original)
-
-    def test_v2_project_migrate_preview_does_not_list_noop_as_conflict(self):
-        units = [Unit(id="cover", chapter=self.chapters[0], role="cover")]
-        self.write_v2(units)
-        preview = migrate_to_units_preview(self.base, self.chapters)
-        self.assertEqual(preview["format_version"], "v2")
-        self.assertFalse(preview["can_migrate"])
-        self.assertEqual(preview["conflicts"], [])
-        self.assertTrue(any("无需迁移" in item for item in preview["warnings"]))
-
-    def test_migrate_html_boundaries_match_slide_fragment_parser(self):
-        self.init_v1()
-        chapter = self.chapters[0]
-        # Unclosed <p> previously made the migrate preview under-count slides vs merge.
-        html = (
-            '<section class="slide" id="cover" data-page-role="cover"><p>unclosed'
-            '<script type="application/json" class="slide-notes">'
-            '{"title":"Cover","script":"Hi","notes":[]}</script></section>'
-            '<section class="slide" id="summary-01" data-page-role="content"><h1>Summary</h1>'
-            '<script type="application/json" class="slide-notes">'
-            '{"title":"Summary","script":"Hi","notes":[]}</script></section>'
-        )
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(html, encoding="utf-8")
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
-            "## Slide 2 — Summary\n页面 ID：summary-01\n页面角色：content\n",
-            encoding="utf-8",
-        )
-        (self.base / "reports" / f"{slug(chapter)}.md").write_text(
-            f"# {chapter}\n\nEnough report text for the chapter.\n", encoding="utf-8"
-        )
-        parser = SlideFragmentParser()
-        parser.feed(html)
-        parser.close()
-        preview = migrate_to_units_preview(self.base, [chapter])
-        boundary = preview["html_boundaries"][0]
-        self.assertEqual(len(parser.slides), 2)
-        self.assertEqual(boundary["slide_count"], len(parser.slides))
-        self.assertEqual([slide["id"] for slide in boundary["slides"]], ["cover", "summary-01"])
-        # build_slides uses the same parser; slide list length matches even when nesting warns.
-        self.assertEqual(len(parser.slides), 2)
 
     def test_shared_local_link_resolution_matches_percent_encoding(self):
         self.init_v1()
@@ -501,7 +319,6 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(errors, [], errors)
         self.assertIn("公司页", document)
         self.assertIn("[^1]:", document)
-
 
 if __name__ == "__main__":
     unittest.main()
