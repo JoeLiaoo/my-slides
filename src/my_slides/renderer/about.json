@@ -1,0 +1,17 @@
+{
+  "echarts": {
+    "version": "6.1.0",
+    "source": "https://github.com/apache/echarts",
+    "license": "Apache-2.0"
+  },
+  "lucide-static": {
+    "version": "1.52.0",
+    "source": "https://github.com/lucide-icons/lucide",
+    "license": "ISC"
+  },
+  "html-slides": {
+    "commit": "d8289f4c317905cc5d0ca265d32b791e6cb387b7",
+    "source": "https://github.com/bluedusk/html-slides",
+    "license": "MIT"
+  }
+}

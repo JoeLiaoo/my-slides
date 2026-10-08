@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-slides"
+version = "0.1.0"
+description = "Local agent workflow for investment project wikis, reports, and HTML slides"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+browser = ["playwright>=1.52,<2"]
+
+[project.scripts]
+my-slides = "my_slides.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+my_slides = ["templates/*.md", "renderer/*.mjs", "renderer/*.json", "skills/my-slides-workflow/*.md"]

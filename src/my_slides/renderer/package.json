@@ -1,0 +1,11 @@
+{
+  "name": "my-slides-renderers",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned local renderers for offline investment slides",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "echarts": "6.1.0",
+    "lucide-static": "1.52.0"
+  }
+}
