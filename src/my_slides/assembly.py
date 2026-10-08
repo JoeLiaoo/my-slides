@@ -320,7 +320,10 @@ def build_units_deck(
             payload = json.loads(cached.read_text(encoding="utf-8"))
             plan["rebuild"].append(unit.id)
         source = payload["html"]
+        # Strip prior indices/ids so rewrite injects exactly one of each (pages may
+        # already carry data-unit-id from compile_unit_page).
         source = re.sub(r'\sdata-slide=["\'][^"\']*["\']', "", source, count=1)
+        source = re.sub(r'\sdata-unit-id=["\'][^"\']*["\']', "", source, count=1)
         marker = f'data-slide="{index}" data-unit-id="{html.escape(unit.id, quote=True)}"'
 
         def rewrite_root(match: re.Match[str], *, _index: int = index, _marker: str = marker) -> str:
