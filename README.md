@@ -59,6 +59,8 @@ my-slides prepare wiki --project "C:\Projects\某投资项目"
 
 CLI 已提供项目初始化、按报告章节建立和补齐 Wiki 索引、Markdown 变化扫描、Agent 交接材料与项目级工作流技能、Wiki／报告／Spec 检查、报告与 Spec 审批版本联动、图表与图标本地 SVG 渲染、章节 HTML 合并，以及 Chromium 桌面和手机视口检查。自动回归覆盖六章合成项目的端到端流程；生成内容仍由当前 Agent 撰写，真实项目的页面质量需要逐页审阅。
 
+单元化改造（issue #1）已落地步骤 1：`units.json` 读取与校验、报告单元组装、`my-slides units list`，以及 `my-slides migrate --to-units --dry-run` 只读迁移预检。现有项目仍默认走 v1 章节路径；存在 `my-slides/units.json` 时识别为 v2。
+
 运行基础回归测试：
 
 ```powershell
