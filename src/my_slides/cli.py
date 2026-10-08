@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
+from . import __version__
 from .state import collect_units_status
 from .unit_workflow import (
     approve_unit_report,
@@ -1523,7 +1524,7 @@ def install_agent_workflow(root: Path) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="my-slides", description="投资项目 Wiki、报告与 HTML Slides 本地工作流")
-    parser.add_argument("--version", action="version", version="my-slides 0.2.0")
+    parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
     init = sub.add_parser("init", help="初始化 v2 单元格式投资项目工作区")
     init.add_argument("--project", help="项目目录，默认当前目录")

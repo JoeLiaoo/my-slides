@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from my_slides import __version__
 from my_slides.browser import check_deck
 from my_slides.cli import (
     SlideFragmentParser,
@@ -47,6 +48,30 @@ def require_optional(ready: bool, reason: str) -> None:
     if os.environ.get("MY_SLIDES_FULL_TESTS", "").strip().lower() in {"1", "true", "yes", "on"}:
         raise AssertionError(f"完整测试要求已安装依赖，但：{reason}")
     raise unittest.SkipTest(reason)
+
+
+class VersionTests(unittest.TestCase):
+    def test_package_version_matches_pyproject(self):
+        import tomllib
+
+        pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        self.assertEqual(__version__, data["project"]["version"])
+        self.assertEqual(__version__, "0.2.0")
+
+    def test_cli_version_flags(self):
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        for flag in ("--version", "-V"):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [sys.executable, "-m", "my_slides.cli", flag],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    env=env,
+                )
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout.strip(), f"my-slides {__version__}")
 
 
 class ProjectWorkflowTests(unittest.TestCase):
