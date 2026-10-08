@@ -18,6 +18,11 @@ SCHEMA_VERSION = 2
 UNIT_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 UNIT_ROLES = frozenset({"cover", "content"})
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# Reference definitions: [label]: path, [label]: <path>, optional title suffix.
+MARKDOWN_REF_DEF_RE = re.compile(
+    r"^(\[[^\]\n]+\]:\s*)(?:<([^>\n]+)>|(\S+))(.*)$",
+    flags=re.MULTILINE,
+)
 SPEC_PAGE_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-].*$", flags=re.MULTILINE)
 SPEC_PAGE_ID_RE = re.compile(r"^页面 ID\s*[：:]\s*(\S+)\s*$", flags=re.MULTILINE)
 SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", flags=re.MULTILINE | re.IGNORECASE)
@@ -127,7 +132,8 @@ def _normalize_unit_entry(raw: Any, index: int) -> Unit:
     return Unit(id=unit_id, chapter=chapter.strip(), role=role)
 
 
-def validate_units(units: list[Unit], chapters: list[str]) -> list[str]:
+def validate_units(units: list[Unit], chapters: list[str] | None = None) -> list[str]:
+    """Validate unit identity rules. When chapters is None, skip chapter membership/order checks."""
     errors: list[str] = []
     if not units:
         errors.append("units.json 至少需要一个单元")
@@ -137,24 +143,29 @@ def validate_units(units: list[Unit], chapters: list[str]) -> list[str]:
         if unit.id in seen:
             errors.append(f"单元 ID 重复：{unit.id}")
         seen.add(unit.id)
-        if unit.chapter not in chapters:
+        if not UNIT_ID_RE.fullmatch(unit.id):
+            errors.append(f"单元 ID 非法：{unit.id}")
+        if unit.role not in UNIT_ROLES:
+            errors.append(f"单元 {unit.id} 的角色非法：{unit.role!r}")
+        if chapters is not None and unit.chapter not in chapters:
             errors.append(f"单元 {unit.id} 的章节不存在于 project.yaml：{unit.chapter}")
     covers = [unit for unit in units if unit.role == "cover"]
     if len(covers) != 1:
         errors.append("全套必须且只能包含一个 cover 单元")
     elif units[0].role != "cover":
         errors.append("cover 单元必须位于 units 数组首位")
-    chapter_order = [chapter for chapter in chapters if any(unit.chapter == chapter for unit in units)]
-    last_index = -1
-    for unit in units:
-        try:
-            index = chapter_order.index(unit.chapter)
-        except ValueError:
-            continue
-        if index < last_index:
-            errors.append(f"单元顺序与 project.yaml 章节顺序冲突：{unit.id}（章节 {unit.chapter}）")
-            break
-        last_index = index
+    if chapters is not None:
+        chapter_order = [chapter for chapter in chapters if any(unit.chapter == chapter for unit in units)]
+        last_index = -1
+        for unit in units:
+            try:
+                index = chapter_order.index(unit.chapter)
+            except ValueError:
+                continue
+            if index < last_index:
+                errors.append(f"单元顺序与 project.yaml 章节顺序冲突：{unit.id}（章节 {unit.chapter}）")
+                break
+            last_index = index
     return errors
 
 
@@ -175,9 +186,8 @@ def load_units_manifest(base: Path, chapters: list[str] | None = None) -> tuple[
     if not isinstance(raw_units, list):
         raise UnitsError("units.json 的 units 必须是数组")
     units = [_normalize_unit_entry(item, index) for index, item in enumerate(raw_units)]
-    chapter_list = chapters if chapters is not None else []
-    errors = validate_units(units, chapter_list) if chapters is not None else []
-    if chapters is not None and errors:
+    errors = validate_units(units, chapters)
+    if errors:
         raise UnitsError("；".join(errors))
     return units, errors
 
@@ -254,29 +264,75 @@ def _is_external_link(target: str) -> bool:
     return bool(parsed.scheme)
 
 
-def rewrite_relative_links(text: str, *, source_file: Path, destination_file: Path) -> str:
-    """Rewrite Markdown links so they remain valid after assembly into report.md."""
+def rewrite_link_target(target: str, *, source_file: Path, destination_file: Path) -> str | None:
+    """Rewrite one local link target; return None when the target should be left unchanged."""
+    target = target.strip()
+    if _is_external_link(target):
+        return None
+    # Split on an unencoded fragment marker before decoding path escapes like %23.
+    raw_path, separator, anchor = target.partition("#")
+    decoded_path = unquote(raw_path)
+    if not decoded_path:
+        return None
+    resolved = (source_file.parent / decoded_path).resolve()
+    try:
+        relative = Path(os_path_relative_to(resolved, destination_file.parent.resolve()))
+    except ValueError:
+        return None
+    rewritten = encode_link_path(relative)
+    if separator:
+        rewritten = f"{rewritten}#{anchor}"
+    return rewritten
 
-    def replace(match: re.Match[str]) -> str:
-        target = match.group(1).strip()
-        if _is_external_link(target):
+
+def rewrite_relative_links(text: str, *, source_file: Path, destination_file: Path) -> str:
+    """Rewrite inline and reference-definition Markdown links for assembly into report.md."""
+
+    def replace_inline(match: re.Match[str]) -> str:
+        target = match.group(1)
+        rewritten = rewrite_link_target(target, source_file=source_file, destination_file=destination_file)
+        if rewritten is None:
             return match.group(0)
-        # Split on an unencoded fragment marker before decoding path escapes like %23.
-        raw_path, separator, anchor = target.partition("#")
-        decoded_path = unquote(raw_path)
-        if not decoded_path:
-            return match.group(0)
-        resolved = (source_file.parent / decoded_path).resolve()
-        try:
-            relative = Path(os_path_relative_to(resolved, destination_file.parent.resolve()))
-        except ValueError:
-            return match.group(0)
-        rewritten = encode_link_path(relative)
-        if separator:
-            rewritten = f"{rewritten}#{anchor}"
         return match.group(0).replace(target, rewritten)
 
-    return MARKDOWN_LINK_RE.sub(replace, text)
+    def replace_ref_def(match: re.Match[str]) -> str:
+        prefix, angled, bare, suffix = match.group(1), match.group(2), match.group(3), match.group(4)
+        target = angled if angled is not None else bare
+        rewritten = rewrite_link_target(target, source_file=source_file, destination_file=destination_file)
+        if rewritten is None:
+            return match.group(0)
+        if angled is not None:
+            return f"{prefix}<{rewritten}>{suffix}"
+        return f"{prefix}{rewritten}{suffix}"
+
+    text = MARKDOWN_LINK_RE.sub(replace_inline, text)
+    return MARKDOWN_REF_DEF_RE.sub(replace_ref_def, text)
+
+
+def iter_local_markdown_targets(text: str) -> list[str]:
+    targets: list[str] = []
+    for match in MARKDOWN_LINK_RE.finditer(text):
+        targets.append(match.group(1).strip())
+    for match in MARKDOWN_REF_DEF_RE.finditer(text):
+        angled, bare = match.group(2), match.group(3)
+        targets.append((angled if angled is not None else bare).strip())
+    return targets
+
+
+def validate_local_markdown_links(text: str, base_file: Path) -> list[str]:
+    """Ensure rewritten local Markdown targets resolve from base_file's directory."""
+    errors: list[str] = []
+    for target in iter_local_markdown_targets(text):
+        if _is_external_link(target):
+            continue
+        raw_path, _, _ = target.partition("#")
+        decoded = unquote(raw_path)
+        if not decoded:
+            continue
+        resolved = (base_file.parent / decoded).resolve()
+        if not resolved.exists():
+            errors.append(f"组装后本地链接失效：{target}")
+    return errors
 
 
 def os_path_relative_to(path: Path, start: Path) -> Path:
@@ -302,12 +358,22 @@ def os_path_relative_to(path: Path, start: Path) -> Path:
 
 
 def assemble_report(base: Path, units: list[Unit] | None = None, *, write: bool = True) -> tuple[str, list[str]]:
-    """Concatenate report units into reports/report.md with rewritten local links."""
+    """Concatenate report units into reports/report.md with rewritten local links.
+
+    On validation or link failure the existing report.md is left untouched.
+    """
+    destination = assembled_report_path(base)
     if units is None:
-        units, _ = load_units_manifest(base, chapters=None)
+        try:
+            units, _ = load_units_manifest(base, chapters=None)
+        except UnitsError as exc:
+            return "", [str(exc)]
+    else:
+        structure_errors = validate_units(units, chapters=None)
+        if structure_errors:
+            return "", structure_errors
     errors: list[str] = []
     parts: list[str] = []
-    destination = assembled_report_path(base)
     for unit in units:
         path = unit_paths(base, unit.id).report
         if not path.is_file():
@@ -322,6 +388,9 @@ def assemble_report(base: Path, units: list[Unit] | None = None, *, write: bool 
     if errors:
         return "", errors
     document = "\n".join(parts).rstrip() + "\n"
+    link_errors = validate_local_markdown_links(document, destination)
+    if link_errors:
+        return "", link_errors
     if write:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(document, encoding="utf-8")
@@ -546,15 +615,14 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
             })
 
     if candidate_units:
-        # Normalize cover: exactly the first candidate should be cover when possible.
-        first = dict(candidate_units[0])
-        if first.get("role") != "cover":
-            warnings.append(f"首位候选单元 {first['id']} 角色为 {first.get('role') or '空'}；正式迁移时应调整为唯一开场 cover")
-        cover_ids = [unit["id"] for unit in candidate_units if unit.get("role") == "cover"]
-        if len(cover_ids) > 1:
-            conflicts.append("检测到多个 cover 候选：" + "、".join(cover_ids))
-        elif not cover_ids:
-            conflicts.append("未检测到 cover 候选；全套需要唯一开场封面")
+        # Formal manifest rules (non-empty, unique IDs, cover first) must pass for can_migrate.
+        formal_units = [
+            Unit(id=unit["id"], chapter=unit["chapter"], role=unit["role"])
+            for unit in candidate_units
+        ]
+        for error in validate_units(formal_units, chapters):
+            if error not in conflicts:
+                conflicts.append(error)
 
     # Deduplicate missing_report_mappings by unit_id+reason
     deduped: list[dict[str, str]] = []

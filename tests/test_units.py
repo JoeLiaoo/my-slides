@@ -316,6 +316,101 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertNotIn("../wiki/round#1.md", document)
         self.assertNotIn("../wiki/my notes.md", document)
 
+    def test_empty_manifest_does_not_overwrite_existing_report(self):
+        units = [Unit(id="cover", chapter=self.chapters[0], role="cover")]
+        self.write_v2(units, reports={"cover": "# Cover\n\nKeep me.\n"})
+        document, errors = assemble_report(self.base, units, write=True)
+        self.assertEqual(errors, [])
+        report = self.base / "reports" / "report.md"
+        original = report.read_text(encoding="utf-8")
+        self.assertIn("Keep me", original)
+        # Empty manifest must fail validation and leave the assembled report untouched.
+        (self.base / "units.json").write_text(
+            json.dumps({"schema_version": 2, "units": []}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        failed, fail_errors = assemble_report(self.base, write=True)
+        self.assertEqual(failed, "")
+        self.assertTrue(any("至少需要一个单元" in error for error in fail_errors), fail_errors)
+        self.assertEqual(report.read_text(encoding="utf-8"), original)
+
+        # Duplicate IDs / cover-not-first also keep the original report.
+        (self.base / "units.json").write_text(
+            json.dumps({
+                "schema_version": 2,
+                "units": [
+                    {"id": "body-01", "chapter": self.chapters[0], "role": "content"},
+                    {"id": "body-01", "chapter": self.chapters[0], "role": "cover"},
+                ],
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        failed, fail_errors = assemble_report(self.base, write=True)
+        self.assertEqual(failed, "")
+        self.assertTrue(any("重复" in error or "cover" in error for error in fail_errors), fail_errors)
+        self.assertEqual(report.read_text(encoding="utf-8"), original)
+
+    def test_cover_not_first_blocks_can_migrate(self):
+        self.init_v1()
+        first, second = self.chapters[0], self.chapters[1]
+        (self.base / "reports" / f"{slug(first)}.md").write_text(
+            f"# {first}\n\nEnough report text for the chapter.\n", encoding="utf-8"
+        )
+        (self.base / "reports" / f"{slug(second)}.md").write_text(
+            f"# {second}\n\nEnough report text for the chapter.\n", encoding="utf-8"
+        )
+        (self.base / "specs" / f"{slug(first)}.md").write_text(
+            "## Slide 1 — Body\n页面 ID：body-01\n页面角色：content\n", encoding="utf-8"
+        )
+        (self.base / "specs" / f"{slug(second)}.md").write_text(
+            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n", encoding="utf-8"
+        )
+        (self.base / "slides" / "chapters" / f"{slug(first)}.html").write_text(
+            '<section class="slide" id="body-01" data-page-role="content"></section>', encoding="utf-8"
+        )
+        (self.base / "slides" / "chapters" / f"{slug(second)}.html").write_text(
+            '<section class="slide" id="cover" data-page-role="cover"></section>', encoding="utf-8"
+        )
+        preview = migrate_to_units_preview(self.base, [first, second])
+        self.assertTrue(preview["preview_ok"])
+        self.assertFalse(preview["can_migrate"])
+        self.assertTrue(any("首位" in item for item in preview["conflicts"]), preview["conflicts"])
+
+    def test_assemble_rewrites_reference_style_links_and_validates(self):
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="summary-01", chapter=self.chapters[0], role="content"),
+        ]
+        (self.root / "bp.md").write_text("# Business plan\n", encoding="utf-8")
+        self.write_v2(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening.\n",
+                "summary-01": (
+                    "# Summary\n\n"
+                    "See [来源][bp] for details.\n\n"
+                    "[bp]: ../../../bp.md\n"
+                ),
+            },
+        )
+        document, errors = assemble_report(self.base, units, write=True)
+        self.assertEqual(errors, [])
+        self.assertIn("[来源][bp]", document)
+        self.assertIn("[bp]: ../../bp.md", document)
+        self.assertNotIn("[bp]: ../../../bp.md", document)
+
+        # Broken reference definition must fail assemble and keep prior report.
+        report = self.base / "reports" / "report.md"
+        original = report.read_text(encoding="utf-8")
+        unit_paths(self.base, "summary-01").report.write_text(
+            "# Summary\n\nSee [来源][bp].\n\n[bp]: ../../../missing-bp.md\n",
+            encoding="utf-8",
+        )
+        failed, fail_errors = assemble_report(self.base, units, write=True)
+        self.assertEqual(failed, "")
+        self.assertTrue(any("本地链接失效" in error for error in fail_errors), fail_errors)
+        self.assertEqual(report.read_text(encoding="utf-8"), original)
+
 
 if __name__ == "__main__":
     unittest.main()
