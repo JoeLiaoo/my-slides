@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 import xml.etree.ElementTree as ET
 
+from .state import collect_units_status
 from .units import (
     MARKDOWN_LINK_RE,
     UnitsError,
@@ -1552,10 +1553,19 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--dry-run", action="store_true", help="只读扫描，不改写项目文件")
     migrate.add_argument("--project")
     migrate.add_argument("--json", action="store_true")
-    for name, help_text in (("doctor", "检查项目工作区基础结构"), ("status", "查看项目阶段与待整理资料")):
-        command = sub.add_parser(name, help=help_text)
-        command.add_argument("--project")
-        command.add_argument("--json", action="store_true")
+    doctor = sub.add_parser("doctor", help="检查项目工作区基础结构")
+    doctor.add_argument("--project")
+    doctor.add_argument("--json", action="store_true")
+    status = sub.add_parser("status", help="查看项目阶段、待整理资料与单元状态")
+    status.add_argument("--project")
+    status.add_argument("--json", action="store_true")
+    status.add_argument(
+        "--unit",
+        action="append",
+        dest="units",
+        metavar="ID",
+        help="v2：查看指定单元状态（可重复）；省略则列出全部单元骨架",
+    )
     return parser
 
 
@@ -1751,17 +1761,23 @@ def main() -> None:
             else:
                 _, pending, removed = scan_sources(root, base, cfg)
                 if format_version == "v2":
+                    unit_status = collect_units_status(
+                        base,
+                        selected=getattr(args, "units", None),
+                        chapters=cfg.get("chapters", []),
+                        project_root=root,
+                    )
                     # Do not reuse v1 chapter approval digests for v2 unit projects.
                     approval_status = {
                         "report": {
                             "supported": False,
                             "current": False,
-                            "message": "v2 单元级报告批准尚未实现；忽略旧章节批准记录",
+                            "message": "v2 单元级报告批准将在阶段 4 接通；当前仅提供状态骨架",
                         },
                         "spec": {
                             "supported": False,
                             "current": False,
-                            "message": "v2 单元级 Spec 批准尚未实现；忽略旧章节批准记录",
+                            "message": "v2 单元级 Spec 批准将在阶段 4 接通；当前仅提供状态骨架",
                         },
                     }
                     slide_status = {
@@ -1772,12 +1788,15 @@ def main() -> None:
                     }
                     human = (
                         f"项目：{root}\n格式：v2\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
-                        "报告批准：不支持（勿使用旧章节批准）\n"
-                        "Spec 批准：不支持（勿使用旧章节批准）\n"
-                        "Slides：不支持章节合并状态\n"
-                        "提示：运行 my-slides units list 查看单元清单"
+                        f"选定单元：{len(unit_status['selected_units'])}\n"
+                        f"受影响：{len(unit_status['affected_units'])}\n"
+                        f"可复用：{len(unit_status['reused_units'])}\n"
+                        f"阻塞：{len(unit_status['blocked_units'])}\n"
+                        "提示：完整单元批准/构建在后续阶段提供；可用 --json 查看状态骨架"
                     )
                 else:
+                    if getattr(args, "units", None):
+                        raise ValueError("当前项目为 v1 章节格式，不支持 --unit；请先迁移或去掉该参数")
                     approvals_path = base / ".state" / "approvals.json"
                     approvals = json.loads(approvals_path.read_text(encoding="utf-8")) if approvals_path.exists() else {}
                     approval_status = {
@@ -1803,6 +1822,18 @@ def main() -> None:
                     "approvals": approval_status,
                     "slides": slide_status,
                 }
+                if format_version == "v2":
+                    data.update(
+                        {
+                            "selected_units": unit_status["selected_units"],
+                            "affected_units": unit_status["affected_units"],
+                            "reused_units": unit_status["reused_units"],
+                            "blocked_units": unit_status["blocked_units"],
+                            "reasons": unit_status["reasons"],
+                            "units": unit_status["units"],
+                            "dependency_graph": unit_status["dependency_graph"],
+                        }
+                    )
                 emit(args, data, human)
                 code = 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError, UnitsError) as exc:

@@ -1,0 +1,294 @@
+"""Per-unit approval / build / check state for v2 projects.
+
+Each unit stores `.state/units/<id>.json` with content fingerprints (not mtimes).
+Invalidation follows real local + explicit unit dependencies (see dependencies.py).
+Changing an unlinked Wiki page does **not** revoke approvals for unrelated units.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from .dependencies import (
+    build_unit_dependency_graph,
+    content_fingerprint,
+    detect_unit_cycles,
+    fingerprint_file,
+    fingerprint_json,
+    report_closure_fingerprints,
+    units_affected_by_file,
+)
+from .units import Unit, UnitsError, load_units_manifest, unit_paths
+
+
+def unit_state_path(base: Path, unit_id: str) -> Path:
+    return unit_paths(base, unit_id).state
+
+
+def default_unit_state(unit_id: str) -> dict[str, Any]:
+    return {
+        "unit_id": unit_id,
+        "report": {
+            "content_sha256": None,
+            "input_fingerprint": None,
+            "approved_sha256": None,
+            "approved_at": None,
+            "current": False,
+        },
+        "spec": {
+            "content_sha256": None,
+            "report_sha256": None,
+            "approved_sha256": None,
+            "approved_at": None,
+            "current": False,
+        },
+        "html": {
+            "content_sha256": None,
+            "spec_sha256": None,
+            "build_sha256": None,
+            "current": False,
+        },
+        "check": {
+            "input_fingerprint": None,
+            "result": None,
+            "current": False,
+        },
+        "reasons": [],
+    }
+
+
+def read_unit_state(base: Path, unit_id: str) -> dict[str, Any]:
+    path = unit_state_path(base, unit_id)
+    if not path.is_file():
+        return default_unit_state(unit_id)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise UnitsError(f"单元状态损坏：{path.name}（{exc}）") from exc
+    if not isinstance(data, dict):
+        raise UnitsError(f"单元状态必须是对象：{path.name}")
+    merged = default_unit_state(unit_id)
+    for key in ("report", "spec", "html", "check"):
+        if isinstance(data.get(key), dict):
+            merged[key].update(data[key])
+    if isinstance(data.get("reasons"), list):
+        merged["reasons"] = [str(item) for item in data["reasons"]]
+    return merged
+
+
+def write_unit_state(base: Path, unit_id: str, state: dict[str, Any]) -> Path:
+    path = unit_state_path(base, unit_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(payload, encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def compute_report_input_fingerprint(base: Path, unit: Unit, project_root: Path | None = None) -> str:
+    closure = report_closure_fingerprints(base, unit, project_root=project_root)
+    return fingerprint_json(
+        {
+            "report_sha256": closure["report_sha256"],
+            "local_files": closure["local_files"],
+            "depends_on_units": closure["depends_on_units"],
+        }
+    )
+
+
+def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None = None) -> dict[str, Any]:
+    """Recompute current flags from on-disk content vs stored approvals."""
+    state = read_unit_state(base, unit.id)
+    paths = unit_paths(base, unit.id)
+    reasons: list[str] = []
+
+    report_sha = fingerprint_file(paths.report)
+    input_fp = compute_report_input_fingerprint(base, unit, project_root=project_root) if paths.report.is_file() else None
+    state["report"]["content_sha256"] = report_sha
+    state["report"]["input_fingerprint"] = input_fp
+    approved = state["report"].get("approved_sha256")
+    report_current = bool(
+        approved
+        and report_sha
+        and approved == report_sha
+        and state["report"].get("input_fingerprint") == input_fp
+    )
+    if approved and not report_current:
+        reasons.append("报告内容或本地依赖已变化，需重新审阅")
+    state["report"]["current"] = report_current
+
+    spec_sha = fingerprint_file(paths.spec)
+    state["spec"]["content_sha256"] = spec_sha
+    bound_report = state["spec"].get("report_sha256")
+    spec_approved = state["spec"].get("approved_sha256")
+    spec_current = bool(
+        spec_approved
+        and spec_sha
+        and spec_approved == spec_sha
+        and report_current
+        and bound_report
+        and bound_report == approved
+    )
+    if spec_approved and not spec_current:
+        reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
+    state["spec"]["current"] = spec_current
+
+    html_sha = fingerprint_file(paths.page)
+    state["html"]["content_sha256"] = html_sha
+    html_current = bool(
+        state["html"].get("build_sha256")
+        and html_sha
+        and state["html"]["build_sha256"] == html_sha
+        and spec_current
+        and state["html"].get("spec_sha256") == spec_approved
+    )
+    if state["html"].get("build_sha256") and not html_current:
+        reasons.append("HTML 片段或绑定 Spec 已变化")
+    state["html"]["current"] = html_current
+
+    check_current = bool(
+        state["check"].get("result") == "pass"
+        and state["check"].get("input_fingerprint")
+        and state["check"]["input_fingerprint"] == fingerprint_json({"html": html_sha, "spec": spec_sha})
+        and html_current
+    )
+    if state["check"].get("result") and not check_current:
+        reasons.append("页面检查结果已过期")
+    state["check"]["current"] = check_current
+    state["reasons"] = reasons
+    return state
+
+
+def collect_units_status(
+    base: Path,
+    *,
+    selected: list[str] | None = None,
+    chapters: list[str] | None = None,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Skeleton for `status --unit … --json` (human copy filled in Phase 4)."""
+    units, errors = load_units_manifest(base, chapters)
+    if errors:
+        raise UnitsError("；".join(errors))
+    graph = build_unit_dependency_graph(base, units)
+    cycle_errors = detect_unit_cycles(graph)
+    if cycle_errors:
+        raise UnitsError("；".join(cycle_errors))
+
+    by_id = {unit.id: unit for unit in units}
+    if selected:
+        missing = [unit_id for unit_id in selected if unit_id not in by_id]
+        if missing:
+            raise UnitsError("未知单元：" + "、".join(missing))
+        chosen = [by_id[unit_id] for unit_id in selected]
+    else:
+        chosen = list(units)
+
+    unit_rows: list[dict[str, Any]] = []
+    affected: list[str] = []
+    reused: list[str] = []
+    blocked: list[str] = []
+    reasons: dict[str, list[str]] = {}
+
+    for unit in units:
+        state = refresh_unit_currency(base, unit, project_root=project_root)
+        write_unit_state(base, unit.id, state)
+        row = {
+            "id": unit.id,
+            "chapter": unit.chapter,
+            "role": unit.role,
+            "report_current": state["report"]["current"],
+            "spec_current": state["spec"]["current"],
+            "html_current": state["html"]["current"],
+            "check_current": state["check"]["current"],
+            "reasons": state["reasons"],
+            "depends_on": graph.get(unit.id, []),
+        }
+        unit_rows.append(row)
+        if unit in chosen:
+            if state["reasons"]:
+                affected.append(unit.id)
+                reasons[unit.id] = list(state["reasons"])
+            elif not unit_paths(base, unit.id).report.is_file():
+                blocked.append(unit.id)
+                reasons[unit.id] = ["缺少报告单元文件"]
+            else:
+                reused.append(unit.id)
+
+    return {
+        "format_version": "v2",
+        "selected_units": [unit.id for unit in chosen],
+        "affected_units": affected,
+        "reused_units": reused,
+        "blocked_units": blocked,
+        "reasons": reasons,
+        "units": unit_rows,
+        "dependency_graph": graph,
+    }
+
+
+def mark_report_approved(base: Path, unit: Unit, *, project_root: Path | None = None, when: str) -> dict[str, Any]:
+    state = refresh_unit_currency(base, unit, project_root=project_root)
+    paths = unit_paths(base, unit.id)
+    if not paths.report.is_file():
+        raise UnitsError(f"缺少报告单元：{unit.id}")
+    sha = fingerprint_file(paths.report)
+    input_fp = compute_report_input_fingerprint(base, unit, project_root=project_root)
+    state["report"] = {
+        "content_sha256": sha,
+        "input_fingerprint": input_fp,
+        "approved_sha256": sha,
+        "approved_at": when,
+        "current": True,
+    }
+    # Spec must be re-bound after report re-approval (never auto-revive).
+    if state["spec"].get("approved_sha256"):
+        state["spec"]["current"] = False
+        state["reasons"] = ["报告已重新批准，Spec 需按新报告版本更新后重审"]
+    write_unit_state(base, unit.id, state)
+    return state
+
+
+def invalidate_for_changed_file(
+    base: Path,
+    changed: Path,
+    *,
+    chapters: list[str] | None = None,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    units, errors = load_units_manifest(base, chapters)
+    if errors:
+        raise UnitsError("；".join(errors))
+    impact = units_affected_by_file(base, units, changed, project_root=project_root)
+    for unit_id in impact["affected_units"]:
+        unit = next(u for u in units if u.id == unit_id)
+        state = refresh_unit_currency(base, unit, project_root=project_root)
+        reason = impact["reasons"].get(unit_id, "依赖变化")
+        if reason not in state["reasons"]:
+            state["reasons"].append(reason)
+        state["report"]["current"] = False
+        state["spec"]["current"] = False
+        state["html"]["current"] = False
+        state["check"]["current"] = False
+        write_unit_state(base, unit.id, state)
+    return impact
+
+
+# Re-export fingerprint helpers for tests / callers.
+__all__ = [
+    "collect_units_status",
+    "compute_report_input_fingerprint",
+    "content_fingerprint",
+    "default_unit_state",
+    "fingerprint_file",
+    "fingerprint_json",
+    "invalidate_for_changed_file",
+    "mark_report_approved",
+    "read_unit_state",
+    "refresh_unit_currency",
+    "unit_state_path",
+    "write_unit_state",
+]

@@ -379,25 +379,13 @@ def validate_local_markdown_links(text: str, base_file: Path) -> list[str]:
 
 
 def os_path_relative_to(path: Path, start: Path) -> Path:
-    """Pure-Python Path.relative_to that also walks upward (3.11-compatible)."""
-    path = path.resolve()
-    start = start.resolve()
+    """Cross-drive-safe relative path (P3-13); prefers os.path.relpath."""
+    import os
+
     try:
-        return path.relative_to(start)
-    except ValueError:
-        pass
-    path_parts = path.parts
-    start_parts = start.parts
-    common = 0
-    for left, right in zip(path_parts, start_parts):
-        if left != right:
-            break
-        common += 1
-    ups = [".."] * (len(start_parts) - common)
-    downs = list(path_parts[common:])
-    if not ups and not downs:
-        return Path(".")
-    return Path(*ups, *downs)
+        return Path(os.path.relpath(str(path.resolve()), start=str(start.resolve())))
+    except ValueError as exc:
+        raise ValueError(f"{path} is not relative to {start}") from exc
 
 
 def assemble_report(base: Path, units: list[Unit] | None = None, *, write: bool = True) -> tuple[str, list[str]]:
