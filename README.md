@@ -2,7 +2,7 @@
 
 面向投资研究的本地 Agent 工具。用户在投资项目目录中使用 Codex、Claude Code 或 DeepSeek harness，通过统一 CLI 整理项目资料、维护 Wiki、撰写投资报告，并生成可离线浏览的 HTML 投资汇报 Slides。
 
-**当前仅支持 v2 单元格式**（`my-slides/units.json`）。旧版章节格式与章节迁移（`migrate`）已移除；请重新 `init`。
+项目以 `my-slides/units.json` 中的单元组织：每个单元对应一份报告、一份 Spec、一页 HTML，支持按单元审阅与增量构建。
 
 ## 目标工作流
 

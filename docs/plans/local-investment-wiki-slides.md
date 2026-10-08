@@ -19,7 +19,7 @@
 ├── 原有资料及人工转换的 Markdown
 └── my-slides/
     ├── project.yaml              # 资料范围、报告章节、视觉配置
-    ├── units.json                # v2 单元身份、章节、角色与顺序（唯一格式）
+    ├── units.json                # 单元身份、章节、角色与顺序
     ├── research/                 # 按需联网研究的来源记录
     ├── wiki/
     │   ├── README.md             # 简短的 Wiki 维护约定
@@ -37,7 +37,7 @@
     └── .state/                   # 扫描指纹、单元状态、缓存与审阅记录
 ```
 
-无 `units.json` 的旧章节布局已不支持；**没有** `migrate` 命令，请重新 `init`。
+项目需有 `units.json`；若缺失请重新 `my-slides init`。
 
 初始化时默认扫描项目内 Markdown，排除工具产物、Git、依赖目录和 agent 指令文件；支持显式配置资料目录。原始资料保留在原位置。
 
@@ -106,9 +106,9 @@
 | `my-slides renderer install / doctor` | 安装并核验锁定版本的 ECharts 与 Lucide |
 | `my-slides browser install / doctor` | 安装并核验 Playwright Chromium |
 | `my-slides slides build / check --browser` | 渲染图表和图标、合并页面，并在桌面与手机视口运行质量检查 |
-| `my-slides units list` | 列出 v2 单元身份、章节与产物是否齐全 |
+| `my-slides units list` | 列出单元身份、章节与产物是否齐全 |
 | `my-slides assemble` | 将报告单元组装为 `reports/report.md` |
-| `my-slides init` | **仅 v2**（旧版章节迁移已移除） |
+| `my-slides init` | 写入 `project.yaml`、`units.json` 与单元目录骨架 |
 
 命令支持 `--project` 与 `--json`；默认从当前目录向上定位项目。`prepare` 提供交接材料，当前 agent 执行生成任务。Wiki 阶段的交接材料包括维护约定、章节索引、近期日志和待整理文件列表；问答与语义检查沿用同一套约定，由当前 agent 执行。提供统一工作流说明及项目级可安装 skill；安装时不覆盖已有同名技能或 `AGENTS.md`、`CLAUDE.md`。
 
@@ -135,7 +135,7 @@
 
 目标：一个报告内容单元 ↔ 一个 Presentation Spec 单元 ↔ 一张 HTML Slide，支持局部审批、增量构建与检查。
 
-**已实现（v2 全面切换／阶段 10）**：`units.json` 与单元目录为唯一日常路径；按单元 prepare/validate/approve、组装、增量 build/check；无 `units.json` 时 CLI 拒绝（旧版章节迁移已移除）；本地 `scripts/run-full-tests.sh` 做完整回归（**不用 GitHub Actions**）。
+**已实现（单元化／阶段 10）**：`units.json` 与单元目录为日常路径；按单元 prepare/validate/approve、组装、增量 build/check；无 `units.json` 时 CLI 拒绝；本地 `scripts/run-full-tests.sh` 做完整回归（**不用 GitHub Actions**）。
 
 **计划中（尚未作为交付承诺，P3-4）**：目录页自动生成、每章独立预览入口的产品化包装、报告段落覆盖率仪表盘、Wiki 产品大升级、文档转换流水线。
 
