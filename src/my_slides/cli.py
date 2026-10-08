@@ -63,17 +63,19 @@ def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = F
     if unit_mode and action in {
         "prepare report",
         "prepare spec",
+        "prepare slides",
         "validate report",
         "validate spec",
         "approve report",
         "approve spec",
+        "slides build",
     }:
-        # Phase 4: per-unit report/spec handoff + approve are available.
+        # Phase 4–5: per-unit report/spec/slides build paths are available.
         return
     raise ValueError(
         f"当前项目为 v2 单元格式，暂不支持章节级命令：{action}。"
-        "请改用带 --unit / --changed / --all 的单元命令（报告与 Spec 已支持）；"
-        "slides build/check 的单元路径将在后续阶段提供。"
+        "请改用带 --unit / --changed / --all 的单元命令；"
+        "slides check 的单元路径在阶段 6 提供。"
     )
 
 
@@ -445,8 +447,6 @@ def prepare(args: argparse.Namespace) -> int:
     base, cfg = ensure_project(root)
     kind = args.kind
     if detect_format_version(base) == "v2" and kind in {"report", "spec", "slides"} and v2_unit_mode(args):
-        if kind == "slides":
-            raise ValueError("单元级 prepare slides 将在阶段 5 提供；请先完成报告与 Spec 单元批准")
         units = resolve_unit_selection(
             base,
             cfg,
@@ -1645,11 +1645,12 @@ def build_parser() -> argparse.ArgumentParser:
     agent_install.add_argument("--json", action="store_true")
     slides = sub.add_parser("slides", help="合并并检查 HTML Slides")
     slides_sub = slides.add_subparsers(dest="slides_command", required=True)
-    for name, help_text in (("build", "合并各章 HTML 片段"), ("check", "检查章节 HTML 和合并文件")):
+    for name, help_text in (("build", "合并各章 HTML 片段 / v2 增量构建"), ("check", "检查章节 HTML 和合并文件")):
         command = slides_sub.add_parser(name, help=help_text)
         command.add_argument("--project")
         command.add_argument("--json", action="store_true")
         command.add_argument("--browser", action="store_true", help="用桌面与手机视口运行 Chromium 验证")
+        add_unit_selectors(command)
     units = sub.add_parser("units", help="查看 v2 内容单元清单")
     units_sub = units.add_subparsers(dest="units_command", required=True)
     units_list = units_sub.add_parser("list", help="列出单元身份、章节与产物是否齐全")
@@ -1817,12 +1818,32 @@ def main() -> None:
                 )
                 code = 1 if errors else 0
             elif args.command == "slides":
-                refuse_unsupported_v2_action(base, f"slides {args.slides_command}")
-                if not approval_is_current(base, "report", cfg):
-                    raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
-                if not approval_is_current(base, "spec", cfg):
-                    raise ValueError("当前 Spec 版本需要重新审阅，请运行 my-slides approve spec")
-                output, errors = build_slides(base, cfg, write=args.slides_command == "build")
+                refuse_unsupported_v2_action(
+                    base, f"slides {args.slides_command}", unit_mode=v2_unit_mode(args) and args.slides_command == "build"
+                )
+                plan: dict[str, Any] | None = None
+                if format_version == "v2" and args.slides_command == "build" and v2_unit_mode(args):
+                    from .assembly import build_units_deck
+
+                    output, errors, plan = build_units_deck(
+                        base,
+                        cfg,
+                        unit_ids=getattr(args, "units", None),
+                        changed=bool(getattr(args, "changed", False)),
+                        all_units=bool(getattr(args, "all_units", False)),
+                        write=True,
+                    )
+                else:
+                    if format_version == "v2":
+                        raise ValueError(
+                            "v2 项目请使用 my-slides slides build --unit/--changed/--all；"
+                            "slides check 的单元路径在阶段 6 提供"
+                        )
+                    if not approval_is_current(base, "report", cfg):
+                        raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
+                    if not approval_is_current(base, "spec", cfg):
+                        raise ValueError("当前 Spec 版本需要重新审阅，请运行 my-slides approve spec")
+                    output, errors = build_slides(base, cfg, write=args.slides_command == "build")
                 browser_result = None
                 if args.browser and not errors and output and (args.slides_command == "build" or output.exists()):
                     from .browser import check_deck
@@ -1845,11 +1866,18 @@ def main() -> None:
                             output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
                             if state.get("html_sha256") != output_hash:
                                 errors.append("slides/index.html 在构建后已被修改")
-                            if state.get("report_sha256") != approval_digest(base, "report", cfg):
-                                errors.append("Slides 所依据的报告版本与当前批准版本不一致")
-                            if state.get("spec_sha256") != approval_digest(base, "spec", cfg):
-                                errors.append("Slides 所依据的 Spec 版本与当前批准版本不一致")
-                data = {"valid": not errors, "output": str(output) if output else None, "browser": browser_result, "errors": errors}
+                            if state.get("format_version") != "v2":
+                                if state.get("report_sha256") != approval_digest(base, "report", cfg):
+                                    errors.append("Slides 所依据的报告版本与当前批准版本不一致")
+                                if state.get("spec_sha256") != approval_digest(base, "spec", cfg):
+                                    errors.append("Slides 所依据的 Spec 版本与当前批准版本不一致")
+                data = {
+                    "valid": not errors,
+                    "output": str(output) if output else None,
+                    "browser": browser_result,
+                    "errors": errors,
+                    "plan": plan,
+                }
                 if errors:
                     human = "检查未通过：\n" + "\n".join(f"- {e}" for e in errors)
                 else:
