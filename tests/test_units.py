@@ -470,7 +470,6 @@ class UnitsFormatTests(unittest.TestCase):
             Unit(id="cover", chapter=self.chapters[0], role="cover"),
             Unit(id="summary-01", chapter=self.chapters[0], role="content"),
         ]
-        wiki = self.base  # written after write_v2 creates tree
         self.write_v2(
             units,
             reports={
