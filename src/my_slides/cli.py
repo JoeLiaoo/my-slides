@@ -18,14 +18,26 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 from .state import collect_units_status
+from .unit_workflow import (
+    approve_unit_report,
+    approve_unit_spec,
+    assemble_after_report_approvals,
+    prepare_unit_handoff,
+    resolve_unit_selection,
+    validate_unit_report,
+    validate_unit_spec,
+)
 from .units import (
     MARKDOWN_LINK_RE,
+    Unit,
     UnitsError,
     detect_format_version,
+    ensure_v2_directories,
     list_units_status,
     load_units_manifest,
     migrate_to_units_preview,
     resolve_local_markdown_path,
+    unit_id_prefix,
 )
 
 APP_DIR = "my-slides"
@@ -42,17 +54,31 @@ V2_UNSUPPORTED_CHAPTER_ACTIONS = frozenset({
 })
 
 
-def refuse_unsupported_v2_action(base: Path, action: str) -> None:
-    """Step-1 v2 projects keep units.json but chapter approve/generate paths are not ready."""
+def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = False) -> None:
+    """v2 projects reject chapter-wide approve/build unless a unit selector is used."""
     if detect_format_version(base) != "v2":
         return
     if action not in V2_UNSUPPORTED_CHAPTER_ACTIONS:
         return
+    if unit_mode and action in {
+        "prepare report",
+        "prepare spec",
+        "validate report",
+        "validate spec",
+        "approve report",
+        "approve spec",
+    }:
+        # Phase 4: per-unit report/spec handoff + approve are available.
+        return
     raise ValueError(
         f"当前项目为 v2 单元格式，暂不支持章节级命令：{action}。"
-        "请使用 my-slides units list 查看单元清单；单元级 prepare/validate/approve/slides "
-        "将在后续步骤提供，勿再使用旧章节批准结果。"
+        "请改用带 --unit / --changed / --all 的单元命令（报告与 Spec 已支持）；"
+        "slides build/check 的单元路径将在后续阶段提供。"
     )
+
+
+def v2_unit_mode(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "units", None) or getattr(args, "changed", False) or getattr(args, "all_units", False))
 EXCLUDED_DIRS = {".git", ".hg", ".svn", ".venv", "venv", "node_modules", "__pycache__"}
 EXCLUDED_FILES = {"agents.md", "claude.md", "gemini.md", "copilot-instructions.md"}
 
@@ -351,6 +377,7 @@ def init_project(args: argparse.Namespace) -> int:
     brand_color = existing.get("brand_color", "#A6192E")
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
         raise ValueError("project.yaml 的 brand_color 必须是 #RRGGBB 格式")
+    format_choice = getattr(args, "format", "v1") or "v1"
     base.mkdir(parents=True, exist_ok=True)
     for folder in ("research", "wiki", "reports", "specs", "slides/chapters", ".state"):
         (base / folder).mkdir(parents=True, exist_ok=True)
@@ -367,9 +394,49 @@ def init_project(args: argparse.Namespace) -> int:
         if not readme.exists():
             readme.write_text(f"# {title}\n\n由当前 agent 按项目 Wiki 和章节配置生成内容。\n", encoding="utf-8")
     write_config(cfg_path, root, source_dirs, chapters, brand_color)
+    unit_ids: list[str] = []
+    if format_choice == "v2":
+        ensure_v2_directories(base)
+        seed = [
+            Unit(id="cover", chapter=chapters[0], role="cover"),
+            *[
+                Unit(
+                    id=f"{unit_id_prefix(chapter, fallback=f'chapter-{index:02d}')}-01",
+                    chapter=chapter,
+                    role="content",
+                )
+                for index, chapter in enumerate(chapters, start=1)
+            ],
+        ]
+        # Deduplicate IDs if prefix collision.
+        seen: set[str] = set()
+        unique: list[Unit] = []
+        for unit in seed:
+            unit_id = unit.id
+            suffix = 2
+            while unit_id in seen:
+                unit_id = f"{unit.id}-{suffix}"
+                suffix += 1
+            seen.add(unit_id)
+            unique.append(Unit(id=unit_id, chapter=unit.chapter, role=unit.role))
+        from .units import write_units_manifest
+
+        write_units_manifest(base, unique)
+        unit_ids = [unit.id for unit in unique]
     _, pending, removed = scan_sources(root, base, read_config(cfg_path))
-    result = {"project": str(root), "workspace": str(base), "chapters": chapters, "pending_sources": pending, "removed_sources": removed}
-    emit(args, result, f"已初始化项目工作区：{base}\n报告章节：{len(chapters)}\n待整理 Markdown：{len(pending)}")
+    result = {
+        "project": str(root),
+        "workspace": str(base),
+        "chapters": chapters,
+        "format_version": "v2" if format_choice == "v2" else "v1",
+        "units": unit_ids,
+        "pending_sources": pending,
+        "removed_sources": removed,
+    }
+    human = f"已初始化项目工作区：{base}\n报告章节：{len(chapters)}\n待整理 Markdown：{len(pending)}"
+    if format_choice == "v2":
+        human += f"\n格式：v2（{len(unit_ids)} 个种子单元）"
+    emit(args, result, human)
     return 0
 
 
@@ -377,6 +444,29 @@ def prepare(args: argparse.Namespace) -> int:
     root = project_root(args.project)
     base, cfg = ensure_project(root)
     kind = args.kind
+    if detect_format_version(base) == "v2" and kind in {"report", "spec", "slides"} and v2_unit_mode(args):
+        if kind == "slides":
+            raise ValueError("单元级 prepare slides 将在阶段 5 提供；请先完成报告与 Spec 单元批准")
+        units = resolve_unit_selection(
+            base,
+            cfg,
+            unit_ids=getattr(args, "units", None),
+            changed=bool(getattr(args, "changed", False)),
+            all_units=bool(getattr(args, "all_units", False)),
+        )
+        if kind == "report":
+            _, pending, removed = scan_sources(root, base, cfg)
+            if pending or removed:
+                raise ValueError("请先整理有变化或已移除的资料，并运行 my-slides sources mark-ingested")
+            wiki_errors = validate_wiki(base, cfg)
+            if wiki_errors:
+                raise ValueError("请先修复 Wiki 链接：" + "；".join(wiki_errors))
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        if kind == "report":
+            snapshot_wiki(base, stamp)
+        output = prepare_unit_handoff(base, root, units, kind, stamp=stamp)
+        emit(args, {"task_file": str(output), "kind": kind, "units": [u.id for u in units]}, f"已生成单元交接材料：{output}")
+        return 0
     if kind == "spec":
         errors = validate_report(base, cfg)
         if errors:
@@ -1499,6 +1589,12 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--project", help="项目目录，默认当前目录")
     init.add_argument("--source-dir", action="append", help="资料目录（相对项目目录，可重复指定）")
     init.add_argument("--force", action="store_true", help="补全基础文件并重写项目配置")
+    init.add_argument(
+        "--format",
+        choices=("v1", "v2"),
+        default="v1",
+        help="v1=章节格式（默认）；v2=创建 units.json 与单元目录",
+    )
     init.add_argument("--json", action="store_true")
     sources = sub.add_parser("sources", help="扫描或确认资料")
     source_sub = sources.add_subparsers(dest="sources_command", required=True)
@@ -1508,19 +1604,30 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--json", action="store_true")
         if name == "mark-ingested":
             command.add_argument("paths", nargs="*", help="项目相对路径；省略时确认所有待整理资料")
+    def add_unit_selectors(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--unit", action="append", dest="units", metavar="ID", help="v2 单元 ID（可重复）")
+        command.add_argument("--changed", action="store_true", help="v2：仅处理状态显示受影响/阻塞的单元")
+        command.add_argument("--all", dest="all_units", action="store_true", help="v2：处理全部单元")
+
     prep = sub.add_parser("prepare", help="生成 agent 阶段交接材料")
     prep.add_argument("kind", choices=("wiki", "report", "spec", "slides"))
     prep.add_argument("--project")
     prep.add_argument("--json", action="store_true")
     prep.add_argument("--question", help="针对项目 Wiki 提出问题；省略时准备资料整理任务")
+    add_unit_selectors(prep)
     validate = sub.add_parser("validate", help="检查 Wiki、报告或 Spec")
     validate.add_argument("kind", choices=("wiki", "report", "spec"))
     validate.add_argument("--project")
     validate.add_argument("--json", action="store_true")
+    add_unit_selectors(validate)
     approve = sub.add_parser("approve", help="记录报告或 Spec 的用户批准版本")
     approve.add_argument("kind", choices=("report", "spec"))
     approve.add_argument("--project")
     approve.add_argument("--json", action="store_true")
+    add_unit_selectors(approve)
+    assemble = sub.add_parser("assemble", help="v2：将报告单元组装为 reports/report.md")
+    assemble.add_argument("--project")
+    assemble.add_argument("--json", action="store_true")
     renderer = sub.add_parser("renderer", help="检查或安装 ECharts 与 Lucide 本地渲染器")
     renderer_sub = renderer.add_subparsers(dest="renderer_command", required=True)
     for name, help_text in (("doctor", "检查 Node.js、npm 与锁定的渲染器版本"), ("install", "安装锁定版本的本地渲染依赖")):
@@ -1599,7 +1706,7 @@ def main() -> None:
             base, cfg = ensure_project(root)
             format_version = detect_format_version(base)
             if args.command == "prepare":
-                refuse_unsupported_v2_action(base, f"prepare {args.kind}")
+                refuse_unsupported_v2_action(base, f"prepare {args.kind}", unit_mode=v2_unit_mode(args))
                 code = prepare(args)
             elif args.command == "sources":
                 state, pending, removed = scan_sources(root, base, cfg)
@@ -1620,28 +1727,95 @@ def main() -> None:
                 emit(args, data, human)
                 code = 0
             elif args.command == "validate":
-                refuse_unsupported_v2_action(base, f"validate {args.kind}")
-                checkers = {
-                    "wiki": lambda: validate_wiki(base, cfg),
-                    "report": lambda: validate_report(base, cfg),
-                    "spec": lambda: validate_spec(base, cfg),
-                }
-                errors = checkers[args.kind]()
-                emit(args, {"valid": not errors, "errors": errors},
-                     "检查通过。" if not errors else "检查未通过：\n" + "\n".join(f"- {e}" for e in errors),
-                     error=bool(errors))
-                code = 1 if errors else 0
-            elif args.command == "approve":
-                refuse_unsupported_v2_action(base, f"approve {args.kind}")
-                digest, errors = approve_revision(base, cfg, args.kind)
-                if errors:
-                    emit(args, {"approved": False, "errors": errors},
-                         "无法批准：\n" + "\n".join(f"- {e}" for e in errors), error=True)
-                    code = 1
+                refuse_unsupported_v2_action(base, f"validate {args.kind}", unit_mode=v2_unit_mode(args))
+                if format_version == "v2" and args.kind in {"report", "spec"} and v2_unit_mode(args):
+                    units = resolve_unit_selection(
+                        base,
+                        cfg,
+                        unit_ids=getattr(args, "units", None),
+                        changed=bool(getattr(args, "changed", False)),
+                        all_units=bool(getattr(args, "all_units", False)),
+                    )
+                    errors: list[str] = []
+                    for unit in units:
+                        errors.extend(
+                            validate_unit_report(base, unit) if args.kind == "report" else validate_unit_spec(base, unit)
+                        )
+                    emit(
+                        args,
+                        {"valid": not errors, "errors": errors, "units": [unit.id for unit in units]},
+                        "检查通过。" if not errors else "检查未通过：\n" + "\n".join(f"- {e}" for e in errors),
+                        error=bool(errors),
+                    )
+                    code = 1 if errors else 0
                 else:
-                    emit(args, {"approved": True, "kind": args.kind, "sha256": digest},
-                         f"已记录 {args.kind} 批准版本：{digest[:12] if digest else ''}")
-                    code = 0
+                    checkers = {
+                        "wiki": lambda: validate_wiki(base, cfg),
+                        "report": lambda: validate_report(base, cfg),
+                        "spec": lambda: validate_spec(base, cfg),
+                    }
+                    errors = checkers[args.kind]()
+                    emit(args, {"valid": not errors, "errors": errors},
+                         "检查通过。" if not errors else "检查未通过：\n" + "\n".join(f"- {e}" for e in errors),
+                         error=bool(errors))
+                    code = 1 if errors else 0
+            elif args.command == "approve":
+                refuse_unsupported_v2_action(base, f"approve {args.kind}", unit_mode=v2_unit_mode(args))
+                if format_version == "v2" and v2_unit_mode(args):
+                    units = resolve_unit_selection(
+                        base,
+                        cfg,
+                        unit_ids=getattr(args, "units", None),
+                        changed=bool(getattr(args, "changed", False)),
+                        all_units=bool(getattr(args, "all_units", False)),
+                    )
+                    approved: list[dict[str, Any]] = []
+                    stamp = now()
+                    for unit in units:
+                        if args.kind == "report":
+                            state = approve_unit_report(base, unit, when=stamp, project_root=root)
+                        else:
+                            state = approve_unit_spec(base, unit, when=stamp, project_root=root)
+                        approved.append({"id": unit.id, "sha256": state[args.kind]["approved_sha256"]})
+                    assembled = None
+                    assemble_errors: list[str] = []
+                    if args.kind == "report":
+                        assembled, assemble_errors = assemble_after_report_approvals(base)
+                    emit(
+                        args,
+                        {
+                            "approved": True,
+                            "kind": args.kind,
+                            "units": approved,
+                            "assembled_report": assembled is not None and not assemble_errors,
+                            "assemble_errors": assemble_errors,
+                        },
+                        f"已批准 {len(approved)} 个单元的 {args.kind}"
+                        + ("" if not assemble_errors else "；组装报告失败：" + "；".join(assemble_errors)),
+                        error=bool(assemble_errors),
+                    )
+                    code = 1 if assemble_errors else 0
+                else:
+                    digest, errors = approve_revision(base, cfg, args.kind)
+                    if errors:
+                        emit(args, {"approved": False, "errors": errors},
+                             "无法批准：\n" + "\n".join(f"- {e}" for e in errors), error=True)
+                        code = 1
+                    else:
+                        emit(args, {"approved": True, "kind": args.kind, "sha256": digest},
+                             f"已记录 {args.kind} 批准版本：{digest[:12] if digest else ''}")
+                        code = 0
+            elif args.command == "assemble":
+                if format_version != "v2":
+                    raise ValueError("assemble 仅适用于 v2 单元项目（存在 units.json）")
+                document, errors = assemble_after_report_approvals(base)
+                emit(
+                    args,
+                    {"assembled": not errors, "path": str(base / "reports" / "report.md"), "errors": errors},
+                    "已组装 reports/report.md" if not errors else "组装失败：\n" + "\n".join(f"- {e}" for e in errors),
+                    error=bool(errors),
+                )
+                code = 1 if errors else 0
             elif args.command == "slides":
                 refuse_unsupported_v2_action(base, f"slides {args.slides_command}")
                 if not approval_is_current(base, "report", cfg):

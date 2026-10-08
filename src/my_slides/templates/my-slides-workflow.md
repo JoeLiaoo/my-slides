@@ -7,6 +7,8 @@ description: Use the local my-slides CLI to maintain an investment project's Mar
 
 Use this skill when working inside an investment project that contains `my-slides/project.yaml`.
 
+If `my-slides/units.json` exists, the project is **v2 unit format**. Run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` for report and Spec. Do not use chapter-wide approve/build commands on v2 projects. Unit-level slides build/check arrive in later steps; assemble the full report with `my-slides assemble` after unit report approvals.
+
 ## Working rules
 
 - Treat original project documents as read-only. The CLI scans Markdown sources; the agent reads them and edits only `my-slides/` outputs.
