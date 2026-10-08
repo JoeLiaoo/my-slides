@@ -255,7 +255,8 @@ class UnitsFormatTests(unittest.TestCase):
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
         self.assertEqual(approve_cli.returncode, 2, approve_cli.stderr + approve_cli.stdout)
-        self.assertIn("v2", approve_cli.stderr)
+        approve_payload = json.loads(approve_cli.stdout)
+        self.assertIn("v2", approve_payload.get("error", ""))
 
     def test_migrate_fallback_ids_are_ascii_and_validated(self):
         self.init_v1()
@@ -463,6 +464,33 @@ class UnitsFormatTests(unittest.TestCase):
         literal = resolve_local_markdown_path("../wiki/my notes.md", report)
         self.assertEqual(encoded, target.resolve())
         self.assertEqual(literal, target.resolve())
+
+    def test_assemble_skips_footnotes_and_accepts_titled_links(self):
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="summary-01", chapter=self.chapters[0], role="content"),
+        ]
+        wiki = self.base  # written after write_v2 creates tree
+        self.write_v2(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening.\n",
+                "summary-01": "# Summary\n\nplaceholder\n",
+            },
+        )
+        company = self.base / "wiki" / "a.md"
+        company.write_text("# Company\n", encoding="utf-8")
+        unit_paths(self.base, "summary-01").report.write_text(
+            "# Summary\n\n"
+            "见[公司](../../wiki/a.md \"公司页\")与脚注[^1]。\n\n"
+            "[^1]: 来自管理层访谈，2024 年\n\n"
+            "示例：`[假](../../wiki/missing.md)`\n",
+            encoding="utf-8",
+        )
+        document, errors = assemble_report(self.base, units, write=True)
+        self.assertEqual(errors, [], errors)
+        self.assertIn("公司页", document)
+        self.assertIn("[^1]:", document)
 
 
 if __name__ == "__main__":

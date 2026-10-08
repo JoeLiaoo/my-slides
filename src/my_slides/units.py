@@ -18,10 +18,12 @@ UNIT_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 UNIT_ROLES = frozenset({"cover", "content"})
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # Reference definitions: [label]: path, [label]: <path>, optional title suffix.
+# Footnote definitions ([^1]: …) are excluded via a negative lookahead on ^.
 MARKDOWN_REF_DEF_RE = re.compile(
-    r"^(\[[^\]\n]+\]:\s*)(?:<([^>\n]+)>|(\S+))(.*)$",
+    r"^(\[[^\]\^\n][^\]\n]*\]:\s*)(?:<([^>\n]+)>|(\S+))(.*)$",
     flags=re.MULTILINE,
 )
+MARKDOWN_FOOTNOTE_DEF_RE = re.compile(r"^\[\^[^\]]+\]:", flags=re.MULTILINE)
 SPEC_PAGE_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-].*$", flags=re.MULTILINE)
 SPEC_PAGE_ID_RE = re.compile(r"^页面 ID\s*[：:]\s*(\S+)\s*$", flags=re.MULTILINE)
 SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", flags=re.MULTILINE | re.IGNORECASE)
@@ -74,12 +76,32 @@ def encode_link_path(relative: Path) -> str:
     return "/".join(parts)
 
 
+def strip_markdown_link_target(raw: str) -> str:
+    """Drop optional Markdown link title and angle brackets from a destination."""
+    target = (raw or "").strip()
+    if target.startswith("<") and ">" in target:
+        return target[1:].partition(">")[0].strip()
+    match = re.match(
+        r'^(.*?)(?:\s+(?:"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\'|\((?:\\.|[^)])*\)))\s*$',
+        target,
+    )
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    return target
+
+
+def strip_markdown_code_regions(text: str) -> str:
+    """Blank out fenced/inline code so link scanners ignore examples inside code."""
+    text = re.sub(r"```.*?```", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.DOTALL)
+    return re.sub(r"`[^`\n]+`", " ", text)
+
+
 def resolve_local_markdown_path(target: str, base_file: Path) -> Path | None:
     """Resolve one local Markdown link from base_file; None means external/skip.
 
     Shared by v1 validators and v2 assemble so `%20` / percent-encoding behave the same.
     """
-    target = (target or "").strip()
+    target = strip_markdown_link_target(target or "")
     if _is_external_link(target):
         return None
     raw_path, _, _ = target.partition("#")
@@ -280,11 +302,11 @@ def _is_external_link(target: str) -> bool:
 
 def rewrite_link_target(target: str, *, source_file: Path, destination_file: Path) -> str | None:
     """Rewrite one local link target; return None when the target should be left unchanged."""
-    target = target.strip()
-    if _is_external_link(target):
+    cleaned = strip_markdown_link_target(target.strip())
+    if _is_external_link(cleaned):
         return None
     # Split on an unencoded fragment marker before decoding path escapes like %23.
-    raw_path, separator, anchor = target.partition("#")
+    raw_path, separator, anchor = cleaned.partition("#")
     decoded_path = unquote(raw_path)
     if not decoded_path:
         return None
@@ -303,11 +325,21 @@ def rewrite_relative_links(text: str, *, source_file: Path, destination_file: Pa
     """Rewrite inline and reference-definition Markdown links for assembly into report.md."""
 
     def replace_inline(match: re.Match[str]) -> str:
-        target = match.group(1)
-        rewritten = rewrite_link_target(target, source_file=source_file, destination_file=destination_file)
+        raw_target = match.group(1)
+        path_only = strip_markdown_link_target(raw_target)
+        rewritten = rewrite_link_target(path_only, source_file=source_file, destination_file=destination_file)
         if rewritten is None:
             return match.group(0)
-        return match.group(0).replace(target, rewritten)
+        # Preserve an optional title suffix after the destination path.
+        suffix = raw_target[len(path_only):] if raw_target.startswith(path_only) else ""
+        if not suffix and raw_target != path_only:
+            # Title form: path + whitespace + quoted title
+            stripped = raw_target.strip()
+            if stripped.startswith(path_only):
+                suffix = stripped[len(path_only):]
+            else:
+                suffix = ""
+        return match.group(0).replace(raw_target, f"{rewritten}{suffix}" if suffix else rewritten)
 
     def replace_ref_def(match: re.Match[str]) -> str:
         prefix, angled, bare, suffix = match.group(1), match.group(2), match.group(3), match.group(4)
@@ -324,12 +356,15 @@ def rewrite_relative_links(text: str, *, source_file: Path, destination_file: Pa
 
 
 def iter_local_markdown_targets(text: str) -> list[str]:
+    text = strip_markdown_code_regions(text)
     targets: list[str] = []
     for match in MARKDOWN_LINK_RE.finditer(text):
-        targets.append(match.group(1).strip())
+        if re.match(r"^\[\^[^\]]+\]", match.group(0)):
+            continue
+        targets.append(strip_markdown_link_target(match.group(1)))
     for match in MARKDOWN_REF_DEF_RE.finditer(text):
         angled, bare = match.group(2), match.group(3)
-        targets.append((angled if angled is not None else bare).strip())
+        targets.append(strip_markdown_link_target((angled if angled is not None else bare) or ""))
     return targets
 
 

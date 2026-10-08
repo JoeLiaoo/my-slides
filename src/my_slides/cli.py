@@ -65,6 +65,33 @@ def slug(value: str) -> str:
     return value.strip("-.") or "section"
 
 
+def find_slug_collisions(chapters: list[str]) -> list[str]:
+    """Detect chapter titles that collapse to the same filesystem slug."""
+    by_slug: dict[str, list[str]] = {}
+    for chapter in chapters:
+        by_slug.setdefault(slug(chapter), []).append(chapter)
+    errors: list[str] = []
+    for value, names in by_slug.items():
+        if len(names) > 1:
+            errors.append(f"章节 slug 冲突「{value}」：{'、'.join(names)}（请改名使 slug 唯一）")
+    return errors
+
+
+def strip_yaml_trailing_comment(value: str) -> str:
+    """Remove an unquoted trailing # comment from a YAML scalar."""
+    in_single = False
+    in_double = False
+    for index, char in enumerate(value):
+        if char == "'" and not in_double:
+            in_single = not in_single
+        elif char == '"' and not in_single:
+            in_double = not in_double
+        elif char == "#" and not in_single and not in_double:
+            if index == 0 or value[index - 1].isspace():
+                return value[:index].rstrip()
+    return value
+
+
 def project_root(value: str | None, *, discover: bool = True) -> Path:
     if value:
         root = Path(value).expanduser().resolve()
@@ -86,28 +113,56 @@ def app_path(root: Path) -> Path:
 
 
 def read_config(path: Path) -> dict[str, Any]:
-    """Read the small, list-based YAML subset written by this CLI."""
+    """Read the small, list-based YAML subset written by this CLI.
+
+    Supports only the shape this tool writes: scalar keys and block lists under
+    ``source_dirs`` / ``chapters``. Inline lists like ``chapters: [a, b]`` are
+    rejected with a Chinese error instead of being misread character-by-character.
+    """
     config: dict[str, Any] = {"source_dirs": ["."], "chapters": []}
     current_list: str | None = None
     if not path.exists():
         return config
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
+    for line_no, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if line.startswith("- ") and current_list:
-            config[current_list].append(line[2:].strip().strip('"\''))
+        if stripped.startswith("- ") and current_list:
+            item = strip_yaml_trailing_comment(stripped[2:].strip()).strip().strip("\"'")
+            if not item:
+                raise ValueError(f"project.yaml 第 {line_no} 行：列表项不能为空")
+            config[current_list].append(item)
             continue
         current_list = None
-        match = re.match(r"([\w-]+):\s*(.*)$", line)
+        match = re.match(r"([\w-]+):\s*(.*)$", stripped)
         if not match:
-            continue
+            raise ValueError(
+                f"project.yaml 第 {line_no} 行无法解析：{stripped}。"
+                "请使用 key: value 或章节列表格式（每行一个 `- 名称`）"
+            )
         key, value = match.groups()
-        if not value and key in {"source_dirs", "chapters"}:
-            config[key] = []
-            current_list = key
-        elif value:
-            config[key] = value.strip('"\'')
+        value = strip_yaml_trailing_comment(value).strip()
+        if key in {"source_dirs", "chapters"}:
+            if not value:
+                config[key] = []
+                current_list = key
+                continue
+            if value.startswith("["):
+                raise ValueError(
+                    f"project.yaml 的 {key} 不支持行内列表写法（如 {key}: [a, b]）。"
+                    f"请写成：\n{key}:\n  - \"章节名\""
+                )
+            raise ValueError(
+                f"project.yaml 的 {key} 必须是列表，请写成：\n{key}:\n  - \"名称\""
+            )
+        if value:
+            config[key] = value.strip("\"'")
+    for key in ("source_dirs", "chapters"):
+        if not isinstance(config.get(key), list):
+            raise ValueError(f"project.yaml 的 {key} 必须是列表")
+    collisions = find_slug_collisions([str(item) for item in config.get("chapters", [])])
+    if collisions:
+        raise ValueError("；".join(collisions))
     return config
 
 
@@ -439,10 +494,114 @@ Wiki 索引：wiki/index.md
     return 0
 
 
+def strip_markdown_link_target(raw: str) -> str:
+    """Normalize a Markdown destination: drop optional title and angle brackets."""
+    target = (raw or "").strip()
+    if target.startswith("<") and ">" in target:
+        inner, _, rest = target[1:].partition(">")
+        target = inner.strip()
+        rest = rest.strip()
+        if rest:
+            # Title after angled destination — ignore it.
+            pass
+        return target
+    # destination "title" or destination 'title' or destination (title)
+    match = re.match(
+        r'^(.*?)(?:\s+(?:"(?:\\.|[^"])*"|\'(?:\\.|[^\'])*\'|\((?:\\.|[^)])*\)))\s*$',
+        target,
+    )
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    return target
+
+
+def strip_markdown_code_regions(text: str) -> str:
+    """Blank out fenced and inline code so link finders ignore pseudo-links inside."""
+    text = re.sub(r"```.*?```", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.DOTALL)
+    return re.sub(r"`[^`\n]+`", " ", text)
+
+
 def markdown_links(path: Path) -> list[str]:
     if not path.exists():
         return []
-    return [match.group(1).strip() for match in MARKDOWN_LINK_RE.finditer(path.read_text(encoding="utf-8"))]
+    text = strip_markdown_code_regions(path.read_text(encoding="utf-8"))
+    targets: list[str] = []
+    for match in MARKDOWN_LINK_RE.finditer(text):
+        label = match.group(0)
+        # Footnote references look like [^1]; definitions are handled as ref-defs.
+        if re.match(r"^\[\^[^\]]+\]", label):
+            continue
+        targets.append(strip_markdown_link_target(match.group(1)))
+    return targets
+
+
+def extract_approved_icons(icon_section: str) -> set[str]:
+    """Parse Spec「图标需求」into Lucide kebab-case names.
+
+    Only an entire section that is exactly「无」means no icons. List items
+    (``- name``) are preferred; comma-separated tokens are also accepted.
+    """
+    text = icon_section.strip()
+    if not text or text == "无":
+        return set()
+    icons: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        list_match = re.match(
+            r"^[-*+]\s+`?([a-z0-9]+(?:-[a-z0-9]+)*)`?(?:\s|[（(,，]|$)",
+            stripped,
+        )
+        if list_match:
+            icons.add(list_match.group(1))
+            continue
+        if stripped.startswith(("-", "*", "+")):
+            continue
+        for token in re.split(r"[,，、\s]+", stripped):
+            token = token.strip().strip("`")
+            # Drop Chinese parenthetical notes glued to the name.
+            token = re.split(r"[（(]", token, maxsplit=1)[0].strip()
+            if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", token):
+                icons.add(token)
+    return icons
+
+
+def validate_scoped_css(css: str, *, label: str) -> list[str]:
+    """Reject CSS that would escape an @scope wrapper via unbalanced braces."""
+    depth = 0
+    index = 0
+    length = len(css)
+    while index < length:
+        char = css[index]
+        if char == "/" and index + 1 < length and css[index + 1] == "*":
+            end = css.find("*/", index + 2)
+            if end < 0:
+                return [f"{label}：CSS 注释未闭合"]
+            index = end + 2
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            index += 1
+            while index < length:
+                if css[index] == "\\":
+                    index += 2
+                    continue
+                if css[index] == quote:
+                    index += 1
+                    break
+                index += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return [f"{label}：CSS 括号不配对，会跳出章节 @scope 作用域"]
+        index += 1
+    if depth != 0:
+        return [f"{label}：CSS 括号不配对，会跳出章节 @scope 作用域"]
+    return []
 
 
 def validate_wiki(base: Path, cfg: dict[str, Any] | None = None) -> list[str]:
@@ -841,8 +1000,7 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
             except json.JSONDecodeError:
                 pass
         for icon_section in re.findall(r"^###\s+图标需求\s*$\s*(.*?)(?=^###\s|^##\s|\Z)", spec_text, flags=re.MULTILINE | re.DOTALL):
-            if "无" not in icon_section.strip():
-                approved_icons.update(re.findall(r"(?<![A-Za-z0-9])([a-z0-9]+(?:-[a-z0-9]+)*)(?![A-Za-z0-9])", icon_section))
+            approved_icons.update(extract_approved_icons(icon_section))
     css_blocks: list[str] = []
     seen_ids: set[str] = set()
     for chapter in cfg.get("chapters", []):
@@ -865,6 +1023,7 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
         css = "".join(parser.css)
         if re.search(r"@import|url\s*\(", css, flags=re.I):
             errors.append(f"{path.name}：样式包含外部导入或 URL")
+        errors.extend(validate_scoped_css(css, label=path.name))
         css_blocks.append(f'@scope ([data-chapter="{slug(chapter)}"]) {{\n{css}\n}}')
         for slide in parser.slides:
             if not slide["has_notes"]:
@@ -923,8 +1082,11 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
     for number, (chapter, slide) in enumerate(all_slides):
         source = "".join(slide["html"])
         asset_index = 0
+        # Match complete class tokens only — avoid substring hits like old-mls-lucide-spec.
         marker_pattern = re.compile(
-            r'<script\b(?=[^>]*\btype="application/json")(?=[^>]*\bclass="[^\"]*(?:mls-echarts-spec|mls-lucide-spec)[^\"]*")[^>]*>.*?</script>',
+            r'<script\b(?=[^>]*\btype="application/json")'
+            r'(?=[^>]*\bclass="(?:[^"]*\s)?(?:mls-echarts-spec|mls-lucide-spec)(?:\s[^"]*)?")'
+            r"[^>]*>.*?</script>",
             flags=re.DOTALL,
         )
         def replace_asset(_match: re.Match[str]) -> str:
@@ -1100,6 +1262,29 @@ def install_renderers() -> dict[str, Any]:
     return status
 
 
+def _is_js_parseable_date(value: str) -> bool:
+    """Approximate JS Date.parse for the ISO / common forms used in charts."""
+    text = value.strip()
+    if not text:
+        return False
+    candidates = [text]
+    if text.endswith("Z"):
+        candidates.append(text[:-1] + "+00:00")
+    for candidate in candidates:
+        try:
+            datetime.fromisoformat(candidate)
+            return True
+        except ValueError:
+            pass
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            datetime.strptime(text, fmt)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def validate_chart_spec(spec: dict[str, Any]) -> None:
     kind = spec.get("type")
     supported = {"bar", "dot", "line", "multi-line", "scatter", "time-scatter", "stacked-bar", "waterfall"}
@@ -1110,6 +1295,12 @@ def validate_chart_spec(spec: dict[str, Any]) -> None:
             raise ValueError(f"{label} 必须是非空数组")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not __import__("math").isfinite(value) for value in values):
             raise ValueError(f"{label} 必须全部为有限数值；缺失值不能按 0 绘制")
+    width = spec.get("width")
+    height = spec.get("height")
+    effective_width = width if isinstance(width, int) and not isinstance(width, bool) else 1100
+    effective_height = height if isinstance(height, int) and not isinstance(height, bool) else 560
+    if effective_width < 320 or effective_width > 1800 or effective_height < 240 or effective_height > 1000:
+        raise ValueError("图表宽高超出允许范围（宽 320–1800，高 240–1000）")
     if kind in {"bar", "dot", "line", "waterfall"}:
         categories = spec.get("categories")
         if not isinstance(categories, list) or not categories or any(not isinstance(v, str) or not v.strip() for v in categories):
@@ -1141,9 +1332,17 @@ def validate_chart_spec(spec: dict[str, Any]) -> None:
                 raise ValueError("散点数据必须为对象数组")
             if kind == "scatter":
                 values_ok([point.get("x"), point.get("y")], "散点坐标")
-            elif (not isinstance(point.get("date"), str) or not isinstance(point.get("y"), (int, float))
-                  or isinstance(point.get("y"), bool) or not __import__("math").isfinite(point["y"])):
-                raise ValueError("时间散点需要 date 和有限数值 y")
+            else:
+                date = point.get("date")
+                y_value = point.get("y")
+                if (
+                    not isinstance(date, str)
+                    or not _is_js_parseable_date(date)
+                    or isinstance(y_value, bool)
+                    or not isinstance(y_value, (int, float))
+                    or not __import__("math").isfinite(y_value)
+                ):
+                    raise ValueError("时间散点需要可解析的 date 和有限数值 y")
     if kind == "waterfall":
         totals = spec.get("totals", [])
         if not isinstance(totals, list) or any(not isinstance(i, int) or i < 0 or i >= len(spec["values"]) for i in totals):
@@ -1523,6 +1722,7 @@ def main() -> None:
                 required = ["project.yaml", "wiki/README.md", "wiki/index.md", "wiki/log.md", "reports", "specs", "slides"]
                 missing = [name for name in required if not (base / name).exists()]
                 unit_errors: list[str] = []
+                slug_errors = find_slug_collisions([str(item) for item in cfg.get("chapters", [])])
                 if format_version == "v2":
                     try:
                         load_units_manifest(base, cfg.get("chapters", []))
@@ -1531,7 +1731,7 @@ def main() -> None:
                         missing.append("units.json（无效）")
                 renderer = renderer_status()
                 browser = browser_status()
-                ok = not missing and not unit_errors
+                ok = not missing and not unit_errors and not slug_errors
                 emit(
                     args,
                     {
@@ -1540,10 +1740,11 @@ def main() -> None:
                         "format_version": format_version,
                         "missing": missing,
                         "unit_errors": unit_errors,
+                        "slug_errors": slug_errors,
                         "renderer": renderer,
                         "browser": browser,
                     },
-                    "工作区结构完整。" if ok else "缺少：" + ", ".join(missing + unit_errors),
+                    "工作区结构完整。" if ok else "缺少：" + ", ".join(missing + unit_errors + slug_errors),
                     error=not ok,
                 )
                 code = 0 if ok else 1
@@ -1605,7 +1806,18 @@ def main() -> None:
                 emit(args, data, human)
                 code = 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError, UnitsError) as exc:
-        print(f"错误：{exc}", file=sys.stderr)
+        message = str(exc)
+        if getattr(args, "json", False):
+            print(json.dumps({"error": message}, ensure_ascii=False))
+        else:
+            print(f"错误：{message}", file=sys.stderr)
+        code = 2
+    except Exception as exc:  # noqa: BLE001 — CLI must never dump a traceback to users
+        message = f"未预期错误：{exc}"
+        if getattr(args, "json", False):
+            print(json.dumps({"error": message}, ensure_ascii=False))
+        else:
+            print(f"错误：{message}", file=sys.stderr)
         code = 2
     raise SystemExit(code)
 
