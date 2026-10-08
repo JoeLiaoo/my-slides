@@ -69,13 +69,13 @@ def refuse_unsupported_v2_action(base: Path, action: str, *, unit_mode: bool = F
         "approve report",
         "approve spec",
         "slides build",
+        "slides check",
     }:
-        # Phase 4–5: per-unit report/spec/slides build paths are available.
+        # Phase 4–6: per-unit report/spec/slides build/check paths are available.
         return
     raise ValueError(
         f"当前项目为 v2 单元格式，暂不支持章节级命令：{action}。"
-        "请改用带 --unit / --changed / --all 的单元命令；"
-        "slides check 的单元路径在阶段 6 提供。"
+        "请改用带 --unit / --changed / --all 的单元命令。"
     )
 
 
@@ -1819,54 +1819,71 @@ def main() -> None:
                 code = 1 if errors else 0
             elif args.command == "slides":
                 refuse_unsupported_v2_action(
-                    base, f"slides {args.slides_command}", unit_mode=v2_unit_mode(args) and args.slides_command == "build"
+                    base, f"slides {args.slides_command}", unit_mode=v2_unit_mode(args)
                 )
                 plan: dict[str, Any] | None = None
-                if format_version == "v2" and args.slides_command == "build" and v2_unit_mode(args):
-                    from .assembly import build_units_deck
-
-                    output, errors, plan = build_units_deck(
+                browser_result = None
+                output: Path | None = None
+                errors: list[str] = []
+                if format_version == "v2":
+                    if not v2_unit_mode(args):
+                        raise ValueError("v2 项目请使用 my-slides slides build|check --unit/--changed/--all")
+                    selected = resolve_unit_selection(
                         base,
                         cfg,
                         unit_ids=getattr(args, "units", None),
                         changed=bool(getattr(args, "changed", False)),
                         all_units=bool(getattr(args, "all_units", False)),
-                        write=True,
                     )
-                else:
-                    if format_version == "v2":
-                        raise ValueError(
-                            "v2 项目请使用 my-slides slides build --unit/--changed/--all；"
-                            "slides check 的单元路径在阶段 6 提供"
+                    selected_ids = [unit.id for unit in selected]
+                    if args.slides_command == "build":
+                        from .assembly import build_units_deck
+
+                        output, errors, plan = build_units_deck(
+                            base,
+                            cfg,
+                            unit_ids=getattr(args, "units", None),
+                            changed=bool(getattr(args, "changed", False)),
+                            all_units=bool(getattr(args, "all_units", False)),
+                            write=True,
                         )
+                    else:
+                        output = base / "slides" / "index.html"
+                        from .browser import check_units_on_deck
+
+                        check_result = check_units_on_deck(
+                            base, output, selected_ids, browser=bool(args.browser)
+                        )
+                        errors = list(check_result["errors"])
+                        browser_result = check_result.get("browser")
+                        plan = {"selected_units": selected_ids, "measured": bool(args.browser)}
+                else:
                     if not approval_is_current(base, "report", cfg):
                         raise ValueError("当前报告版本需要重新审阅，请运行 my-slides approve report")
                     if not approval_is_current(base, "spec", cfg):
                         raise ValueError("当前 Spec 版本需要重新审阅，请运行 my-slides approve spec")
                     output, errors = build_slides(base, cfg, write=args.slides_command == "build")
-                browser_result = None
-                if args.browser and not errors and output and (args.slides_command == "build" or output.exists()):
-                    from .browser import check_deck
-                    browser_result = check_deck(output)
-                    errors.extend(browser_result["errors"])
-                if args.slides_command == "check" and not errors:
-                    if not output or not output.exists():
-                        errors.append("缺少 slides/index.html；请先运行 my-slides slides build")
-                    else:
-                        generated = output.read_text(encoding="utf-8")
-                        if '<meta name="generator" content="my-slides">' not in generated:
-                            errors.append("slides/index.html 缺少生成器标记")
-                        if generated.count('class="slide ') + generated.count('class="slide"') < len(cfg.get("chapters", [])):
-                            errors.append("合并后的演示文稿页面数量异常")
-                        state_path = base / ".state" / "slides.json"
-                        if not state_path.exists():
-                            errors.append("缺少 Slides 构建状态；请重新运行 my-slides slides build")
+                    if args.browser and not errors and output and (args.slides_command == "build" or output.exists()):
+                        from .browser import check_deck
+                        browser_result = check_deck(output)
+                        errors.extend(browser_result["errors"])
+                    if args.slides_command == "check" and not errors:
+                        if not output or not output.exists():
+                            errors.append("缺少 slides/index.html；请先运行 my-slides slides build")
                         else:
-                            state = json.loads(state_path.read_text(encoding="utf-8"))
-                            output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
-                            if state.get("html_sha256") != output_hash:
-                                errors.append("slides/index.html 在构建后已被修改")
-                            if state.get("format_version") != "v2":
+                            generated = output.read_text(encoding="utf-8")
+                            if '<meta name="generator" content="my-slides">' not in generated:
+                                errors.append("slides/index.html 缺少生成器标记")
+                            if generated.count('class="slide ') + generated.count('class="slide"') < len(cfg.get("chapters", [])):
+                                errors.append("合并后的演示文稿页面数量异常")
+                            state_path = base / ".state" / "slides.json"
+                            if not state_path.exists():
+                                errors.append("缺少 Slides 构建状态；请重新运行 my-slides slides build")
+                            else:
+                                state = json.loads(state_path.read_text(encoding="utf-8"))
+                                output_hash = hashlib.sha256(output.read_bytes()).hexdigest()
+                                if state.get("html_sha256") != output_hash:
+                                    errors.append("slides/index.html 在构建后已被修改")
                                 if state.get("report_sha256") != approval_digest(base, "report", cfg):
                                     errors.append("Slides 所依据的报告版本与当前批准版本不一致")
                                 if state.get("spec_sha256") != approval_digest(base, "spec", cfg):

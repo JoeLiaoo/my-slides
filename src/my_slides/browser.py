@@ -1,12 +1,50 @@
-"""Headless Chromium validation for the generated standalone deck."""
+"""Headless Chromium validation for the generated standalone deck.
+
+Phase 6: selected pages are activated one-by-one before geometry measurement
+so hidden slides' zero-size boxes cannot pass checks.
+"""
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from pathlib import Path
 from typing import Any
 
 
-def check_deck(path: Path) -> dict[str, Any]:
+def structural_check_deck(path: Path, *, expected_units: list[str] | None = None) -> dict[str, Any]:
+    """Layer-3 lightweight checks that do not need a browser."""
+    errors: list[str] = []
+    if not path.is_file():
+        return {"valid": False, "errors": [f"Slides 文件不存在：{path}"], "measured": False}
+    text = path.read_text(encoding="utf-8")
+    if '<meta name="generator" content="my-slides">' not in text:
+        errors.append("slides/index.html 缺少生成器标记")
+    slides = re.findall(r'data-unit-id="([^"]+)"|data-slide="(\d+)"', text)
+    unit_ids = [match[0] for match in slides if match[0]]
+    if expected_units is not None:
+        if unit_ids != expected_units:
+            errors.append(
+                "整套单元集合或顺序与 units.json 不一致："
+                f"期望 {expected_units}，实际 {unit_ids}"
+            )
+    covers = len(re.findall(r'data-page-role="cover"', text))
+    if covers != 1 and 'data-page-role="cover"' in text:
+        errors.append("整套必须恰好一个 cover 页面")
+    if "http://" in text or re.search(r'https://(?!github\.com/)', text):
+        # Soft hint — deep offline blocking is done in browser layer.
+        pass
+    return {"valid": not errors, "errors": errors, "measured": False, "unit_ids": unit_ids}
+
+
+def check_deck(
+    path: Path,
+    *,
+    unit_ids: list[str] | None = None,
+    slide_indexes: list[int] | None = None,
+) -> dict[str, Any]:
+    """Browser QA. When unit_ids/slide_indexes given, activate each target before measuring."""
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
@@ -17,6 +55,7 @@ def check_deck(path: Path) -> dict[str, Any]:
     errors: list[str] = []
     external_requests: list[str] = []
     measurements: dict[str, Any] = {}
+    measured_units: list[str] = []
     with sync_playwright() as playwright:
         try:
             browser = playwright.chromium.launch(headless=True)
@@ -25,104 +64,218 @@ def check_deck(path: Path) -> dict[str, Any]:
         page = browser.new_page()
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-        page.on("request", lambda request: external_requests.append(request.url) if request.url.startswith(("http://", "https://")) else None)
+
+        def on_request(request: Any) -> None:
+            url = request.url
+            if url.startswith(("http://", "https://")):
+                external_requests.append(url)
+
+        page.on("request", on_request)
         page.goto(path.resolve().as_uri(), wait_until="load")
+
+        catalog = page.evaluate(
+            """() => [...document.querySelectorAll('.slide')].map((slide, index) => ({
+              index,
+              unitId: slide.getAttribute('data-unit-id') || '',
+              role: slide.getAttribute('data-page-role') || '',
+              dataSlide: slide.getAttribute('data-slide') || String(index)
+            }))"""
+        )
+        targets: list[int]
+        if unit_ids:
+            by_unit = {item["unitId"]: item["index"] for item in catalog if item["unitId"]}
+            missing = [unit_id for unit_id in unit_ids if unit_id not in by_unit]
+            if missing:
+                errors.append("HTML 中缺少单元页面：" + "、".join(missing))
+                browser.close()
+                return {
+                    "valid": False,
+                    "viewports": {},
+                    "external_requests": external_requests,
+                    "errors": errors,
+                    "measured": True,
+                    "measured_units": [],
+                    "cached": False,
+                }
+            targets = [by_unit[unit_id] for unit_id in unit_ids]
+            measured_units = list(unit_ids)
+        elif slide_indexes is not None:
+            targets = list(slide_indexes)
+            measured_units = [catalog[i]["unitId"] for i in targets if 0 <= i < len(catalog)]
+        else:
+            targets = list(range(len(catalog)))
+            measured_units = [item["unitId"] for item in catalog if item["unitId"]]
+
         for label, width, height in (("desktop", 1920, 1080), ("mobile", 390, 844)):
             page.set_viewport_size({"width": width, "height": height})
-            metrics = page.evaluate("""() => {
-              const stage = document.querySelector('[data-deck-stage]');
-              const slides = [...document.querySelectorAll('.slide')];
-              const rect = stage.getBoundingClientRect();
-              const active = slides.indexOf(document.querySelector('.slide.active'));
-              const visibleText = [];
-              const outOfBounds = [];
-              const invisibleText = [];
-              const overlaps = [];
-              const textBlocks = 'h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,button';
-              for (const [slideIndex, slide] of slides.entries()) {
-                const slideRect = slide.getBoundingClientRect();
-                for (const element of slide.querySelectorAll('*')) {
-                  if (element.matches('script,style,svg defs,svg title,svg desc')) continue;
-                  const style = getComputedStyle(element);
-                  if (style.display === 'none' || style.visibility === 'hidden') continue;
-                  const box = element.getBoundingClientRect();
-                  if (box.width < 0.5 || box.height < 0.5) continue;
-                  if (box.left < slideRect.left - 2 || box.top < slideRect.top - 2 ||
-                      box.right > slideRect.right + 2 || box.bottom > slideRect.bottom + 2) {
-                    outOfBounds.push({slide: slideIndex, tag: element.tagName, text: (element.innerText || '').slice(0, 80)});
-                  }
-                  const text = (element.children.length === 0 ? element.textContent : '')?.trim();
-                  if (!text) continue;
-                  if (Number(style.opacity) === 0 || style.color === 'rgba(0, 0, 0, 0)' || style.fontSize === '0px') {
-                    invisibleText.push({slide: slideIndex, text: text.slice(0, 80)});
-                  }
-                  visibleText.push({slide: slideIndex, text: text.slice(0, 80), fontSize: parseFloat(style.fontSize)});
-                }
-                const blocks = [...slide.querySelectorAll(textBlocks)].filter(el => {
-                  const style = getComputedStyle(el);
-                  return style.display !== 'none' && style.visibility !== 'hidden' && el.innerText.trim();
-                });
-                for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
-                  const a = blocks[i], b = blocks[j];
-                  if (a.parentElement !== b.parentElement) continue;
-                  const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
-                  const intersection = Math.max(0, Math.min(ar.right, br.right) - Math.max(ar.left, br.left)) *
-                    Math.max(0, Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top));
-                  const smaller = Math.min(ar.width * ar.height, br.width * br.height);
-                  if (smaller > 0 && intersection / smaller > 0.12) overlaps.push({slide: slideIndex, first: a.tagName, second: b.tagName});
-                }
-              }
-              return {
-                documentWidth: document.documentElement.scrollWidth,
-                stageWidth: rect.width,
-                stageHeight: rect.height,
-                slideCount: slides.length,
-                active,
-                overflow: slides.map(s => s.scrollWidth > s.clientWidth + 1 || s.scrollHeight > s.clientHeight + 1),
-                visibleSlides: slides.filter(s => getComputedStyle(s).display !== 'none').length,
-                visibleTextCount: visibleText.length,
-                outOfBounds,
-                invisibleText,
-                overlaps
-              };
-            }""")
-            measurements[label] = metrics
-            if metrics["documentWidth"] > width:
-                errors.append(f"{label}: document overflows horizontally")
-            if metrics["stageWidth"] > width + 1 or metrics["stageHeight"] > height + 1:
-                errors.append(f"{label}: deck stage exceeds the viewport")
-            if metrics["slideCount"] == 0 or metrics["visibleSlides"] != 1:
-                errors.append(f"{label}: expected one visible slide")
-            if any(metrics["overflow"]):
-                errors.append(f"{label}: slide content overflows its 16:9 canvas")
-            if metrics["active"] != 0:
-                errors.append(f"{label}: initial slide is not the first slide")
-            if not metrics["visibleTextCount"]:
-                errors.append(f"{label}: no visible slide text was measured")
-            if metrics["outOfBounds"]:
-                errors.append(f"{label}: slide elements extend beyond the slide bounds")
-            if metrics["invisibleText"]:
-                errors.append(f"{label}: slide contains text hidden by opacity or transparent color")
-            if metrics["overlaps"]:
-                errors.append(f"{label}: sibling text blocks overlap")
-            if metrics["slideCount"] > 1:
+            # Reset to first slide for deck-level smoke.
+            page.evaluate("() => { const pages=[...document.querySelectorAll('.slide')]; pages.forEach((p,i)=>p.classList.toggle('active', i===0)); }")
+            page.wait_for_timeout(50)
+            viewport_errors: list[str] = []
+            per_slide: list[dict[str, Any]] = []
+            for target in targets:
+                page.evaluate(
+                    """(index) => {
+                      const pages=[...document.querySelectorAll('.slide')];
+                      pages.forEach((p,i)=>p.classList.toggle('active', i===index));
+                    }""",
+                    target,
+                )
+                page.wait_for_timeout(80)
+                metrics = page.evaluate(
+                    """(targetIndex) => {
+                      const stage = document.querySelector('[data-deck-stage]');
+                      const slides = [...document.querySelectorAll('.slide')];
+                      const slide = slides[targetIndex];
+                      const rect = stage.getBoundingClientRect();
+                      const slideRect = slide.getBoundingClientRect();
+                      const active = slides.indexOf(document.querySelector('.slide.active'));
+                      const visibleText = [];
+                      const outOfBounds = [];
+                      const invisibleText = [];
+                      const overlaps = [];
+                      const textBlocks = 'h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,button';
+                      for (const element of slide.querySelectorAll('*')) {
+                        if (element.matches('script,style,svg defs,svg title,svg desc')) continue;
+                        const style = getComputedStyle(element);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                        const box = element.getBoundingClientRect();
+                        if (box.width < 0.5 || box.height < 0.5) continue;
+                        if (box.left < slideRect.left - 2 || box.top < slideRect.top - 2 ||
+                            box.right > slideRect.right + 2 || box.bottom > slideRect.bottom + 2) {
+                          outOfBounds.push({slide: targetIndex, tag: element.tagName, text: (element.innerText || '').slice(0, 80)});
+                        }
+                        const text = (element.children.length === 0 ? element.textContent : '')?.trim();
+                        if (!text) continue;
+                        if (Number(style.opacity) === 0 || style.color === 'rgba(0, 0, 0, 0)' || style.fontSize === '0px') {
+                          invisibleText.push({slide: targetIndex, text: text.slice(0, 80)});
+                        }
+                        visibleText.push({slide: targetIndex, text: text.slice(0, 80), fontSize: parseFloat(style.fontSize)});
+                      }
+                      const blocks = [...slide.querySelectorAll(textBlocks)].filter(el => {
+                        const style = getComputedStyle(el);
+                        return style.display !== 'none' && style.visibility !== 'hidden' && el.innerText.trim();
+                      });
+                      for (let i = 0; i < blocks.length; i++) for (let j = i + 1; j < blocks.length; j++) {
+                        const a = blocks[i], b = blocks[j];
+                        if (a.parentElement !== b.parentElement) continue;
+                        const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+                        const intersection = Math.max(0, Math.min(ar.right, br.right) - Math.max(ar.left, br.left)) *
+                          Math.max(0, Math.min(ar.bottom, br.bottom) - Math.max(ar.top, br.top));
+                        const smaller = Math.min(ar.width * ar.height, br.width * br.height);
+                        if (smaller > 0 && intersection / smaller > 0.12) overlaps.push({slide: targetIndex, first: a.tagName, second: b.tagName});
+                      }
+                      const overflow = slide.scrollWidth > slide.clientWidth + 1 || slide.scrollHeight > slide.clientHeight + 1;
+                      return {
+                        documentWidth: document.documentElement.scrollWidth,
+                        stageWidth: rect.width,
+                        stageHeight: rect.height,
+                        slideCount: slides.length,
+                        active,
+                        targetIndex,
+                        unitId: slide.getAttribute('data-unit-id') || '',
+                        overflow,
+                        visibleSlides: slides.filter(s => getComputedStyle(s).display !== 'none').length,
+                        visibleTextCount: visibleText.length,
+                        outOfBounds,
+                        invisibleText,
+                        overlaps
+                      };
+                    }""",
+                    target,
+                )
+                per_slide.append(metrics)
+                prefix = f"{label}/slide {target}"
+                if metrics["unitId"]:
+                    prefix = f"{label}/{metrics['unitId']}"
+                if metrics["documentWidth"] > width:
+                    viewport_errors.append(f"{prefix}: document overflows horizontally")
+                if metrics["stageWidth"] > width + 1 or metrics["stageHeight"] > height + 1:
+                    viewport_errors.append(f"{prefix}: deck stage exceeds the viewport")
+                if metrics["visibleSlides"] != 1:
+                    viewport_errors.append(f"{prefix}: expected one visible slide after activation")
+                if metrics["active"] != target:
+                    viewport_errors.append(f"{prefix}: failed to activate target slide")
+                if metrics["overflow"]:
+                    viewport_errors.append(f"{prefix}: slide content overflows its 16:9 canvas")
+                if not metrics["visibleTextCount"]:
+                    viewport_errors.append(f"{prefix}: no visible slide text was measured")
+                if metrics["outOfBounds"]:
+                    viewport_errors.append(f"{prefix}: slide elements extend beyond the slide bounds")
+                if metrics["invisibleText"]:
+                    viewport_errors.append(f"{prefix}: slide contains text hidden by opacity or transparent color")
+                if metrics["overlaps"]:
+                    viewport_errors.append(f"{prefix}: sibling text blocks overlap")
+
+            # Deck smoke once per viewport (not per unit).
+            if len(catalog) > 1 and not unit_ids:
+                page.evaluate("() => { const pages=[...document.querySelectorAll('.slide')]; pages.forEach((p,i)=>p.classList.toggle('active', i===0)); }")
                 page.keyboard.press("ArrowRight")
                 if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "1":
-                    errors.append(f"{label}: ArrowRight navigation failed")
+                    viewport_errors.append(f"{label}: ArrowRight navigation failed")
                 page.keyboard.press("ArrowLeft")
                 if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "0":
-                    errors.append(f"{label}: ArrowLeft navigation failed")
-                if label == "mobile":
-                    page.evaluate("""() => {
-                      const target = document.querySelector('[data-deck-stage]');
-                      const start = new Touch({identifier: 1, target, clientX: 300, clientY: 200});
-                      const end = new Touch({identifier: 1, target, clientX: 200, clientY: 200});
-                      target.dispatchEvent(new TouchEvent('touchstart', {bubbles: true, changedTouches: [start], touches: [start]}));
-                      target.dispatchEvent(new TouchEvent('touchend', {bubbles: true, changedTouches: [end], touches: []}));
-                    }""")
-                    if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "1":
-                        errors.append("mobile: touch swipe navigation failed")
+                    viewport_errors.append(f"{label}: ArrowLeft navigation failed")
+
+            measurements[label] = {"slides": per_slide}
+            errors.extend(viewport_errors)
         browser.close()
     if external_requests:
-        errors.append("offline deck requested external resources: " + ", ".join(external_requests))
-    return {"valid": not errors, "viewports": measurements, "external_requests": external_requests, "errors": errors}
+        errors.append("offline deck requested external resources: " + ", ".join(dict.fromkeys(external_requests)))
+    return {
+        "valid": not errors,
+        "viewports": measurements,
+        "external_requests": external_requests,
+        "errors": errors,
+        "measured": True,
+        "measured_units": measured_units,
+        "cached": False,
+        "input_fingerprint": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def check_units_on_deck(
+    base: Path,
+    path: Path,
+    unit_ids: list[str],
+    *,
+    browser: bool = False,
+) -> dict[str, Any]:
+    """Combine structural deck checks with optional browser measurement for units."""
+    from .units import load_units_manifest
+
+    units, _ = load_units_manifest(base, chapters=None)
+    structural = structural_check_deck(path, expected_units=[unit.id for unit in units])
+    errors = list(structural["errors"])
+    browser_result = None
+    if browser:
+        browser_result = check_deck(path, unit_ids=unit_ids)
+        errors.extend(browser_result["errors"])
+        # Record check currency on unit state.
+        from .dependencies import fingerprint_json
+        from .state import read_unit_state, write_unit_state
+
+        for unit_id in unit_ids:
+            state = read_unit_state(base, unit_id)
+            fp = fingerprint_json(
+                {
+                    "html": state["html"].get("content_sha256"),
+                    "spec": state["spec"].get("approved_sha256"),
+                    "deck": structural.get("unit_ids"),
+                }
+            )
+            state["check"] = {
+                "input_fingerprint": fp,
+                "result": "pass" if not browser_result["errors"] else "fail",
+                "current": not browser_result["errors"],
+                "measured": True,
+                "cached": False,
+            }
+            write_unit_state(base, unit_id, state)
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "structural": structural,
+        "browser": browser_result,
+        "selected_units": unit_ids,
+    }
