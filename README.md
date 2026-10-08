@@ -50,6 +50,10 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 无 `units.json` 时 CLI 会拒绝执行；请重新 `my-slides init`。
 
+### 版本
+
+用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新；有实质功能变更时请在该处提高版本号。
+
 ### 最小冒烟（命令骨架）
 
 在任意空投资项目目录：
