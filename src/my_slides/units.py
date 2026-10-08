@@ -682,6 +682,221 @@ def migrate_to_units_preview(base: Path, chapters: list[str]) -> dict[str, Any]:
             "只读迁移预检完成；未修改项目文件。"
             + ("候选单元已通过可行性检查，可进入后续正式迁移。" if can_migrate
                else "存在冲突或待确认报告映射，尚不能标记为可迁移。")
-            + "正式迁移（非 dry-run）将在后续步骤实现。"
         ),
+    }
+
+
+def _copy_tree(source: Path, destination: Path) -> None:
+    import shutil
+
+    if source.is_dir():
+        shutil.copytree(source, destination, dirs_exist_ok=True)
+    elif source.is_file():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+
+def migrate_to_units(base: Path, chapters: list[str]) -> dict[str, Any]:
+    """Formal v1→v2 migration with backup + staging; leaves units pending review."""
+    import shutil
+    from datetime import datetime, timezone
+
+    preview = migrate_to_units_preview(base, chapters)
+    if preview.get("format_version") == "v2":
+        return {
+            **preview,
+            "dry_run": False,
+            "migrated": False,
+            "message": "项目已是 v2，无需迁移",
+        }
+    if not preview.get("can_migrate"):
+        raise UnitsError(
+            "迁移预检未通过，拒绝正式迁移："
+            + ("；".join(preview.get("conflicts") or []) or "存在待确认的报告映射")
+            + "。请先运行 --dry-run 查看明细并完成人工/Agent 拆分。"
+        )
+
+    stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
+    backup_root = base / ".state" / "migrate-backup" / stamp
+    staging_root = base / ".state" / "migrate-staging" / stamp
+    backup_root.mkdir(parents=True, exist_ok=True)
+    staging_root.mkdir(parents=True, exist_ok=True)
+
+    # Backup chapter artifacts and approvals.
+    for relative in ("reports", "specs", "slides/chapters", ".state/approvals.json", "slides/index.html"):
+        source = base / relative
+        if source.exists():
+            _copy_tree(source, backup_root / relative)
+    (backup_root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "created_at": stamp,
+                "chapters": chapters,
+                "candidate_units": preview["candidate_units"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ensure_v2_directories(staging_root)
+    units = [
+        Unit(id=item["id"], chapter=item["chapter"], role=item["role"])
+        for item in preview["candidate_units"]
+    ]
+    write_units_manifest(staging_root, units)
+
+    # Materialize unit files into staging (1:1 chapter pages only when can_migrate).
+    for item in preview["candidate_units"]:
+        unit_id = item["id"]
+        paths = unit_paths(staging_root, unit_id)
+        paths.report.parent.mkdir(parents=True, exist_ok=True)
+        paths.spec.parent.mkdir(parents=True, exist_ok=True)
+        paths.page.parent.mkdir(parents=True, exist_ok=True)
+        if item.get("report_path"):
+            report_src = base / item["report_path"]
+            if report_src.is_file():
+                paths.report.write_bytes(report_src.read_bytes())
+        if item.get("spec_path"):
+            spec_src = base / item["spec_path"]
+            if spec_src.is_file():
+                # Extract the matching Slide page when possible.
+                text = spec_src.read_text(encoding="utf-8")
+                pages = list(SPEC_PAGE_RE.finditer(text))
+                written = False
+                for index, match in enumerate(pages):
+                    end = pages[index + 1].start() if index + 1 < len(pages) else len(text)
+                    page = text[match.start():end]
+                    page_id = SPEC_PAGE_ID_RE.search(page)
+                    if page_id and page_id.group(1) == unit_id:
+                        paths.spec.write_text(page.strip() + "\n", encoding="utf-8")
+                        written = True
+                        break
+                if not written:
+                    paths.spec.write_text(text, encoding="utf-8")
+        if item.get("html_path"):
+            html_src = base / item["html_path"]
+            if html_src.is_file():
+                from .cli import SlideFragmentParser
+
+                parser = SlideFragmentParser()
+                parser.feed(html_src.read_text(encoding="utf-8"))
+                parser.close()
+                match_slide = None
+                for slide in parser.slides:
+                    if (slide.get("id") or "") == unit_id:
+                        match_slide = slide
+                        break
+                if match_slide is None and len(parser.slides) == 1:
+                    match_slide = parser.slides[0]
+                if match_slide is None and item.get("html_index") is not None:
+                    idx = int(item["html_index"])
+                    if 0 <= idx < len(parser.slides):
+                        match_slide = parser.slides[idx]
+                if match_slide is None:
+                    raise UnitsError(f"无法从 {item['html_path']} 定位单元 {unit_id} 的 HTML 片段")
+                html_body = "".join(match_slide["html"])
+                if "data-unit-id=" not in html_body:
+                    html_body = html_body.replace(
+                        'class="',
+                        f'data-unit-id="{unit_id}" class="',
+                        1,
+                    )
+                css = "".join(parser.css)
+                if css:
+                    html_body = f"<style>{css}</style>\n{html_body}"
+                paths.page.write_text(html_body, encoding="utf-8")
+
+    # Validate staging assemble / manifest before switching.
+    loaded, load_errors = load_units_manifest(staging_root, chapters)
+    if load_errors:
+        raise UnitsError("暂存校验失败：" + "；".join(load_errors))
+    document, assemble_errors = assemble_report(staging_root, loaded, write=True)
+    if assemble_errors:
+        raise UnitsError("暂存组装失败：" + "；".join(assemble_errors))
+
+    # Switch: copy staging unit trees into live workspace and write units.json.
+    ensure_v2_directories(base)
+    for relative in ("reports/units", "specs/units", "slides/pages", "slides/previews", ".state/units"):
+        live = base / relative
+        staged = staging_root / relative
+        if live.exists():
+            shutil.rmtree(live)
+        if staged.exists():
+            shutil.copytree(staged, live)
+    if (staging_root / "reports" / "report.md").is_file():
+        (base / "reports" / "report.md").write_bytes((staging_root / "reports" / "report.md").read_bytes())
+    write_units_manifest(base, loaded)
+
+    # Invalidate legacy chapter approvals — units start pending review.
+    approvals = base / ".state" / "approvals.json"
+    if approvals.is_file():
+        approvals.rename(backup_root / "approvals.json.migrated-aside")
+
+    pointer = base / ".state" / "migrate-latest.json"
+    pointer.write_text(
+        json.dumps({"stamp": stamp, "backup": str(backup_root.relative_to(base)), "units": [u.id for u in loaded]}, ensure_ascii=False, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "dry_run": False,
+        "migrated": True,
+        "format_version": "v2",
+        "backup": str(backup_root.relative_to(base)),
+        "staging": str(staging_root.relative_to(base)),
+        "units": [unit.id for unit in loaded],
+        "assembled_report": bool(document),
+        "message": (
+            f"已迁移为 v2（{len(loaded)} 个单元）。备份：{backup_root.relative_to(base)}。"
+            "新单元默认待审阅；可用 my-slides migrate --rollback 回滚到迁前备份。"
+        ),
+    }
+
+
+def rollback_units_migration(base: Path, stamp: str | None = None) -> dict[str, Any]:
+    """Restore the latest (or named) migrate backup and remove units.json."""
+    import shutil
+
+    pointer = base / ".state" / "migrate-latest.json"
+    if stamp is None:
+        if not pointer.is_file():
+            raise UnitsError("没有可回滚的迁移记录（缺少 .state/migrate-latest.json）")
+        stamp = json.loads(pointer.read_text(encoding="utf-8"))["stamp"]
+    backup_root = base / ".state" / "migrate-backup" / stamp
+    if not backup_root.is_dir():
+        raise UnitsError(f"找不到迁移备份：.state/migrate-backup/{stamp}")
+
+    # Remove v2 markers/trees then restore backup.
+    units_path = units_manifest_path(base)
+    if units_path.is_file():
+        units_path.unlink()
+    for relative in ("reports/units", "specs/units", "slides/pages", "slides/previews", ".state/units"):
+        target = base / relative
+        if target.exists():
+            shutil.rmtree(target)
+    for relative in ("reports", "specs", "slides/chapters"):
+        src = backup_root / relative
+        dst = base / relative
+        if src.exists():
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+    if (backup_root / "slides" / "index.html").is_file():
+        (base / "slides").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup_root / "slides" / "index.html", base / "slides" / "index.html")
+    for name in ("approvals.json", "approvals.json.migrated-aside"):
+        src = backup_root / name
+        if src.is_file():
+            shutil.copy2(src, base / ".state" / "approvals.json")
+            break
+    if pointer.is_file():
+        pointer.unlink()
+    return {
+        "rolled_back": True,
+        "stamp": stamp,
+        "format_version": detect_format_version(base),
+        "message": f"已回滚到迁移备份 {stamp}；当前格式：{detect_format_version(base)}",
     }

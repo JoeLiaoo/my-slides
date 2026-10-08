@@ -212,7 +212,11 @@ class UnitsFormatTests(unittest.TestCase):
             capture_output=True, text=True, encoding="utf-8", env=env,
         )
         self.assertEqual(blocked.returncode, 2)
-        self.assertIn("正式迁移尚未实现", blocked.stderr)
+        # Formal migrate refuses when dry-run would report can_migrate=false.
+        self.assertTrue(
+            "拒绝正式迁移" in blocked.stderr or "待确认" in blocked.stderr,
+            blocked.stderr,
+        )
 
     def test_dump_units_manifest_is_stable_json(self):
         units = [Unit(id="cover", chapter="投资概要", role="cover")]
