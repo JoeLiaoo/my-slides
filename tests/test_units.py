@@ -37,7 +37,9 @@ class UnitsFormatTests(unittest.TestCase):
         self.temp.cleanup()
 
     def init_v1(self):
-        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        init_project(
+            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1")
+        )
 
     def write_v2(self, units: list[Unit], *, reports: dict[str, str] | None = None):
         self.init_v1()
@@ -253,7 +255,9 @@ class UnitsFormatTests(unittest.TestCase):
         payload = json.loads(status.stdout)
         self.assertEqual(payload["format_version"], "v2")
         self.assertFalse(payload["approvals"]["report"]["current"])
-        self.assertFalse(payload["approvals"]["report"]["supported"])
+        # Unit-level approve is supported; chapter digests must not look "current".
+        self.assertTrue(payload["approvals"]["report"]["supported"])
+        self.assertIn("--unit", payload["approvals"]["report"]["message"])
         approve_cli = subprocess.run(
             [sys.executable, "-m", "my_slides.cli", "approve", "report", "--project", str(self.root), "--json"],
             capture_output=True, text=True, encoding="utf-8", env=env,

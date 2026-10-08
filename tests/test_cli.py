@@ -51,7 +51,10 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.temp.cleanup()
 
     def init(self):
-        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        # Phase 8 keeps v1 fixtures for the deprecation window; pass format explicitly.
+        init_project(
+            argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False, format="v1")
+        )
 
     @staticmethod
     def spec_page(chapter, role="content", number=1):
@@ -319,7 +322,11 @@ class ProjectWorkflowTests(unittest.TestCase):
         sources = self.root / "sources"
         sources.mkdir()
         (sources / "metrics.md").write_text("# Synthetic metrics\nRevenue: 10, 14, 19. Margin: 20%, 22%, 24%.\n", encoding="utf-8")
-        init_project(argparse.Namespace(project=str(self.root), source_dir=["sources"], force=False, json=False))
+        init_project(
+            argparse.Namespace(
+                project=str(self.root), source_dir=["sources"], force=False, json=False, format="v1"
+            )
+        )
         wiki_page = self.base / "wiki" / "company.md"
         wiki_page.write_text("# Synthetic company\n\nRevenue and margin trend [from the synthetic source](../../sources/metrics.md).\n", encoding="utf-8")
         index = self.base / "wiki" / "index.md"
@@ -627,6 +634,71 @@ class ProjectWorkflowTests(unittest.TestCase):
         payload = json.loads(result.stdout.strip() or result.stderr.strip())
         self.assertIn("error", payload)
         self.assertTrue(payload["error"])
+
+    def test_init_defaults_to_v2_without_chapters_path(self):
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        self.assertTrue((self.base / "units.json").is_file())
+        self.assertTrue((self.base / "reports" / "units").is_dir())
+        self.assertTrue((self.base / "slides" / "pages").is_dir())
+        self.assertFalse((self.base / "slides" / "chapters").exists())
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        result = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root), "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        self.assertEqual(result.returncode, 0)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["format_version"], "v2")
+        self.assertFalse(payload.get("deprecated"))
+
+    def test_v1_status_and_doctor_mark_deprecated(self):
+        self.init()
+        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+        env.pop("MY_SLIDES_ALLOW_V1", None)
+        for command in ("status", "doctor"):
+            result = subprocess.run(
+                [sys.executable, "-m", "my_slides.cli", command, "--project", str(self.root), "--json"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["deprecated"], command)
+            self.assertIn("弃用", payload["deprecation_warning"])
+            # Human path also warns unless silenced.
+            human = subprocess.run(
+                [sys.executable, "-m", "my_slides.cli", command, "--project", str(self.root)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+            )
+            self.assertIn("弃用", human.stdout)
+        quiet_env = {**env, "MY_SLIDES_ALLOW_V1": "1"}
+        quiet = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=quiet_env,
+        )
+        self.assertEqual(quiet.returncode, 0)
+        self.assertNotIn("MY_SLIDES_ALLOW_V1", quiet.stdout)
+        self.assertNotIn("警告：当前项目仍为 v1", quiet.stdout)
+        quiet_json = subprocess.run(
+            [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root), "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=quiet_env,
+        )
+        payload = json.loads(quiet_json.stdout)
+        self.assertTrue(payload["deprecated"])
 
 
 if __name__ == "__main__":
