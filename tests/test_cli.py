@@ -57,7 +57,6 @@ class VersionTests(unittest.TestCase):
         pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
         self.assertEqual(__version__, data["project"]["version"])
-        self.assertEqual(__version__, "0.2.0")
 
     def test_cli_version_flags(self):
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}

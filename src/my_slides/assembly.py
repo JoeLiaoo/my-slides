@@ -59,23 +59,23 @@ def approved_assets_from_spec(spec_text: str) -> tuple[set[str], set[str]]:
     return charts, icons
 
 
-def compile_unit_page(
+def compute_unit_cache_key(
     base: Path,
     unit: Unit,
     *,
     brand_color: str,
-    write_preview: bool = True,
-) -> tuple[str | None, list[str]]:
-    """Compile one unit HTML page with assets; optional preview write."""
+) -> tuple[str | None, list[str], dict[str, Any] | None]:
+    """Compute the full page cache key for current inputs (brand/renderer included).
+
+    Returns ``(cache_key, errors, context)`` where context carries parsed slide data
+    for compile_unit_page when key computation succeeds.
+    """
     paths = unit_paths(base, unit.id)
     errors: list[str] = []
-    state = refresh_unit_currency(base, unit, project_root=base.parent)
-    if not state["spec"]["current"]:
-        return None, [f"{unit.id}：Spec 未批准或已失效，无法构建"]
     if not paths.page.is_file():
-        return None, [f"{unit.id}：缺少 slides/pages/{unit.id}.html"]
+        return None, [f"{unit.id}：缺少 slides/pages/{unit.id}.html"], None
     if not paths.spec.is_file():
-        return None, [f"{unit.id}：缺少 Spec"]
+        return None, [f"{unit.id}：缺少 Spec"], None
 
     spec_text = paths.spec.read_text(encoding="utf-8")
     approved_charts, approved_icons = approved_assets_from_spec(spec_text)
@@ -85,18 +85,17 @@ def compile_unit_page(
         parser.feed(paths.page.read_text(encoding="utf-8"))
         parser.close()
     except Exception as exc:  # noqa: BLE001
-        return None, [f"{unit.id}：HTML 解析失败：{exc}"]
+        return None, [f"{unit.id}：HTML 解析失败：{exc}"], None
     errors.extend(f"{unit.id}：{issue}" for issue in parser.errors)
     if parser.active:
         errors.append(f"{unit.id}：slide 标签未闭合")
     if len(parser.slides) != 1:
         errors.append(f"{unit.id}：每个单元 HTML 必须恰好一页（当前 {len(parser.slides)}）")
     if errors:
-        return None, errors
+        return None, errors, None
 
     slide = parser.slides[0]
     if (slide.get("role") or unit.role) and (slide.get("role") or unit.role) != unit.role:
-        # Prefer data-page-role on the fragment when present.
         role = slide.get("role") or unit.role
         if role != unit.role:
             errors.append(f"{unit.id}：data-page-role 与 units.json 不一致")
@@ -133,7 +132,7 @@ def compile_unit_page(
         except ValueError as exc:
             errors.append(f"{unit.id}：{exc}")
     if errors:
-        return None, errors
+        return None, errors, None
 
     cache_key = fingerprint_json(
         {
@@ -146,6 +145,34 @@ def compile_unit_page(
             "assets": [asset["spec"] for asset in assets_to_render],
         }
     )
+    return cache_key, [], {
+        "paths": paths,
+        "slide": slide,
+        "css": css,
+        "assets_to_render": assets_to_render,
+    }
+
+
+def compile_unit_page(
+    base: Path,
+    unit: Unit,
+    *,
+    brand_color: str,
+    write_preview: bool = True,
+) -> tuple[str | None, list[str]]:
+    """Compile one unit HTML page with assets; optional preview write."""
+    state = refresh_unit_currency(base, unit, project_root=base.parent)
+    if not state["spec"]["current"]:
+        return None, [f"{unit.id}：Spec 未批准或已失效，无法构建"]
+
+    cache_key, errors, ctx = compute_unit_cache_key(base, unit, brand_color=brand_color)
+    if errors or cache_key is None or ctx is None:
+        return None, errors
+
+    paths = ctx["paths"]
+    slide = ctx["slide"]
+    css = ctx["css"]
+    assets_to_render = ctx["assets_to_render"]
     cached = _cache_path(base, cache_key)
     if cached.is_file():
         payload = json.loads(cached.read_text(encoding="utf-8"))
@@ -300,14 +327,27 @@ def build_units_deck(
     has_assets = False
     for index, unit in enumerate(all_manifest):
         state = refresh_unit_currency(base, unit, project_root=base.parent)
-        cache_key = state["html"].get("cache_key")
-        cached = _cache_path(base, cache_key) if cache_key else None
         if unit.id in page_payloads:
             payload = page_payloads[unit.id]
-        elif cached and cached.is_file() and state["spec"]["current"]:
-            payload = json.loads(cached.read_text(encoding="utf-8"))
-            plan["reused"].append(unit.id)
         else:
+            # 按当前 brand/renderer/页面/Spec 重算完整 cache key；不能只看 html.current，
+            # 否则改 brand_color 后仍会复用旧配色图标/图表。
+            expected_key, key_errors, _ctx = compute_unit_cache_key(
+                base, unit, brand_color=brand_color
+            )
+            expected_cached = _cache_path(base, expected_key) if expected_key and not key_errors else None
+            # Spec 刚重新批准时，旧缓存仍然在，但 HTML 还绑着上一版 Spec，不能复用。
+            if (
+                expected_cached
+                and expected_cached.is_file()
+                and state["html"]["current"]
+                and state["html"].get("cache_key") == expected_key
+            ):
+                payload = json.loads(expected_cached.read_text(encoding="utf-8"))
+                plan["reused"].append(unit.id)
+            else:
+                payload = None
+        if payload is None:
             # Try compile on the fly for --all
             html_fragment, unit_errors = compile_unit_page(base, unit, brand_color=brand_color, write_preview=True)
             if unit_errors:

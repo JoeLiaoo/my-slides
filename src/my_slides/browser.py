@@ -9,8 +9,35 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+
+class _DeckSlideParser(HTMLParser):
+    """Collect slide elements only, so CSS such as @scope ([data-unit-id=...]) is ignored."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.slides: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attr = {name.lower(): value or "" for name, value in attrs}
+        if "slide" not in attr.get("class", "").split():
+            return
+        self.slides.append(
+            {
+                "unit_id": attr.get("data-unit-id", ""),
+                "role": attr.get("data-page-role", ""),
+            }
+        )
+
+
+def _deck_slides(text: str) -> list[dict[str, str]]:
+    parser = _DeckSlideParser()
+    parser.feed(text)
+    parser.close()
+    return parser.slides
 
 
 def structural_check_deck(path: Path, *, expected_units: list[str] | None = None) -> dict[str, Any]:
@@ -21,16 +48,17 @@ def structural_check_deck(path: Path, *, expected_units: list[str] | None = None
     text = path.read_text(encoding="utf-8")
     if '<meta name="generator" content="my-slides">' not in text:
         errors.append("slides/index.html 缺少生成器标记")
-    slides = re.findall(r'data-unit-id="([^"]+)"|data-slide="(\d+)"', text)
-    unit_ids = [match[0] for match in slides if match[0]]
+    # 只认带 slide 类的页面元素。样式里的 data-unit-id 不是页面。
+    slides = _deck_slides(text)
+    unit_ids = [slide["unit_id"] for slide in slides if slide["unit_id"]]
     if expected_units is not None:
         if unit_ids != expected_units:
             errors.append(
                 "整套单元集合或顺序与 units.json 不一致："
                 f"期望 {expected_units}，实际 {unit_ids}"
             )
-    covers = len(re.findall(r'data-page-role="cover"', text))
-    if covers != 1 and 'data-page-role="cover"' in text:
+    covers = sum(1 for slide in slides if slide["role"] == "cover")
+    if covers > 1:
         errors.append("整套必须恰好一个 cover 页面")
     if "http://" in text or re.search(r'https://(?!github\.com/)', text):
         # Soft hint — deep offline blocking is done in browser layer.
@@ -234,6 +262,42 @@ def check_deck(
     }
 
 
+def record_unit_check_results(
+    base: Path,
+    unit_ids: list[str],
+    *,
+    passed: bool,
+    deck_path: Path,
+) -> None:
+    """Persist a check fingerprint bound to the measured deck and built page version.
+
+    不能用当前源文件哈希：源可能已改、正式 index.html 仍是旧构建；否则重建后
+    check.current 会在未重测的情况下保持 true。
+    """
+    from .dependencies import fingerprint_file
+    from .state import check_input_fingerprint, read_unit_state, write_unit_state
+    from .units import unit_paths
+
+    deck_sha = fingerprint_file(deck_path)
+    for unit_id in unit_ids:
+        state = read_unit_state(base, unit_id)
+        paths = unit_paths(base, unit_id)
+        # 绑定最后一次成功构建的页面版本，而不是可能已编辑的 live 源文件。
+        html_sha = state["html"].get("build_sha256") or fingerprint_file(paths.page)
+        state["check"] = {
+            "input_fingerprint": check_input_fingerprint(
+                html_sha,
+                fingerprint_file(paths.spec),
+                deck_sha=deck_sha,
+            ),
+            "result": "pass" if passed else "fail",
+            "current": passed,
+            "measured": True,
+            "cached": False,
+        }
+        write_unit_state(base, unit_id, state)
+
+
 def check_units_on_deck(
     base: Path,
     path: Path,
@@ -251,27 +315,12 @@ def check_units_on_deck(
     if browser:
         browser_result = check_deck(path, unit_ids=unit_ids)
         errors.extend(browser_result["errors"])
-        # Record check currency on unit state.
-        from .dependencies import fingerprint_json
-        from .state import read_unit_state, write_unit_state
-
-        for unit_id in unit_ids:
-            state = read_unit_state(base, unit_id)
-            fp = fingerprint_json(
-                {
-                    "html": state["html"].get("content_sha256"),
-                    "spec": state["spec"].get("approved_sha256"),
-                    "deck": structural.get("unit_ids"),
-                }
-            )
-            state["check"] = {
-                "input_fingerprint": fp,
-                "result": "pass" if not browser_result["errors"] else "fail",
-                "current": not browser_result["errors"],
-                "measured": True,
-                "cached": False,
-            }
-            write_unit_state(base, unit_id, state)
+        record_unit_check_results(
+            base,
+            unit_ids,
+            passed=not browser_result["errors"],
+            deck_path=path,
+        )
     return {
         "valid": not errors,
         "errors": errors,

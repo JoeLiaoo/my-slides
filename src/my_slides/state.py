@@ -33,6 +33,7 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
         "report": {
             "content_sha256": None,
             "input_fingerprint": None,
+            "approved_input_fingerprint": None,
             "approved_sha256": None,
             "approved_at": None,
             "current": False,
@@ -40,6 +41,7 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
         "spec": {
             "content_sha256": None,
             "report_sha256": None,
+            "report_input_fingerprint": None,
             "approved_sha256": None,
             "approved_at": None,
             "current": False,
@@ -88,6 +90,24 @@ def write_unit_state(base: Path, unit_id: str, state: dict[str, Any]) -> Path:
     return path
 
 
+def check_input_fingerprint(
+    html_sha: str | None,
+    spec_sha: str | None,
+    *,
+    deck_sha: str | None = None,
+) -> str:
+    """Browser check currency uses this exact shape when saving and when refreshing.
+
+    ``html`` is the built page version that was measured (build_sha256), not a
+    possibly-edited live source file. ``deck`` is the formal index.html that
+    check_deck actually opened.
+    """
+    payload: dict[str, str | None] = {"html": html_sha, "spec": spec_sha}
+    if deck_sha is not None:
+        payload["deck"] = deck_sha
+    return fingerprint_json(payload)
+
+
 def compute_report_input_fingerprint(base: Path, unit: Unit, project_root: Path | None = None) -> str:
     closure = report_closure_fingerprints(base, unit, project_root=project_root)
     return fingerprint_json(
@@ -107,6 +127,8 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
 
     report_sha = fingerprint_file(paths.report)
     input_fp = compute_report_input_fingerprint(base, unit, project_root=project_root) if paths.report.is_file() else None
+    # 当前指纹和批准时指纹必须分开保存。先写入再和自己比较会让依赖检查永远通过。
+    approved_input = state["report"].get("approved_input_fingerprint")
     state["report"]["content_sha256"] = report_sha
     state["report"]["input_fingerprint"] = input_fp
     approved = state["report"].get("approved_sha256")
@@ -114,7 +136,8 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         approved
         and report_sha
         and approved == report_sha
-        and state["report"].get("input_fingerprint") == input_fp
+        and approved_input
+        and approved_input == input_fp
     )
     if approved and not report_current:
         reasons.append("报告内容或本地依赖已变化，需重新审阅")
@@ -123,6 +146,8 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
     spec_sha = fingerprint_file(paths.spec)
     state["spec"]["content_sha256"] = spec_sha
     bound_report = state["spec"].get("report_sha256")
+    # Spec 必须绑到批准时的依赖版本；只比报告正文哈希会在依赖变后重批正文时误复活旧 Spec。
+    bound_report_input = state["spec"].get("report_input_fingerprint")
     spec_approved = state["spec"].get("approved_sha256")
     spec_current = bool(
         spec_approved
@@ -131,6 +156,8 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and report_current
         and bound_report
         and bound_report == approved
+        and bound_report_input
+        and bound_report_input == approved_input
     )
     if spec_approved and not spec_current:
         reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
@@ -138,21 +165,27 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
 
     html_sha = fingerprint_file(paths.page)
     state["html"]["content_sha256"] = html_sha
+    build_sha = state["html"].get("build_sha256")
     html_current = bool(
-        state["html"].get("build_sha256")
+        build_sha
         and html_sha
-        and state["html"]["build_sha256"] == html_sha
+        and build_sha == html_sha
         and spec_current
         and state["html"].get("spec_sha256") == spec_approved
     )
-    if state["html"].get("build_sha256") and not html_current:
+    if build_sha and not html_current:
         reasons.append("HTML 片段或绑定 Spec 已变化")
     state["html"]["current"] = html_current
 
+    deck_path = base / "slides" / "index.html"
+    deck_sha = fingerprint_file(deck_path) if deck_path.is_file() else None
     check_current = bool(
         state["check"].get("result") == "pass"
         and state["check"].get("input_fingerprint")
-        and state["check"]["input_fingerprint"] == fingerprint_json({"html": html_sha, "spec": spec_sha})
+        and deck_sha
+        and build_sha
+        and state["check"]["input_fingerprint"]
+        == check_input_fingerprint(build_sha, spec_sha, deck_sha=deck_sha)
         and html_current
     )
     if state["check"].get("result") and not check_current:
@@ -240,6 +273,7 @@ def mark_report_approved(base: Path, unit: Unit, *, project_root: Path | None = 
     state["report"] = {
         "content_sha256": sha,
         "input_fingerprint": input_fp,
+        "approved_input_fingerprint": input_fp,
         "approved_sha256": sha,
         "approved_at": when,
         "current": True,
@@ -279,6 +313,7 @@ def invalidate_for_changed_file(
 
 # Re-export fingerprint helpers for tests / callers.
 __all__ = [
+    "check_input_fingerprint",
     "collect_units_status",
     "compute_report_input_fingerprint",
     "content_fingerprint",
