@@ -8,46 +8,14 @@ import unittest
 from pathlib import Path
 
 from my_slides import __version__
-from my_slides.browser import _deck_slides, check_deck
-from my_slides.cli import (
-    SlideFragmentParser,
-    approval_is_current,
-    approval_digest,
-    approve_revision,
-    browser_status,
-    build_slides,
-    extract_approved_icons,
-    find_slug_collisions,
-    install_agent_workflow,
-    init_project,
-    mark_ingested,
-    prepare,
-    project_root,
-    read_config,
-    render_assets,
-    renderer_status,
-    scan_sources,
-    slug,
-    slides_is_current,
-    strip_markdown_link_target,
-    sync_wiki_index,
-    template_chapters,
-    validate_report,
-    validate_chart_spec,
-    validate_scoped_css,
-    validate_spec,
-    validate_wiki,
-)
-from my_slides.units import resolve_local_markdown_path
-
-
-def require_optional(ready: bool, reason: str) -> None:
-    """Skip optional deps unless MY_SLIDES_FULL_TESTS=1, then fail instead."""
-    if ready:
-        return
-    if os.environ.get("MY_SLIDES_FULL_TESTS", "").strip().lower() in {"1", "true", "yes", "on"}:
-        raise AssertionError(f"完整测试要求已安装依赖，但：{reason}")
-    raise unittest.SkipTest(reason)
+from my_slides.agent_workflow import install_agent_workflow
+from my_slides.commands.init import init_project
+from my_slides.commands.prepare import prepare
+from my_slides.project import find_slug_collisions, project_root, read_config, template_chapters
+from my_slides.rendering import render_assets, renderer_status, validate_chart_spec
+from my_slides.slide_fragments import SlideFragmentParser, extract_approved_icons, validate_scoped_css
+from my_slides.sources import mark_ingested, scan_sources
+from my_slides.wiki import sync_wiki_index, validate_wiki
 
 
 class VersionTests(unittest.TestCase):
@@ -86,23 +54,10 @@ class ProjectWorkflowTests(unittest.TestCase):
     def init(self):
         init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
 
-    def demote_to_legacy_chapters(self):
-        """Remove units.json so chapter-library helpers behave as pre-v2 fixtures."""
-        units = self.base / "units.json"
-        if units.exists():
-            units.unlink()
-        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
+    def remove_units_manifest(self):
+        """Remove units.json to exercise the unsupported-project diagnostic."""
+        (self.base / "units.json").unlink()
 
-
-    @staticmethod
-    def spec_page(chapter, role="content", number=1):
-        return (
-            f"## Slide {number} — {chapter}\n页面 ID：{slug(chapter)}-{number:02d}\n页面角色：{role}\n"
-            "### 目的\nExplain the decision.\n### 核心结论\nEvidence supports the conclusion.\n"
-            "### 展示内容\nSummary of approved report content.\n### 证据与来源\nSource link.\n"
-            "### 限定条件\nState limits.\n### 报告段落映射\nMap to the report section.\n"
-            "### 布局意图\nClear headline and supporting evidence.\n### 图标需求\n无\n"
-        )
 
     def test_default_wiki_index_matches_report_chapters(self):
         self.init()
@@ -181,86 +136,9 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(len(snapshots), 1)
         manifest = json.loads(snapshots[0].read_text(encoding="utf-8"))
         self.assertIn("index.md", {item["path"] for item in manifest["files"]})
-        task = next((self.base / "work").glob("*-report-units.md")).read_text(encoding="utf-8")
+        task = (self.base / "work" / "report" / "cover.md").read_text(encoding="utf-8")
         self.assertIn("cover", task)
 
-    def test_source_change_invalidates_approved_report(self):
-        source = self.root / "source.md"
-        source.write_text("Initial facts.", encoding="utf-8")
-        self.init()
-        self.demote_to_legacy_chapters()
-        _, pending, _ = scan_sources(self.root, self.base, {"source_dirs": ["."]})
-        self.assertEqual(mark_ingested(self.base, pending), 1)
-        for chapter in self.cfg["chapters"]:
-            (self.base / "reports" / f"{slug(chapter)}.md").write_text(
-                f"# {chapter}\n\n" + "Evidence-backed report text. " * 4, encoding="utf-8"
-            )
-        _, errors = approve_revision(self.base, self.cfg, "report")
-        self.assertEqual(errors, [])
-        self.assertTrue(approval_is_current(self.base, "report", self.cfg))
-        source.write_text("Changed facts.", encoding="utf-8")
-        self.assertFalse(approval_is_current(self.base, "report", self.cfg))
-
-    def test_report_revision_invalidates_spec_approval(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        for chapter in self.cfg["chapters"]:
-            (self.base / "reports" / f"{slug(chapter)}.md").write_text(
-                f"# {chapter}\n\n" + "Evidence-backed report text. " * 4, encoding="utf-8"
-            )
-        self.assertEqual(validate_report(self.base, self.cfg), [])
-        report_digest, errors = approve_revision(self.base, self.cfg, "report")
-        self.assertTrue(report_digest)
-        self.assertEqual(errors, [])
-        self.assertTrue((self.base / ".state" / "revisions" / "report" / report_digest / "manifest.json").exists())
-        for chapter in self.cfg["chapters"]:
-            (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-                self.spec_page(chapter, "cover" if chapter == self.cfg["chapters"][0] else "content"), encoding="utf-8"
-            )
-        self.assertEqual(validate_spec(self.base, self.cfg), [])
-        _, errors = approve_revision(self.base, self.cfg, "spec")
-        self.assertEqual(errors, [])
-        self.assertTrue(approval_is_current(self.base, "spec", self.cfg))
-        report = self.base / "reports" / f"{slug(self.cfg['chapters'][0])}.md"
-        report.write_text(report.read_text(encoding="utf-8") + "\nUpdated.", encoding="utf-8")
-        self.assertFalse(approval_is_current(self.base, "report", self.cfg))
-        self.assertFalse(approval_is_current(self.base, "spec", self.cfg))
-
-    def test_spec_requires_one_opening_cover_and_project_unique_page_ids(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        for chapter in self.cfg["chapters"]:
-            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
-            (self.base / "specs" / f"{slug(chapter)}.md").write_text(self.spec_page(chapter, role), encoding="utf-8")
-        second = self.base / "specs" / f"{slug(self.cfg['chapters'][1])}.md"
-        second.write_text(self.spec_page(self.cfg["chapters"][1], "content").replace(
-            f"{slug(self.cfg['chapters'][1])}-01", f"{slug(self.cfg['chapters'][0])}-01"
-        ), encoding="utf-8")
-        errors = validate_spec(self.base, self.cfg)
-        self.assertTrue(any("页面 ID 重复" in error for error in errors), errors)
-        second.write_text(self.spec_page(self.cfg["chapters"][1], "cover"), encoding="utf-8")
-        errors = validate_spec(self.base, self.cfg)
-        self.assertTrue(any("只能包含一个 cover" in error for error in errors), errors)
-
-    def test_slide_build_requires_valid_notes(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        # A one-chapter configuration keeps this test focused on the HTML contract.
-        cfg = {"project": "Demo", "chapters": [self.cfg["chapters"][0]]}
-        fragment = self.base / "slides" / "chapters" / f"{slug(cfg['chapters'][0])}.html"
-        fragment.write_text('<section class="slide"><h1>Demo</h1></section>', encoding="utf-8")
-        output, errors = build_slides(self.base, cfg)
-        self.assertIsNone(output)
-        self.assertTrue(any("slide-notes" in error for error in errors))
-        fragment.write_text(
-            '<section class="slide"><h1>Demo</h1>'
-            '<script type="application/json" class="slide-notes">{"title":"Demo","script":"Present the demo.","notes":[]}</script>'
-            "</section>",
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [])
-        self.assertTrue(output.exists())
 
     def test_chart_specs_reject_missing_values_and_incompatible_units(self):
         with self.assertRaisesRegex(ValueError, "缺失值"):
@@ -270,26 +148,6 @@ class ProjectWorkflowTests(unittest.TestCase):
                 {"name": "收入", "unit": "万元", "values": [1]}
             ]})
 
-    def test_slides_chart_data_must_match_spec_exactly(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        spec = {"type": "bar", "categories": ["2024", "2025"], "values": [10, 14], "unit": "亿元"}
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-            self.spec_page(chapter).replace("### 布局意图", "```echarts-spec\n" + json.dumps(spec, ensure_ascii=False) + "\n```\n### 布局意图"),
-            encoding="utf-8",
-        )
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            '<section class="slide" data-page-role="content"><h1>Approved data</h1>'
-            '<script type="application/json" class="mls-echarts-spec">'
-            '{"type":"bar","categories":["2024","2025"],"values":[10,15],"unit":"亿元"}'
-            '</script><script type="application/json" class="slide-notes">{"title":"Chart","script":"Explain the chart","notes":[]}</script></section>',
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertIsNone(output)
-        self.assertTrue(any("完全一致" in error for error in errors), errors)
 
     @unittest.skipUnless(renderer_status()["ready"], "optional local Node render dependencies are not installed")
     def test_pinned_renderers_emit_local_chart_and_icon_svg(self):
@@ -319,115 +177,6 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(len(rendered), 8)
         self.assertTrue(all(value.startswith("<svg") for value in rendered.values()))
 
-    @unittest.skipUnless(renderer_status()["ready"], "optional local Node render dependencies are not installed")
-    @unittest.skipUnless(browser_status()["chromium_installed"], "optional Playwright Chromium browser is not installed")
-    def test_full_chart_icon_slide_build_is_offline_and_archives_rebuilds(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        report = self.base / "reports" / f"{slug(chapter)}.md"
-        report.write_text("# Approved report\n\nRevenue increased from 10 to 14 billion yuan. Source: public filing.\n", encoding="utf-8")
-        _, errors = approve_revision(self.base, cfg, "report")
-        self.assertEqual(errors, [])
-        chart = {"type": "bar", "title": "Revenue", "categories": ["2024", "2025"], "values": [10, 14], "unit": "亿元", "source": f"../reports/{slug(chapter)}.md"}
-        spec = self.spec_page(chapter, "cover") + self.spec_page(chapter, "content", 2).replace(
-            "### 布局意图", "```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n### 布局意图"
-        ).replace("### 图标需求\n无", "### 图标需求\narrow-right")
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(spec, encoding="utf-8")
-        _, errors = approve_revision(self.base, cfg, "spec")
-        self.assertEqual(errors, [])
-        fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
-        fragment.write_text(
-            '<section class="slide active" data-page-role="cover"><h1>Demo investment report</h1>'
-            '<script type="application/json" class="slide-notes">{"title":"Cover","script":"Introduce the project.","notes":[]}</script></section>'
-            '<section class="slide" data-page-role="content"><h1>Revenue</h1>'
-            '<script type="application/json" class="mls-echarts-spec">' + json.dumps(chart, ensure_ascii=False) + '</script>'
-            '<script type="application/json" class="mls-lucide-spec">{"name":"arrow-right"}</script>'
-            '<script type="application/json" class="slide-notes">{"title":"Revenue","script":"Revenue grew.","notes":["10 to 14"]}</script>'
-            '</section>', encoding="utf-8"
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [])
-        generated = output.read_text(encoding="utf-8")
-        self.assertIn("<svg", generated)
-        self.assertIn("third-party-notices", generated)
-        self.assertNotIn("mls-echarts-spec", generated)
-        browser_result = check_deck(output)
-        self.assertTrue(browser_result["valid"], browser_result)
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            fragment.read_text(encoding="utf-8").replace("<h1>Revenue</h1>", "<h1>Revenue revised</h1>"), encoding="utf-8"
-        )
-        _, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [])
-        archive = self.base / ".state" / "deliveries"
-        self.assertTrue(any(archive.glob("*.html")))
-
-    @unittest.skipUnless(renderer_status()["ready"], "optional local Node render dependencies are not installed")
-    @unittest.skipUnless(browser_status()["chromium_installed"], "optional Playwright Chromium browser is not installed")
-    def test_synthetic_six_chapter_project_end_to_end(self):
-        sources = self.root / "sources"
-        sources.mkdir()
-        (sources / "metrics.md").write_text("# Synthetic metrics\nRevenue: 10, 14, 19. Margin: 20%, 22%, 24%.\n", encoding="utf-8")
-        init_project(
-            argparse.Namespace(project=str(self.root), source_dir=["sources"], force=False, json=False)
-        )
-        self.demote_to_legacy_chapters()
-
-        wiki_page = self.base / "wiki" / "company.md"
-        wiki_page.write_text("# Synthetic company\n\nRevenue and margin trend [from the synthetic source](../../sources/metrics.md).\n", encoding="utf-8")
-        index = self.base / "wiki" / "index.md"
-        index.write_text(index.read_text(encoding="utf-8").replace("## 投资概要", "## 投资概要\n\n- [Synthetic company](company.md) — business and financial summary"), encoding="utf-8")
-        self.assertEqual(validate_wiki(self.base, self.cfg), [])
-        _, pending, removed = scan_sources(self.root, self.base, {"source_dirs": ["sources"]})
-        self.assertEqual(pending, ["sources/metrics.md"])
-        self.assertEqual(mark_ingested(self.base, pending), 1)
-        # Library-level chapter merge fixture (CLI daily path is v2-only after Phase 9).
-
-        finance_chapter = "财务分析与回报分析"
-        chart = {"type": "line", "title": "Revenue trend", "categories": ["2024", "2025", "2026"], "values": [10, 14, 19], "unit": "亿元", "source": "../../sources/metrics.md"}
-        for chapter in self.cfg["chapters"]:
-            report_path = self.base / "reports" / f"{slug(chapter)}.md"
-            report_path.write_text(
-                f"# {chapter}\n\nSynthetic example: supported analysis with explicit assumptions. [Source](../../sources/metrics.md).\n",
-                encoding="utf-8",
-            )
-            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
-            spec_text = self.spec_page(chapter, role).replace("Source link.", f"[Approved report](../reports/{report_path.name})")
-            if chapter == finance_chapter:
-                spec_text = spec_text.replace("### 布局意图", "```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n### 布局意图")
-            if chapter == "投资概要":
-                spec_text = spec_text.replace("### 图标需求\n无", "### 图标需求\narrow-right")
-            (self.base / "specs" / f"{slug(chapter)}.md").write_text(spec_text, encoding="utf-8")
-        self.assertEqual(validate_report(self.base, self.cfg), [])
-        _, errors = approve_revision(self.base, self.cfg, "report")
-        self.assertEqual(errors, [])
-        self.assertEqual(validate_spec(self.base, self.cfg), [])
-        _, errors = approve_revision(self.base, self.cfg, "spec")
-        self.assertEqual(errors, [])
-
-        for chapter in self.cfg["chapters"]:
-            fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
-            role = "cover" if chapter == self.cfg["chapters"][0] else "content"
-            body = '<section class="slide active" data-page-role="' + role + '"><h1>' + chapter + '</h1><p>Synthetic investment committee summary.</p>'
-            if chapter == finance_chapter:
-                body += '<script type="application/json" class="mls-echarts-spec">' + json.dumps(chart, ensure_ascii=False) + '</script>'
-            if chapter == "投资概要":
-                body += '<script type="application/json" class="mls-lucide-spec">{"name":"arrow-right"}</script>'
-            body += '<script type="application/json" class="slide-notes">' + json.dumps({"title": chapter, "script": "Synthetic example for workflow validation.", "notes": ["All values are fictional."]}, ensure_ascii=False) + '</script></section>'
-            fragment.write_text(body, encoding="utf-8")
-        output, errors = build_slides(self.base, self.cfg)
-        self.assertEqual(errors, [])
-        # 只统计 class 词为 slide 的页面。封面才带 active，其余页是 class="slide"，不能靠 "slide " 后面的空格计数。
-        self.assertEqual(len(_deck_slides(output.read_text(encoding="utf-8"))), 6)
-        state = json.loads((self.base / ".state" / "slides.json").read_text(encoding="utf-8"))
-        diagnostics = {"state": state, "report_current": approval_is_current(self.base, "report", self.cfg),
-                       "spec_current": approval_is_current(self.base, "spec", self.cfg),
-                       "report_digest": approval_digest(self.base, "report", self.cfg),
-                       "spec_digest": approval_digest(self.base, "spec", self.cfg)}
-        self.assertTrue(slides_is_current(self.base, self.cfg), diagnostics)
-        browser_result = check_deck(output)
-        self.assertTrue(browser_result["valid"], browser_result)
 
     def _notes(self, title="Demo"):
         return (
@@ -436,141 +185,41 @@ class ProjectWorkflowTests(unittest.TestCase):
         )
 
     def test_slide_security_rejects_javascript_entity_bypass(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            f'<section class="slide"><a href="java&#9;script:void(window.PWN=1)">x</a>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertIsNone(output)
-        self.assertTrue(any("不安全链接" in error or "javascript" in error.lower() for error in errors), errors)
+        parser = SlideFragmentParser()
+        parser.feed(f'<section class="slide"><a href="java&#9;script:void(window.PWN=1)">x</a>{self._notes()}</section>')
+        self.assertTrue(any("不安全链接" in error for error in parser.errors), parser.errors)
 
     def test_slide_security_rejects_form_action_javascript(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            f'<section class="slide"><form action="javascript:void(window.PWN=1)"><button>go</button></form>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertIsNone(output)
-        self.assertTrue(any("form" in error.lower() for error in errors), errors)
+        parser = SlideFragmentParser()
+        parser.feed(f'<section class="slide"><form action="javascript:void(window.PWN=1)"><button>go</button></form>{self._notes()}</section>')
+        self.assertTrue(any("form" in error.lower() for error in parser.errors), parser.errors)
 
     def test_slide_security_rejects_meta_refresh_and_external_media(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        fragment = self.base / "slides" / "chapters" / f"{slug(chapter)}.html"
-        fragment.write_text(
-            f'<section class="slide"><meta http-equiv="refresh" content="0;url=https://evil.example">{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        _, errors = build_slides(self.base, cfg)
-        self.assertTrue(any("meta" in error.lower() for error in errors), errors)
-        fragment.write_text(
-            f'<section class="slide"><video poster="https://evil.example/p.png"></video>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        _, errors = build_slides(self.base, cfg)
-        self.assertTrue(any("video" in error.lower() or "不安全" in error for error in errors), errors)
-        fragment.write_text(
-            f'<section class="slide"><svg><image href="https://evil.example/i.png"></image></svg>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        _, errors = build_slides(self.base, cfg)
-        self.assertTrue(any("不安全链接" in error or "image" in error.lower() for error in errors), errors)
+        for markup, expected in (
+            ('<meta http-equiv="refresh" content="0;url=https://evil.example">', "meta"),
+            ('<video poster="https://evil.example/p.png"></video>', "video"),
+            ('<svg><image href="https://evil.example/i.png"></image></svg>', "image"),
+        ):
+            with self.subTest(markup=markup):
+                parser = SlideFragmentParser()
+                parser.feed(f'<section class="slide">{markup}{self._notes()}</section>')
+                self.assertTrue(any(expected in error.lower() for error in parser.errors), parser.errors)
 
-    def test_slide_merge_preserves_active_in_body_text(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            f'<section class="slide active" data-page-role="cover"><h1>Cover</h1>{self._notes("Cover")}</section>'
-            f'<section class="slide active" data-page-role="content">'
-            f"<p>The market is active today</p>{self._notes('Body')}</section>",
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [])
-        html_text = output.read_text(encoding="utf-8")
-        self.assertIn("The market is active today", html_text)
-        # Second slide must not keep the root active class, but body text stays.
-        second = html_text.split('data-slide="1"', 1)[1]
-        self.assertNotRegex(second.split("</section>", 1)[0], r'class="[^"]*\bactive\b')
-
-    def test_v1_report_accepts_percent_encoded_local_links(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        report = self.base / "reports" / f"{slug(chapter)}.md"
-        wiki_notes = self.base / "wiki" / "my notes.md"
-        wiki_notes.write_text("# Notes\n", encoding="utf-8")
-        report.write_text(
-            f"# {chapter}\n\nEnough report text with a link to [notes](../wiki/my%20notes.md).\n",
-            encoding="utf-8",
-        )
-        self.assertEqual(validate_report(self.base, {"chapters": [chapter]}), [])
-        resolved = resolve_local_markdown_path("../wiki/my%20notes.md", report)
-        self.assertEqual(resolved, wiki_notes.resolve())
 
     def test_css_scope_escape_is_rejected(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            "<style>h1{color:red} } body{display:none!important} @scope (x) { p{}</style>"
-            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        output, errors = build_slides(self.base, cfg)
-        self.assertIsNone(output)
-        self.assertTrue(any("作用域" in error or "括号" in error for error in errors), errors)
-        self.assertTrue(validate_scoped_css("h1{color:red}", label="ok") == [])
-        self.assertTrue(any("作用域" in e for e in validate_scoped_css("a{} } b{c:d}", label="x")))
+        self.assertEqual(validate_scoped_css("h1{color:red}", label="ok"), [])
+        self.assertTrue(any("作用域" in error for error in validate_scoped_css("a{} } b{c:d}", label="x")))
 
     def test_marker_substring_class_does_not_crash_build(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter]}
-        # slide-notes class contains substring that previously confused the replace regex.
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>'
-            f'<script type="application/json" class="slide-notes old-mls-lucide-spec">'
-            f'{{"title":"Cover","script":"Hi","notes":[]}}</script></section>',
-            encoding="utf-8",
+        parser = SlideFragmentParser()
+        parser.feed(
+            '<section class="slide" data-page-role="cover"><h1>Cover</h1>'
+            '<script type="application/json" class="slide-notes old-mls-lucide-spec">'
+            '{"title":"Cover","script":"Hi","notes":[]}</script></section>'
         )
-        output, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [], errors)
-        self.assertIsNotNone(output)
+        self.assertEqual(parser.errors, [])
+        self.assertEqual(len(parser.slides), 1)
 
-    def test_report_accepts_footnotes_and_titled_links(self):
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        wiki = self.base / "wiki" / "a.md"
-        wiki.write_text("# Company\n", encoding="utf-8")
-        report = self.base / "reports" / f"{slug(chapter)}.md"
-        report.write_text(
-            f"# {chapter}\n\n"
-            "结论见脚注[^1]与[公司](../wiki/a.md \"公司页\").\n\n"
-            "[^1]: 来自管理层访谈，2024 年\n\n"
-            "代码里的 `[假链接](../wiki/missing.md)` 应忽略。\n",
-            encoding="utf-8",
-        )
-        self.assertEqual(validate_report(self.base, {"chapters": [chapter]}), [])
-        self.assertEqual(
-            strip_markdown_link_target('../wiki/a.md "公司页"'),
-            "../wiki/a.md",
-        )
 
     def test_icon_allowlist_requires_list_items_not_embedded_wu(self):
         self.assertEqual(extract_approved_icons("无"), set())
@@ -578,31 +227,7 @@ class ProjectWorkflowTests(unittest.TestCase):
             extract_approved_icons("- trending-up（无需动画）\n- bar-chart-2\n"),
             {"trending-up", "bar-chart-2"},
         )
-        # Prose containing 无 must not wipe the declared icons.
-        self.assertEqual(
-            extract_approved_icons("- trending-up（无需动画）\n"),
-            {"trending-up"},
-        )
-        self.init()
-        self.demote_to_legacy_chapters()
-        chapter = self.cfg["chapters"][0]
-        cfg = {"project": "Demo", "chapters": [chapter], "brand_color": "#A6192E"}
-        (self.base / "specs" / f"{slug(chapter)}.md").write_text(
-            self.spec_page(chapter, role="cover")
-            .replace("### 图标需求\n无\n", "### 图标需求\n- trending-up（无需动画）\n"),
-            encoding="utf-8",
-        )
-        (self.base / "slides" / "chapters" / f"{slug(chapter)}.html").write_text(
-            f'<section class="slide" data-page-role="cover"><h1>Cover</h1>'
-            f'<script type="application/json" class="mls-lucide-spec">'
-            f'{{"name":"trending-up"}}</script>{self._notes()}</section>',
-            encoding="utf-8",
-        )
-        if not renderer_status()["ready"]:
-            self.skipTest("renderer not installed")
-        output, errors = build_slides(self.base, cfg)
-        self.assertEqual(errors, [], errors)
-        self.assertIsNotNone(output)
+        self.assertEqual(extract_approved_icons("- trending-up（无需动画）\n"), {"trending-up"})
 
     def test_project_yaml_rejects_inline_list_and_strips_comments(self):
         self.init()
@@ -705,7 +330,7 @@ class ProjectWorkflowTests(unittest.TestCase):
 
     def test_legacy_project_without_units_is_refused(self):
         self.init()
-        self.demote_to_legacy_chapters()
+        self.remove_units_manifest()
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
         status = subprocess.run(
             [sys.executable, "-m", "my_slides.cli", "status", "--project", str(self.root), "--json"],

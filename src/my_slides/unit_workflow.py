@@ -1,8 +1,4 @@
-"""v2 per-unit prepare / validate / approve (Phase 4).
-
-Chapter-level commands remain for v1. When units.json exists, callers must pass
-``--unit`` / ``--changed`` / ``--all`` instead of using chapter approve digests.
-"""
+"""Per-unit prepare, validation, and approval for v2 projects."""
 
 from __future__ import annotations
 
@@ -113,30 +109,32 @@ def prepare_unit_handoff(
     root: Path,
     units: list[Unit],
     kind: str,
-    *,
-    stamp: str,
-) -> Path:
+) -> list[Path]:
     ensure_v2_directories(base)
     out_dir = base / "work"
     out_dir.mkdir(parents=True, exist_ok=True)
-    output = out_dir / f"{stamp}-{kind}-units.md"
-    lines = [
-        f"# {kind} 单元交接",
-        "",
-        f"项目目录：{root}",
-        f"工作区：{base}",
-        f"选定单元：{', '.join(unit.id for unit in units)}",
-        "",
-        "规则：只改选定单元对应的 reports/units、specs/units 或 slides/pages 文件；",
-        "不要编辑组装产物 reports/report.md（由 CLI 组装）。",
-        "",
-    ]
+    outputs: list[Path] = []
     if kind == "slides":
         from importlib.resources import files
 
         examples = files("my_slides").joinpath("slides_theme").joinpath("component-examples.md").read_text(encoding="utf-8")
-        lines.extend([examples.strip(), ""])
+        component_examples = examples.strip()
+    else:
+        component_examples = ""
     for unit in units:
+        output = out_dir / kind / f"{unit.id}.md"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f"# {kind} 单元交接：{unit.id}",
+            "",
+            f"项目目录：{root}",
+            f"工作区：{base}",
+            "规则：只改本单元对应的 reports/units、specs/units 或 slides/pages 文件；",
+            "不要编辑组装产物 reports/report.md（由 CLI 组装）。",
+            "",
+        ]
+        if component_examples:
+            lines.extend([component_examples, ""])
         paths = unit_paths(base, unit.id)
         lines.extend(
             [
@@ -156,20 +154,40 @@ def prepare_unit_handoff(
         else:
             lines.append("请生成单页 HTML 片段，根元素设置 data-unit-id 与 data-page-role。")
         lines.append("")
-    output.write_text("\n".join(lines), encoding="utf-8")
-    return output
+        output.write_text("\n".join(lines), encoding="utf-8")
+        outputs.append(output)
+    return outputs
 
 
-def approve_unit_report(base: Path, unit: Unit, *, when: str, project_root: Path | None = None) -> dict[str, Any]:
+def approve_unit_report(
+    base: Path,
+    unit: Unit,
+    *,
+    when: str,
+    project_root: Path | None = None,
+    approved_by: str | None = None,
+    approved_account: str | None = None,
+) -> dict[str, Any]:
     errors = validate_unit_report(base, unit)
     if errors:
         raise UnitsError("；".join(errors))
-    state = mark_report_approved(base, unit, project_root=project_root or base.parent, when=when)
+    state = mark_report_approved(
+        base, unit, project_root=project_root or base.parent, when=when,
+        approved_by=approved_by, approved_account=approved_account,
+    )
     # Keep assembled report in sync after successful unit approve batches (caller may assemble).
     return state
 
 
-def approve_unit_spec(base: Path, unit: Unit, *, when: str, project_root: Path | None = None) -> dict[str, Any]:
+def approve_unit_spec(
+    base: Path,
+    unit: Unit,
+    *,
+    when: str,
+    project_root: Path | None = None,
+    approved_by: str | None = None,
+    approved_account: str | None = None,
+) -> dict[str, Any]:
     errors = validate_unit_spec(base, unit)
     if errors:
         raise UnitsError("；".join(errors))
@@ -186,7 +204,11 @@ def approve_unit_spec(base: Path, unit: Unit, *, when: str, project_root: Path |
         "report_input_fingerprint": report_input,
         "approved_sha256": spec_sha,
         "approved_at": when,
-        "current": True,
+        "approved_by": approved_by,
+        "approved_account": approved_account,
+        "pending_approval": None,
+        "pending_current": False,
+        "current": bool(approved_by and approved_account),
     }
     # HTML must be rebuilt against the new Spec — never auto-revive.
     if state["html"].get("build_sha256"):
@@ -199,9 +221,80 @@ def approve_unit_spec(base: Path, unit: Unit, *, when: str, project_root: Path |
     return state
 
 
+def request_unit_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    when: str,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Record exactly which report or Spec version awaits human review."""
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    errors = validate_unit_report(base, unit) if kind == "report" else validate_unit_spec(base, unit)
+    if errors:
+        raise UnitsError("；".join(errors))
+    state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
+    if kind == "spec" and not state["report"]["current"]:
+        raise UnitsError(f"{unit.id}：报告尚未批准或已失效，请先完成报告审批")
+    request = {
+        "requested_at": when,
+        "content_sha256": state[kind]["content_sha256"],
+    }
+    if kind == "report":
+        request["input_fingerprint"] = state["report"]["input_fingerprint"]
+    else:
+        request["report_sha256"] = state["report"]["approved_sha256"]
+        request["report_input_fingerprint"] = state["report"]["approved_input_fingerprint"]
+    state[kind]["pending_approval"] = request
+    state[kind]["pending_current"] = True
+    write_unit_state(base, unit.id, state)
+    return request
+
+
+def confirm_unit_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    when: str,
+    approved_by: str,
+    approved_account: str,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Apply a current review request after the CLI's interactive confirmation."""
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    if not approved_by.strip() or not approved_account.strip():
+        raise ValueError("审批人和本机账户不能为空")
+    state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
+    if not state[kind]["pending_current"]:
+        raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容/依赖已变化；请重新运行 approve {kind} --unit {unit.id}")
+    if kind == "report":
+        return approve_unit_report(
+            base, unit, when=when, project_root=project_root,
+            approved_by=approved_by.strip(), approved_account=approved_account.strip(),
+        )
+    return approve_unit_spec(
+        base, unit, when=when, project_root=project_root,
+        approved_by=approved_by.strip(), approved_account=approved_account.strip(),
+    )
+
+
 def assemble_after_report_approvals(base: Path, units: list[Unit] | None = None) -> tuple[str, list[str]]:
     """Assemble full report.md; on failure leave the previous file untouched."""
     ensure_v2_directories(base)
+    if units is None:
+        units, errors = load_units_manifest(base, chapters=None)
+        if errors:
+            return "", errors
+    unapproved = [
+        unit.id for unit in units
+        if not refresh_unit_currency(base, unit, project_root=base.parent)["report"]["current"]
+    ]
+    if unapproved:
+        return "", ["报告单元未获得当前有效且有审阅者记录的批准：" + "、".join(unapproved)]
     return assemble_report(base, units, write=True)
 
 

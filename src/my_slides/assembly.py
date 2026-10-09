@@ -13,14 +13,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .cli import (
+from .slide_fragments import (
     SlideFragmentParser,
     extract_approved_icons,
-    render_assets,
-    renderer_status,
-    validate_chart_spec,
     validate_scoped_css,
 )
+from .rendering import render_assets, renderer_status, validate_chart_spec
 from .dependencies import fingerprint_file, fingerprint_json
 from .state import read_unit_state, refresh_unit_currency, write_unit_state
 from .theme import render_document, shell_fingerprint, theme_cache_fields, wrap_rendered_asset
@@ -359,6 +357,13 @@ def build_units_deck(
             has_assets=has_assets,
             kind="deck",
         )
+        if output.is_file():
+            previous = output.read_bytes()
+            if previous != document.encode("utf-8"):
+                previous_hash = hashlib.sha256(previous).hexdigest()
+                archive = base / ".state" / "deliveries" / f"{previous_hash}.html"
+                if not archive.is_file():
+                    _atomic_write(archive, previous)
         _atomic_write(output, document)
         state_path = base / ".state" / "slides.json"
         _atomic_write(

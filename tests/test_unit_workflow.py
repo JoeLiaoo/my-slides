@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import init_project
+from my_slides.commands.init import init_project
 from my_slides.state import read_unit_state
 from my_slides.unit_workflow import (
     approve_unit_report,
@@ -16,6 +16,8 @@ from my_slides.unit_workflow import (
     validate_unit_spec,
 )
 from my_slides.units import Unit, assemble_report, detect_format_version, unit_paths, write_units_manifest
+
+TEST_APPROVER = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
 
 
 def _spec_body(unit_id: str, role: str) -> str:
@@ -76,19 +78,19 @@ class UnitWorkflowTests(unittest.TestCase):
             )
         self.assertEqual(validate_unit_report(self.base, units[1]), [])
         self.assertEqual(validate_unit_spec(self.base, units[1]), [])
-        approve_unit_report(self.base, units[0], when="t0", project_root=self.root)
-        approve_unit_report(self.base, units[1], when="t0", project_root=self.root)
+        approve_unit_report(self.base, units[0], when="t0", project_root=self.root, **TEST_APPROVER)
+        approve_unit_report(self.base, units[1], when="t0", project_root=self.root, **TEST_APPROVER)
         document, errors = assemble_report(self.base, units, write=True)
         self.assertEqual(errors, [])
         self.assertIn("summary-01", document)
-        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root)
+        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root, **TEST_APPROVER)
         state = read_unit_state(self.base, "summary-01")
         self.assertTrue(state["report"]["current"])
         self.assertTrue(state["spec"]["current"])
         # Re-approving report must not auto-revive Spec.
         paths = unit_paths(self.base, "summary-01")
         paths.report.write_text(paths.report.read_text(encoding="utf-8") + "\nExtra.\n", encoding="utf-8")
-        approve_unit_report(self.base, units[1], when="t2", project_root=self.root)
+        approve_unit_report(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
         state = read_unit_state(self.base, "summary-01")
         self.assertTrue(state["report"]["current"])
         self.assertFalse(state["spec"]["current"])
@@ -125,8 +127,10 @@ class UnitWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
-        self.assertTrue(payload["approved"])
+        self.assertTrue(payload["requested"])
+        self.assertFalse(payload["approved"])
         self.assertEqual(payload["units"][0]["id"], "cover")
+        self.assertTrue(read_unit_state(self.base, "cover")["report"]["pending_current"])
 
 
 if __name__ == "__main__":

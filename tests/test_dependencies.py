@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import init_project, slug, template_chapters
+from my_slides.commands.init import init_project
+from my_slides.project import template_chapters
+from my_slides.units import slug
 from my_slides.dependencies import (
     build_unit_dependency_graph,
     content_fingerprint,
@@ -144,7 +146,7 @@ class DependencyStateTests(unittest.TestCase):
             Unit(id="summary-01", chapter=self.chapters[0], role="content"),
         ]
         self._write_units(units)
-        mark_report_approved(self.base, units[0], project_root=self.root, when="2026-01-01T00:00:00+00:00")
+        mark_report_approved(self.base, units[0], project_root=self.root, when="2026-01-01T00:00:00+00:00", approved_by="Fixture Reviewer", approved_account="fixture")
         status = collect_units_status(
             self.base,
             selected=["cover"],
@@ -171,7 +173,7 @@ class DependencyStateTests(unittest.TestCase):
                 "uses-w": "# A\n\nSee [W](../../wiki/linked.md) for the cited evidence.\n",
             },
         )
-        mark_report_approved(self.base, units[1], project_root=self.root, when="t0")
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
         self.assertTrue(read_unit_state(self.base, "uses-w")["report"]["current"])
         wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
         status = collect_units_status(self.base, chapters=self.chapters, project_root=self.root)
@@ -199,7 +201,7 @@ class DependencyStateTests(unittest.TestCase):
         for unit in units:
             if unit.id == "cover":
                 continue
-            mark_report_approved(self.base, unit, project_root=self.root, when="t0")
+            mark_report_approved(self.base, unit, project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
         wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
         status = collect_units_status(self.base, chapters=self.chapters, project_root=self.root)
         by_id = {row["id"]: row for row in status["units"]}
@@ -218,7 +220,7 @@ class DependencyStateTests(unittest.TestCase):
             units,
             reports={"cover": "# Cover\n\nChart ![c](../../wiki/chart.png) supports the point.\n"},
         )
-        mark_report_approved(self.base, units[0], project_root=self.root, when="t0")
+        mark_report_approved(self.base, units[0], project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
         self.assertTrue(read_unit_state(self.base, "cover")["report"]["current"])
 
     def test_reapprove_unchanged_report_after_deps_change_keeps_spec_stale(self):
@@ -251,8 +253,8 @@ class DependencyStateTests(unittest.TestCase):
             '{"title":"uses-w","script":"Hi","notes":[]}</script></section>',
             encoding="utf-8",
         )
-        mark_report_approved(self.base, units[1], project_root=self.root, when="t0")
-        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root)
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
+        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root, approved_by="Fixture Reviewer", approved_account="fixture")
         # Simulate a prior HTML build bound to that Spec.
         state = read_unit_state(self.base, "uses-w")
         state["html"] = {
@@ -270,7 +272,7 @@ class DependencyStateTests(unittest.TestCase):
         self.assertFalse(refreshed["report"]["current"])
         self.assertFalse(refreshed["spec"]["current"])
         # Re-approve same report body against new deps — must not revive Spec/HTML.
-        mark_report_approved(self.base, units[1], project_root=self.root, when="t2")
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t2", approved_by="Fixture Reviewer", approved_account="fixture")
         again = refresh_unit_currency(self.base, units[1], project_root=self.root)
         self.assertTrue(again["report"]["current"])
         self.assertFalse(again["spec"]["current"], again)

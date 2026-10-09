@@ -8,11 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from my_slides.assembly import build_units_deck
-from my_slides.cli import init_project
+from my_slides.commands.init import init_project
 from my_slides.state import refresh_unit_currency
 from my_slides.theme import THEME_NAME, shell_css, verify_assets
 from my_slides.unit_workflow import approve_unit_report, approve_unit_spec, prepare_unit_handoff
 from my_slides.units import Unit, unit_paths, write_units_manifest
+
+TEST_APPROVER = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
 
 
 def _spec(unit_id: str, role: str) -> str:
@@ -49,8 +51,8 @@ class ThemeShellTests(unittest.TestCase):
             paths.report.write_text(f"# {unit.id}\n\n" + "Enough report text for approval. " * 3, encoding="utf-8")
             paths.spec.write_text(_spec(unit.id, unit.role), encoding="utf-8")
             paths.page.write_text(_page(unit.id, unit.role), encoding="utf-8")
-            approve_unit_report(self.base, unit, when="t0", project_root=self.root)
-            approve_unit_spec(self.base, unit, when="t1", project_root=self.root)
+            approve_unit_report(self.base, unit, when="t0", project_root=self.root, **TEST_APPROVER)
+            approve_unit_spec(self.base, unit, when="t1", project_root=self.root, **TEST_APPROVER)
         self.cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
 
     def tearDown(self):
@@ -116,7 +118,7 @@ class ThemeShellTests(unittest.TestCase):
             self.assertEqual(incremental.read_text(encoding="utf-8"), full.read_text(encoding="utf-8"))
 
     def test_prepare_slides_handoff_lists_static_components(self):
-        output = prepare_unit_handoff(self.base, self.root, self.units, "slides", stamp="t")
+        output = prepare_unit_handoff(self.base, self.root, self.units, "slides")[0]
         text = output.read_text(encoding="utf-8")
         self.assertIn("stat-card", text)
         self.assertIn("vs-container", text)
@@ -201,7 +203,7 @@ def _measure(html: str, width: int, height: int, script: str, *, media: str = "s
 
 class ComponentLayoutBrowserTests(unittest.TestCase):
     def setUp(self):
-        from my_slides.cli import browser_status
+        from my_slides.browser_runtime import browser_status
 
         if not browser_status()["chromium_installed"]:
             self.skipTest("optional Playwright Chromium browser is not installed")

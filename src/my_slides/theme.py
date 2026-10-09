@@ -171,7 +171,7 @@ def render_document(
         f"<pre>{html.escape(_text('upstream/LICENSE'))}</pre>"
     )
     if has_assets:
-        from .cli import renderer_notices
+        from .rendering import renderer_notices
 
         notices += renderer_notices()
     notices += "</details>"

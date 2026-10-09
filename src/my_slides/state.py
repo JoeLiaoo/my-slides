@@ -36,6 +36,10 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "approved_input_fingerprint": None,
             "approved_sha256": None,
             "approved_at": None,
+            "approved_by": None,
+            "approved_account": None,
+            "pending_approval": None,
+            "pending_current": False,
             "current": False,
         },
         "spec": {
@@ -44,6 +48,10 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "report_input_fingerprint": None,
             "approved_sha256": None,
             "approved_at": None,
+            "approved_by": None,
+            "approved_account": None,
+            "pending_approval": None,
+            "pending_current": False,
             "current": False,
         },
         "html": {
@@ -138,10 +146,21 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and approved == report_sha
         and approved_input
         and approved_input == input_fp
+        and state["report"].get("approved_by")
+        and state["report"].get("approved_account")
     )
     if approved and not report_current:
-        reasons.append("报告内容或本地依赖已变化，需重新审阅")
+        if not state["report"].get("approved_by") or not state["report"].get("approved_account"):
+            reasons.append("报告旧批准缺少审阅者记录，需重新审阅")
+        else:
+            reasons.append("报告内容或本地依赖已变化，需重新审阅")
     state["report"]["current"] = report_current
+    report_request = state["report"].get("pending_approval")
+    state["report"]["pending_current"] = bool(
+        isinstance(report_request, dict)
+        and report_request.get("content_sha256") == report_sha
+        and report_request.get("input_fingerprint") == input_fp
+    )
 
     spec_sha = fingerprint_file(paths.spec)
     state["spec"]["content_sha256"] = spec_sha
@@ -158,10 +177,23 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and bound_report == approved
         and bound_report_input
         and bound_report_input == approved_input
+        and state["spec"].get("approved_by")
+        and state["spec"].get("approved_account")
     )
     if spec_approved and not spec_current:
-        reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
+        if not state["spec"].get("approved_by") or not state["spec"].get("approved_account"):
+            reasons.append("Spec 旧批准缺少审阅者记录，需重新审阅")
+        else:
+            reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
     state["spec"]["current"] = spec_current
+    spec_request = state["spec"].get("pending_approval")
+    state["spec"]["pending_current"] = bool(
+        isinstance(spec_request, dict)
+        and spec_request.get("content_sha256") == spec_sha
+        and report_current
+        and spec_request.get("report_sha256") == approved
+        and spec_request.get("report_input_fingerprint") == approved_input
+    )
 
     html_sha = fingerprint_file(paths.page)
     state["html"]["content_sha256"] = html_sha
@@ -241,7 +273,19 @@ def collect_units_status(
             "chapter": unit.chapter,
             "role": unit.role,
             "report_current": state["report"]["current"],
+            "report_pending": state["report"]["pending_current"],
+            "report_approved_by": state["report"].get("approved_by"),
+            "report_approved_account": state["report"].get("approved_account"),
+            "report_approved_at": state["report"].get("approved_at"),
+            "report_unattributed": bool(state["report"].get("approved_sha256"))
+            and (not state["report"].get("approved_by") or not state["report"].get("approved_account")),
             "spec_current": state["spec"]["current"],
+            "spec_pending": state["spec"]["pending_current"],
+            "spec_approved_by": state["spec"].get("approved_by"),
+            "spec_approved_account": state["spec"].get("approved_account"),
+            "spec_approved_at": state["spec"].get("approved_at"),
+            "spec_unattributed": bool(state["spec"].get("approved_sha256"))
+            and (not state["spec"].get("approved_by") or not state["spec"].get("approved_account")),
             "html_current": state["html"]["current"],
             "check_current": state["check"]["current"],
             "reasons": state["reasons"],
@@ -270,7 +314,15 @@ def collect_units_status(
     }
 
 
-def mark_report_approved(base: Path, unit: Unit, *, project_root: Path | None = None, when: str) -> dict[str, Any]:
+def mark_report_approved(
+    base: Path,
+    unit: Unit,
+    *,
+    project_root: Path | None = None,
+    when: str,
+    approved_by: str | None = None,
+    approved_account: str | None = None,
+) -> dict[str, Any]:
     state = refresh_unit_currency(base, unit, project_root=project_root)
     paths = unit_paths(base, unit.id)
     if not paths.report.is_file():
@@ -283,12 +335,18 @@ def mark_report_approved(base: Path, unit: Unit, *, project_root: Path | None = 
         "approved_input_fingerprint": input_fp,
         "approved_sha256": sha,
         "approved_at": when,
-        "current": True,
+        "approved_by": approved_by,
+        "approved_account": approved_account,
+        "pending_approval": None,
+        "pending_current": False,
+        "current": bool(approved_by and approved_account),
     }
     # Spec must be re-bound after report re-approval (never auto-revive).
     if state["spec"].get("approved_sha256"):
         state["spec"]["current"] = False
         state["reasons"] = ["报告已重新批准，Spec 需按新报告版本更新后重审"]
+    state["spec"]["pending_approval"] = None
+    state["spec"]["pending_current"] = False
     write_unit_state(base, unit.id, state)
     return state
 
