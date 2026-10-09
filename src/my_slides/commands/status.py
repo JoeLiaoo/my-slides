@@ -31,19 +31,50 @@ def run(args: argparse.Namespace) -> int:
     unit_status = collect_units_status(
         base, selected=args.units, chapters=cfg.get("chapters", []), project_root=root,
     )
-    approval_status = {
-        kind: {
+    selected_ids = set(unit_status["selected_units"])
+    selected_rows = [row for row in unit_status["units"] if row["id"] in selected_ids]
+    approval_status = {}
+    for kind in ("report", "spec"):
+        approved = [row["id"] for row in selected_rows if row[f"{kind}_current"]]
+        pending_approval = [
+            row["id"] for row in selected_rows
+            if row[f"{kind}_pending"]
+        ]
+        unattributed = [
+            row["id"] for row in selected_rows
+            if row[f"{kind}_current"]
+            and (not row[f"{kind}_approved_by"] or not row[f"{kind}_approved_account"])
+        ]
+        needs_review = [
+            row["id"] for row in selected_rows
+            if not row[f"{kind}_current"] and not row[f"{kind}_pending"]
+        ]
+        approval_status[kind] = {
             "supported": True,
-            "current": False,
-            "message": f"使用 approve {kind} --unit / --changed / --all；状态见 --json 的 units 字段",
+            "current": bool(selected_rows) and len(approved) == len(selected_rows),
+            "attributed_current": bool(selected_rows) and len(approved) == len(selected_rows) and not unattributed,
+            "approved_units": approved,
+            "pending_units": pending_approval,
+            "unattributed_units": unattributed,
+            "needs_review_units": needs_review,
+            "approved_by": {
+                row["id"]: {
+                    "name": row[f"{kind}_approved_by"],
+                    "account": row[f"{kind}_approved_account"],
+                    "at": row[f"{kind}_approved_at"],
+                }
+                for row in selected_rows
+                if row[f"{kind}_current"] and row[f"{kind}_approved_by"]
+            },
+            "message": f"按选定单元汇总；用 status --unit <id> 查看单元，approve {kind} --unit <id> 提交审批申请",
         }
-        for kind in ("report", "spec")
-    }
     slide_status = {
         "supported": True,
         "built": (base / "slides" / "index.html").exists(),
-        "current": False,
-        "message": "使用 slides build|check --unit / --changed / --all",
+        "current": bool(selected_rows) and all(row["html_current"] for row in selected_rows),
+        "checked_current": bool(selected_rows) and all(row["check_current"] for row in selected_rows),
+        "unchecked_units": [row["id"] for row in selected_rows if not row["check_current"]],
+        "message": "current 表示所选单元的 HTML 构建仍有效；checked_current 表示浏览器检查仍有效",
     }
     human = (
         f"项目：{root}\n格式：v2\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
@@ -51,6 +82,7 @@ def run(args: argparse.Namespace) -> int:
         f"受影响：{len(unit_status['affected_units'])}\n"
         f"可复用：{len(unit_status['reused_units'])}\n"
         f"阻塞：{len(unit_status['blocked_units'])}\n"
+        f"待人工确认：报告 {len(approval_status['report']['pending_units'])}，Spec {len(approval_status['spec']['pending_units'])}\n"
         "提示：用 --json 查看各单元批准/构建/检查状态"
     )
     data = {

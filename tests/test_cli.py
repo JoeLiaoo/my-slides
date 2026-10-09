@@ -136,7 +136,7 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertEqual(len(snapshots), 1)
         manifest = json.loads(snapshots[0].read_text(encoding="utf-8"))
         self.assertIn("index.md", {item["path"] for item in manifest["files"]})
-        task = next((self.base / "work").glob("*-report-units.md")).read_text(encoding="utf-8")
+        task = (self.base / "work" / "report" / "cover.md").read_text(encoding="utf-8")
         self.assertIn("cover", task)
 
 

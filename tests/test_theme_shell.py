@@ -116,7 +116,7 @@ class ThemeShellTests(unittest.TestCase):
             self.assertEqual(incremental.read_text(encoding="utf-8"), full.read_text(encoding="utf-8"))
 
     def test_prepare_slides_handoff_lists_static_components(self):
-        output = prepare_unit_handoff(self.base, self.root, self.units, "slides", stamp="t")
+        output = prepare_unit_handoff(self.base, self.root, self.units, "slides")[0]
         text = output.read_text(encoding="utf-8")
         self.assertIn("stat-card", text)
         self.assertIn("vs-container", text)

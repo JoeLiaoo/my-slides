@@ -13,9 +13,9 @@
         ↓
 项目 Wiki 与来源追溯
         ↓
-报告单元（reports/units/<id>.md）→ 用户按单元审阅
+报告单元（reports/units/<id>.md）→ 提交申请 → 用户在终端逐单元确认
         ↓
-Spec 单元（specs/units/<id>.md）→ 用户按单元审阅
+Spec 单元（specs/units/<id>.md）→ 提交申请 → 用户在终端逐单元确认
         ↓
 单页 HTML（slides/pages/<id>.html）→ 增量合并为整套离线演示文稿
 ```
@@ -53,6 +53,7 @@ my-slides browser install
 my-slides init --project "<投资项目目录>"
 my-slides agent install --project "<投资项目目录>"
 my-slides doctor --project "<投资项目目录>"
+my-slides next --project "<投资项目目录>" --json
 ```
 
 按单元推进：
@@ -60,10 +61,12 @@ my-slides doctor --project "<投资项目目录>"
 ```text
 my-slides prepare report --unit <id>
 my-slides validate report --unit <id>
-my-slides approve report --unit <id>
+my-slides approve report --unit <id>       # Agent 提交待审申请，不会批准
+my-slides confirm report --unit <id>       # 用户本人在交互终端执行
 my-slides assemble
 my-slides prepare spec --unit <id>
-my-slides approve spec --unit <id>
+my-slides approve spec --unit <id>         # Agent 提交待审申请
+my-slides confirm spec --unit <id>         # 用户本人在交互终端执行
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
 my-slides slides check --unit <id>          # 结构检查（单元集合/顺序、封面）
@@ -71,6 +74,12 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 ```
 
 也可用 `--changed` 或 `--all`。默认的 `slides check` 只做结构检查；加 `--browser` 才跑桌面/手机视口测量。
+
+`my-slides next --json` 返回下一步命令、目标单元、原因和执行者（`agent` 或 `human`）。Agent 遇到 `actor: human` 必须停下，请用户自行审阅并执行 `confirm`。`approve` 只记录文件内容与依赖的待审版本；`confirm` 不提供 `--json` 或批量确认，要求在交互终端输入审阅者姓名与针对当前 SHA-256 的确认文字。状态文件记录姓名、本机账户与批准时间。申请后若文件或依赖变化，确认会拒绝，必须重新提交。完成报告确认后运行 `assemble`。
+
+交接材料使用固定路径 `my-slides/work/wiki.md`、`my-slides/work/wiki-question.md` 和 `my-slides/work/<report|spec|slides>/<id>.md`；再次 `prepare` 会更新同一路径。`status --json` 的 `approvals.<kind>.current` 按选定单元计算，另列出待确认、需重审及旧版无审阅者记录的单元；`attributed_current` 仅在所有选定单元当前有效且有审阅者记录时为真。`slides.current` 表示构建有效，`slides.checked_current` 表示浏览器检查有效。
+
+交互终端与自填姓名只能防止普通非交互调用和误操作，**不能证明操作者一定是人**。如果 Agent 拥有同一系统账户、能控制终端或改写本地状态文件，仍可能伪造确认；需要可验证的强制人审时，应使用独立身份与权限的外部审批系统。
 
 无 `units.json` 时 CLI 会拒绝执行；请重新 `my-slides init`。
 
@@ -86,9 +95,13 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 my-slides init --project <项目根>
 my-slides prepare wiki && …整理 wiki… && my-slides validate wiki
 my-slides sources mark-ingested
-my-slides prepare report --unit <id> && …撰写… && validate/approve report --unit <id>
+my-slides prepare report --unit <id> && …撰写… && my-slides validate report --unit <id>
+my-slides approve report --unit <id>  # 提交申请；用户另行 confirm report
+my-slides confirm report --unit <id>  # 用户本人执行
 my-slides assemble
-my-slides prepare spec --unit <id> && …撰写… && validate/approve spec --unit <id>
+my-slides prepare spec --unit <id> && …撰写… && my-slides validate spec --unit <id>
+my-slides approve spec --unit <id>    # 提交申请；用户另行 confirm spec
+my-slides confirm spec --unit <id>    # 用户本人执行
 my-slides prepare slides --unit <id> && …写单页 HTML…
 my-slides slides build --all
 my-slides slides check --all

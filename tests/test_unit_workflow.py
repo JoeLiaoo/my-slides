@@ -125,8 +125,10 @@ class UnitWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
-        self.assertTrue(payload["approved"])
+        self.assertTrue(payload["requested"])
+        self.assertFalse(payload["approved"])
         self.assertEqual(payload["units"][0]["id"], "cover")
+        self.assertTrue(read_unit_state(self.base, "cover")["report"]["pending_current"])
 
 
 if __name__ == "__main__":

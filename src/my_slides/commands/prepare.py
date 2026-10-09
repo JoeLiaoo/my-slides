@@ -34,17 +34,22 @@ def prepare(args: argparse.Namespace) -> int:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         if kind == "report":
             snapshot_wiki(base, stamp)
-        output = prepare_unit_handoff(base, root, units, kind, stamp=stamp)
+        outputs = prepare_unit_handoff(base, root, units, kind)
         emit(
             args,
-            {"task_file": str(output), "kind": kind, "units": [u.id for u in units], "deprecated": False},
-            f"已生成单元交接材料：{output}",
+            {
+                "task_file": str(outputs[0]) if len(outputs) == 1 else None,
+                "task_files": [str(path) for path in outputs],
+                "kind": kind,
+                "units": [u.id for u in units],
+                "deprecated": False,
+            },
+            "已更新单元交接材料：\n" + "\n".join(str(path) for path in outputs),
         )
         return 0
     out_dir = base / "work"
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    output = out_dir / f"{stamp}-{kind}.md"
+    output = out_dir / ("wiki-question.md" if args.question else "wiki.md")
     chapters = cfg.get("chapters", [])
     common = f"项目目录：{root}\n工作区：{base}\n章节顺序：" + "、".join(chapters)
     if kind == "wiki":

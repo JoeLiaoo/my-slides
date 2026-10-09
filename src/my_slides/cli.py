@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import __version__
-from .commands import agent, approve, assemble, browser, doctor, help, renderer, slides, sources, status, units, validate
+from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, renderer, slides, sources, status, units, validate
 from .commands.init import init_project
 from .commands.prepare import prepare
 
@@ -51,11 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--project")
     validate.add_argument("--json", action="store_true")
     add_unit_selectors(validate)
-    approve = sub.add_parser("approve", help="记录报告或 Spec 的用户批准版本")
+    approve = sub.add_parser("approve", help="提交报告或 Spec 单元供用户审批，不会直接批准")
     approve.add_argument("kind", choices=("report", "spec"))
     approve.add_argument("--project")
     approve.add_argument("--json", action="store_true")
     add_unit_selectors(approve)
+    confirm = sub.add_parser("confirm", help="用户在交互终端确认一个待审批单元")
+    confirm.add_argument("kind", choices=("report", "spec"))
+    confirm.add_argument("--unit", required=True, metavar="ID", help="要确认的单元 ID；每次只能确认一个")
+    confirm.add_argument("--project")
     assemble = sub.add_parser("assemble", help="v2：将报告单元组装为 reports/report.md")
     assemble.add_argument("--project")
     assemble.add_argument("--json", action="store_true")
@@ -100,6 +104,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ID",
         help="v2：查看指定单元状态（可重复）；省略则列出全部单元骨架",
     )
+    next_command = sub.add_parser("next", help="查看下一步操作、目标单元和原因")
+    next_command.add_argument("--project")
+    next_command.add_argument("--json", action="store_true")
     return parser
 
 
@@ -116,11 +123,13 @@ def main() -> None:
         "prepare": prepare,
         "validate": validate.run,
         "approve": approve.run,
+        "confirm": confirm.run,
         "assemble": assemble.run,
         "slides": slides.run,
         "units": units.run,
         "doctor": doctor.run,
         "status": status.run,
+        "next": next_step.run,
         "renderer": renderer.run,
         "browser": browser.run,
         "agent": agent.run,

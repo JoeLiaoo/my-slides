@@ -1,15 +1,13 @@
-"""Approve selected report or Spec units."""
+"""Submit report or Spec units for an explicit human review."""
 
 from __future__ import annotations
 
 import argparse
+import shlex
 
 from ..command_output import emit
 from ..project import ensure_project, now, project_root, require_v2_project
-from ..unit_workflow import (
-    approve_unit_report, approve_unit_spec, assemble_after_report_approvals,
-    resolve_unit_selection,
-)
+from ..unit_workflow import request_unit_approval, resolve_unit_selection
 
 
 def run(args: argparse.Namespace) -> int:
@@ -20,29 +18,25 @@ def run(args: argparse.Namespace) -> int:
         base, cfg,
         unit_ids=args.units, changed=args.changed, all_units=args.all_units,
     )
-    approved = []
+    requested = []
     stamp = now()
     for unit in units:
-        if args.kind == "report":
-            state = approve_unit_report(base, unit, when=stamp, project_root=root)
-        else:
-            state = approve_unit_spec(base, unit, when=stamp, project_root=root)
-        approved.append({"id": unit.id, "sha256": state[args.kind]["approved_sha256"]})
-    assembled = None
-    assemble_errors: list[str] = []
-    if args.kind == "report":
-        assembled, assemble_errors = assemble_after_report_approvals(base)
-    emit(
-        args,
-        {
-            "approved": True,
-            "kind": args.kind,
-            "units": approved,
-            "assembled_report": assembled is not None and not assemble_errors,
-            "assemble_errors": assemble_errors,
-        },
-        f"已批准 {len(approved)} 个单元的 {args.kind}"
-        + ("" if not assemble_errors else "；组装报告失败：" + "；".join(assemble_errors)),
-        error=bool(assemble_errors),
-    )
-    return 1 if assemble_errors else 0
+        request = request_unit_approval(base, unit, args.kind, when=stamp, project_root=root)
+        requested.append({
+            "id": unit.id,
+            "sha256": request["content_sha256"],
+            "requested_at": request["requested_at"],
+            "confirm_command": f"my-slides confirm {args.kind} --unit {unit.id} --project {shlex.quote(str(root))}",
+        })
+    data = {
+        "requested": bool(requested),
+        "approved": False,
+        "kind": args.kind,
+        "units": requested,
+        "requires_human_confirmation": bool(requested),
+    }
+    human = f"已提交 {len(requested)} 个 {args.kind} 单元供用户审阅；尚未批准。"
+    if requested:
+        human += "\n请用户本人在终端逐项运行：\n" + "\n".join(item["confirm_command"] for item in requested)
+    emit(args, data, human)
+    return 0

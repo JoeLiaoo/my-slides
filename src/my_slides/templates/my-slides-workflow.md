@@ -7,30 +7,39 @@ description: Use the local my-slides CLI to maintain an investment project's Mar
 
 Use this skill when working inside an investment project that contains `my-slides/project.yaml`.
 
-**Prefer v2.** New projects from `my-slides init` are v2 (`units.json` + unit directories). If `my-slides/units.json` exists, run `my-slides units list` and `my-slides status --json` first. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report approvals.
+Projects use `units.json` and unit directories (created by `my-slides init`). Run `my-slides units list`, `my-slides status --json`, and `my-slides next --json` first. `next` returns a command, target unit, reason, and `actor`. Use `--unit <id>` (or `--changed` / `--all`) with `prepare` / `validate` / `approve` / `slides build` / `slides check`. Assemble the full report with `my-slides assemble` after unit report confirmations.
 
-Projects without `units.json` are unsupported. Legacy chapter migration is unsupported; re-`init` for a v2 project.
+Projects without `units.json` need `my-slides init` before other commands.
+
+`slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
+
+`prepare` updates fixed files in `my-slides/work/` (`wiki.md`, `wiki-question.md`, or `<kind>/<unit-id>.md`). Reuse the returned path; repeated preparation does not create new timestamped handoffs.
+
+## Repository version bump (when changing this package)
+
+If your PR merges code or docs into the **my-slides** repo `main`: bump `pyproject.toml` `[project].version` patch by +1 in that same PR before merge. `my-slides --version` must match. Do not rely on CI. Full rule: repo-root `AGENTS.md`.
 
 ## Working rules
 
 - Treat original project documents as read-only. The CLI scans Markdown sources; the agent reads them and edits only `my-slides/` outputs.
 - Read `my-slides/wiki/README.md` and `my-slides/wiki/index.md` before updating or querying the Wiki. Use ordinary Markdown and links. Do not invent tags, frontmatter, per-source IDs, or fact/forecast classifications.
-- Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). In v2, delivery structure comes from `units.json`.
+- Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). Delivery structure comes from `units.json`.
 - State evidence gaps, conflicting figures, assumptions, and dates in natural prose.
-- Never approve a report or Spec on the user's behalf; approval commands record an explicit user review decision.
+- `approve report/spec` only submits a pending review request. Never run `confirm` for the user, even when `next --json` shows its command; stop and ask the user to review the specified file and run it in their own terminal. `actor: human` is a hard handoff point for the Agent.
 - Generate HTML only from approved Specs. Write one content fragment per unit using the component examples from `prepare slides`. Keep custom styles scoped; include one `slide-notes` JSON block on every slide. Use only approved `echarts-spec` and Lucide markers. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`.
 
-## v2 workflow
+## Workflow
 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
-2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → user review → `approve report --unit <id>`. Optionally `assemble`.
-3. `prepare spec --unit <id>` → write one-page Spec in `specs/units/<id>.md` (page ID = unit ID) → validate → user review → `approve spec --unit <id>`.
-4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` → `slides build --unit <id>` → `slides check --unit <id> --browser`.
+2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` to request review → user reviews and personally runs `confirm report --unit <id>` → `assemble`.
+3. `prepare spec --unit <id>` → write one-page Spec in `specs/units/<id>.md` (page ID = unit ID) → validate → `approve spec --unit <id>` to request review → user reviews and personally runs `confirm spec --unit <id>`.
+4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`.
 
 ## Useful commands
 
 ```text
 my-slides status
+my-slides next --json
 my-slides sources scan
 my-slides prepare wiki [--question "..."]
 my-slides validate wiki
@@ -39,11 +48,14 @@ my-slides units list
 my-slides prepare report --unit <id>
 my-slides validate report --unit <id>
 my-slides approve report --unit <id>
+my-slides confirm report --unit <id>  # user executes, never Agent
 my-slides assemble
 my-slides prepare spec --unit <id>
 my-slides approve spec --unit <id>
+my-slides confirm spec --unit <id>    # user executes, never Agent
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
+my-slides slides check --unit <id>
 my-slides slides check --unit <id> --browser
 ```
 
