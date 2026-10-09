@@ -84,7 +84,7 @@ my-slides slides check --all
 
 ## 测试
 
-本仓库**没有 GitHub Actions**。请在本地跑：
+PR 和推送到 `main` 时，GitHub Actions 会在 Ubuntu 上运行完整回归（Python 3.11、Node 22、渲染器和 Chromium）。本地也可运行：
 
 ```bash
 # 快速（缺渲染器/浏览器时相关用例会 skip）
@@ -102,3 +102,7 @@ python -m unittest discover -s tests -v
 ```
 
 说明见 [`docs/testing.md`](docs/testing.md)。实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)。
+
+## 许可
+
+本项目采用 [MIT 许可证](LICENSE)。内置的上游幻灯片主题保留其[原始许可证](src/my_slides/slides_theme/upstream/LICENSE)。
