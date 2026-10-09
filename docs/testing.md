@@ -1,6 +1,6 @@
-# 本地测试说明
+# 测试说明
 
-本仓库**不使用 GitHub Actions**（账户无 Actions 额度）。完整回归请在开发机上跑本地脚本。
+GitHub Actions 在 PR 和推送到 `main` 时运行 `./scripts/run-full-tests.sh`。工作流使用 Ubuntu、Python 3.11 和 Node 22，安装 Playwright 的 Chromium 系统依赖；脚本再安装锁定的渲染器、Chromium 并执行完整测试。本地也可以使用以下脚本。
 
 ## 快速测试（默认）
 
@@ -38,7 +38,7 @@ chmod +x scripts/run-full-tests.sh   # 首次
 | `my-slides slides check [--unit\|--all]` | 仅已生成的 `slides/index.html` | 结构：生成器标记、`data-unit-id` 集合/顺序与 `units.json` 一致、唯一封面 |
 | `… --browser` | 另需 `my-slides browser install`（Playwright Chromium） | 在桌面/手机视口逐页激活后测溢出、重叠、可见性等 |
 
-快速套件默认不装浏览器；缺依赖时带 `--browser` 的用例会 skip。完整门禁用 `./scripts/run-full-tests.sh`。
+快速套件默认不装浏览器；缺依赖时带 `--browser` 的用例会 skip。PR 的完整门禁和本地完整回归都使用 `./scripts/run-full-tests.sh`。
 
 ## 建议验收清单（issue #1 §9 子集）
 

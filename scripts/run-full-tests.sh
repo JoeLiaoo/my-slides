@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Local full regression for my-slides (Phase 10).
-# Does NOT use GitHub Actions — run this on a machine with Node + network for installs.
+# Full regression for my-slides, used locally and in GitHub Actions.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
