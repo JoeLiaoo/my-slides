@@ -209,6 +209,25 @@ def check_deck(
                         if (smaller > 0 && intersection / smaller > 0.12) overlaps.push({slide: targetIndex, first: a.tagName, second: b.tagName});
                       }
                       const overflow = slide.scrollWidth > slide.clientWidth + 1 || slide.scrollHeight > slide.clientHeight + 1;
+                      const chartOverflow = [];
+                      for (const container of slide.querySelectorAll('.chart-container')) {
+                        const box = container.getBoundingClientRect();
+                        const containerStyle = getComputedStyle(container);
+                        const content = {
+                          left: box.left + (parseFloat(containerStyle.borderLeftWidth) || 0) + (parseFloat(containerStyle.paddingLeft) || 0),
+                          right: box.right - (parseFloat(containerStyle.borderRightWidth) || 0) - (parseFloat(containerStyle.paddingRight) || 0),
+                          top: box.top + (parseFloat(containerStyle.borderTopWidth) || 0) + (parseFloat(containerStyle.paddingTop) || 0),
+                          bottom: box.bottom - (parseFloat(containerStyle.borderBottomWidth) || 0) - (parseFloat(containerStyle.paddingBottom) || 0),
+                        };
+                        for (const svg of container.querySelectorAll('svg')) {
+                          const svgBox = svg.getBoundingClientRect();
+                          if (svgBox.width < 0.5 || svgBox.height < 0.5) continue;
+                          if (svgBox.left < content.left - 2 || svgBox.top < content.top - 2 ||
+                              svgBox.right > content.right + 2 || svgBox.bottom > content.bottom + 2) {
+                            chartOverflow.push({slide: targetIndex, tag: 'svg'});
+                          }
+                        }
+                      }
                       const clipped = [];
                       for (const element of slide.querySelectorAll('*')) {
                         if (element.matches('script,style')) continue;
@@ -235,7 +254,8 @@ def check_deck(
                         outOfBounds,
                         invisibleText,
                         overlaps,
-                        clipped
+                        clipped,
+                        chartOverflow
                       };
                     }""",
                     target,
@@ -256,6 +276,8 @@ def check_deck(
                     viewport_errors.append(f"{prefix}: slide content is clipped by the viewport")
                 if metrics["clipped"]:
                     viewport_errors.append(f"{prefix}: overflow hidden is clipping slide content")
+                if metrics["chartOverflow"]:
+                    viewport_errors.append(f"{prefix}: chart svg extends outside its chart container")
                 if not metrics["visibleTextCount"]:
                     viewport_errors.append(f"{prefix}: no visible slide text was measured")
                 if metrics["outOfBounds"]:

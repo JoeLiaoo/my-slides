@@ -7,7 +7,7 @@
   "theme": "editorial-light",
   "shell_version": "1",
   "font_policy": "system-cjk-v1",
-  "adaptation_version": "1",
+  "adaptation_version": "2",
   "files": {
     "upstream/viewport-base.css": {
       "role": "original",
@@ -27,7 +27,7 @@
     },
     "adapt.css": {
       "role": "adaptation",
-      "sha256": "005bc52c232fc963fc4c4537a358226ff92d3026876c69eb589d881f4766dca8"
+      "sha256": "a4a0c22d058faa9428b8d72e5df4a17fa4d6aaff72388a46da6baacc90d9ca7a"
     }
   }
 }

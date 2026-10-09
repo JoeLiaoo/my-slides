@@ -17,7 +17,7 @@ from typing import Any
 THEME_NAME = "editorial-light"
 SHELL_VERSION = "1"
 FONT_POLICY = "system-cjk-v1"
-ADAPTATION_VERSION = "1"
+ADAPTATION_VERSION = "2"
 UPSTREAM_COMMIT = "d8289f4c317905cc5d0ca265d32b791e6cb387b7"
 
 _ASSET_ORDER = (

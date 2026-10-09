@@ -155,5 +155,132 @@ class ThemeShellTests(unittest.TestCase):
             self.assertTrue(any(name.endswith(suffix) for name in names), suffix)
 
 
+def _slide(inner: str) -> str:
+    from my_slides.theme import render_document
+
+    section = (
+        '<section class="slide" data-page-role="content" data-unit-id="layout">'
+        f"{inner}"
+        '<script type="application/json" class="slide-notes">'
+        '{"title":"布局","script":"说明这一页","notes":[]}</script></section>'
+    )
+    return render_document([section], [], title="布局", brand_color="#A6192E", has_assets=False, kind="preview")
+
+
+def _measure(html: str, width: int, height: int, script: str, *, media: str = "screen") -> dict:
+    from playwright.sync_api import sync_playwright
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "slide.html"
+        path.write_text(html, encoding="utf-8")
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            external: list[str] = []
+            page.on("request", lambda request: external.append(request.url) if request.url.startswith(("http://", "https://")) else None)
+            page.emulate_media(media=media)
+            page.set_viewport_size({"width": width, "height": height})
+            page.goto(path.resolve().as_uri(), wait_until="load")
+            page.evaluate(
+                """async () => {
+                  const pending = document.getAnimations().filter((animation) => {
+                    const timing = animation.effect && animation.effect.getTiming();
+                    return timing && timing.iterations !== Infinity;
+                  });
+                  await Promise.race([
+                    Promise.all(pending.map((animation) => animation.finished.catch(() => undefined))),
+                    new Promise((resolve) => setTimeout(resolve, 2000))
+                  ]);
+                }"""
+            )
+            result = page.evaluate(script)
+            browser.close()
+    result["external"] = external
+    return result
+
+
+class ComponentLayoutBrowserTests(unittest.TestCase):
+    def setUp(self):
+        from my_slides.cli import browser_status
+
+        if not browser_status()["chromium_installed"]:
+            self.skipTest("optional Playwright Chromium browser is not installed")
+
+    def test_three_stat_cards_stay_inside_mobile_portrait(self):
+        cards = "".join(
+            f'<div class="stat-card"><p class="stat-number blue">{value}</p>'
+            f"<p class=\"stat-label\">{label}</p><p class=\"stat-desc\">口径</p></div>"
+            for value, label in (("12%", "收入增速"), ("8%", "毛利率"), ("3%", "净利率"))
+        )
+        html = _slide(f"<h2>关键指标</h2><div class=\"stats-row\">{cards}</div>")
+        measured = _measure(
+            html,
+            390,
+            844,
+            """() => {
+              const slide = document.querySelector('.slide.active').getBoundingClientRect();
+              const cards = [...document.querySelectorAll('.stat-card')].map((card) => {
+                const box = card.getBoundingClientRect();
+                return {left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height};
+              });
+              return {slide: {left: slide.left, right: slide.right, top: slide.top, bottom: slide.bottom}, cards};
+            }""",
+        )
+        self.assertEqual(measured["external"], [])
+        self.assertEqual(len(measured["cards"]), 3)
+        slide = measured["slide"]
+        previous_bottom = slide["top"]
+        for card in measured["cards"]:
+            self.assertGreater(card["width"], 40, card)
+            self.assertGreaterEqual(card["left"], slide["left"] - 2, card)
+            self.assertLessEqual(card["right"], slide["right"] + 2, card)
+            self.assertGreaterEqual(card["top"], slide["top"] - 2, card)
+            self.assertLessEqual(card["bottom"], slide["bottom"] + 2, card)
+            self.assertGreaterEqual(card["top"], previous_bottom - 2, card)
+            previous_bottom = card["bottom"]
+
+    def test_chart_svg_stays_inside_container_on_screen_and_print(self):
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560">'
+            '<rect width="1100" height="560" fill="#d0d4dc"/></svg>'
+        )
+        html = _slide(f'<h2>趋势</h2><div class="chart-container"><div class="mls-chart">{svg}</div></div>')
+        script = """() => {
+          const container = document.querySelector('.chart-container');
+          const box = container.getBoundingClientRect();
+          const style = getComputedStyle(container);
+          const content = {
+            left: box.left + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0),
+            right: box.right - (parseFloat(style.borderRightWidth) || 0) - (parseFloat(style.paddingRight) || 0),
+            top: box.top + (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.paddingTop) || 0),
+            bottom: box.bottom - (parseFloat(style.borderBottomWidth) || 0) - (parseFloat(style.paddingBottom) || 0),
+          };
+          const svgBox = container.querySelector('svg').getBoundingClientRect();
+          const slide = document.querySelector('.slide.active').getBoundingClientRect();
+          return {
+            content, slide: {left: slide.left, right: slide.right, top: slide.top, bottom: slide.bottom},
+            svg: {left: svgBox.left, right: svgBox.right, top: svgBox.top, bottom: svgBox.bottom, width: svgBox.width, height: svgBox.height}
+          };
+        }"""
+        for media in ("screen", "print"):
+            measured = _measure(html, 1920, 1080, script, media=media)
+            self.assertEqual(measured["external"], [], media)
+            svg_box = measured["svg"]
+            content = measured["content"]
+            slide = measured["slide"]
+            self.assertGreater(svg_box["width"], 40, measured)
+            self.assertGreater(svg_box["height"], 40, measured)
+            self.assertGreaterEqual(svg_box["left"], content["left"] - 2, measured)
+            self.assertLessEqual(svg_box["right"], content["right"] + 2, measured)
+            self.assertGreaterEqual(svg_box["top"], content["top"] - 2, measured)
+            self.assertLessEqual(svg_box["bottom"], content["bottom"] + 2, measured)
+            self.assertGreaterEqual(svg_box["left"], slide["left"] - 2, measured)
+            self.assertLessEqual(svg_box["right"], slide["right"] + 2, measured)
+            self.assertGreaterEqual(svg_box["top"], slide["top"] - 2, measured)
+            self.assertLessEqual(svg_box["bottom"], slide["bottom"] + 2, measured)
+            ratio = svg_box["width"] / svg_box["height"]
+            self.assertAlmostEqual(ratio, 1100 / 560, delta=0.08, msg=measured)
+
+
 if __name__ == "__main__":
     unittest.main()
