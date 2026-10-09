@@ -59,8 +59,6 @@ class ProjectWorkflowTests(unittest.TestCase):
         (self.base / "units.json").unlink()
 
 
-    @staticmethod
-
     def test_default_wiki_index_matches_report_chapters(self):
         self.init()
         self.assertEqual(validate_wiki(self.base, self.cfg), [])
