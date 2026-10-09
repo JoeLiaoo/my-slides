@@ -159,12 +159,64 @@ class AssemblyTests(unittest.TestCase):
 
         units = self._seed()
         cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
-        _, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        deck, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
         self.assertEqual(errors, [])
-        record_unit_check_results(self.base, [unit.id for unit in units], passed=True)
+        record_unit_check_results(
+            self.base, [unit.id for unit in units], passed=True, deck_path=deck
+        )
         for unit in units:
             state = refresh_unit_currency(self.base, unit, project_root=self.root)
             self.assertTrue(state["check"]["current"], state)
+
+    def test_browser_check_binds_to_measured_build_not_edited_source(self):
+        """Editing page source then checking the old deck must not keep check current after rebuild."""
+        from my_slides.browser import record_unit_check_results
+        from my_slides.state import read_unit_state, refresh_unit_currency
+
+        units = self._seed()
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        deck, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        page = unit_paths(self.base, "summary-01").page
+        page.write_text(
+            page.read_text(encoding="utf-8").replace("<h1>summary-01</h1>", "<h1>WIDER</h1>"),
+            encoding="utf-8",
+        )
+        # Measures old index.html; must bind to built version + that deck, not the new source.
+        record_unit_check_results(self.base, ["summary-01"], passed=True, deck_path=deck)
+        _, errors, _ = build_units_deck(self.base, cfg, unit_ids=["summary-01"], write=True)
+        self.assertEqual(errors, [])
+        state = refresh_unit_currency(self.base, units[1], project_root=self.root)
+        self.assertFalse(state["check"]["current"], read_unit_state(self.base, "summary-01"))
+
+    def test_brand_color_change_does_not_reuse_stale_cache(self):
+        """Incremental assemble after brand_color change must not reuse old-key cache entries."""
+        from my_slides.assembly import compute_unit_cache_key
+        from my_slides.state import read_unit_state
+
+        self._seed()
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        _, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        old_key = read_unit_state(self.base, "summary-01")["html"]["cache_key"]
+        cfg_new = {**cfg, "brand_color": "#003366"}
+        new_key, key_errors, _ = compute_unit_cache_key(
+            self.base,
+            Unit(id="summary-01", chapter="投资概要", role="content"),
+            brand_color=cfg_new["brand_color"],
+        )
+        self.assertEqual(key_errors, [])
+        self.assertNotEqual(old_key, new_key)
+        # Rebuild only cover under new brand; summary must not reuse the old brand cache key.
+        output, errors, plan = build_units_deck(self.base, cfg_new, unit_ids=["cover"], write=True)
+        self.assertEqual(errors, [], errors)
+        self.assertNotIn("summary-01", plan["reused"])
+        self.assertIn("summary-01", plan["rebuild"])
+        self.assertIsNotNone(output)
+        self.assertEqual(
+            read_unit_state(self.base, "summary-01")["html"]["cache_key"],
+            new_key,
+        )
 
 
 if __name__ == "__main__":

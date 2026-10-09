@@ -174,9 +174,11 @@ def approve_unit_spec(base: Path, unit: Unit, *, when: str, project_root: Path |
     paths = unit_paths(base, unit.id)
     spec_sha = fingerprint_file(paths.spec)
     report_sha = state["report"]["approved_sha256"]
+    report_input = state["report"]["approved_input_fingerprint"]
     state["spec"] = {
         "content_sha256": spec_sha,
         "report_sha256": report_sha,
+        "report_input_fingerprint": report_input,
         "approved_sha256": spec_sha,
         "approved_at": when,
         "current": True,

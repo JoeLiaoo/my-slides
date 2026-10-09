@@ -262,22 +262,33 @@ def check_deck(
     }
 
 
-def record_unit_check_results(base: Path, unit_ids: list[str], *, passed: bool) -> None:
-    """Persist a check fingerprint that refresh_unit_currency can reproduce.
+def record_unit_check_results(
+    base: Path,
+    unit_ids: list[str],
+    *,
+    passed: bool,
+    deck_path: Path,
+) -> None:
+    """Persist a check fingerprint bound to the measured deck and built page version.
 
-    保存和校验必须使用同一结构：页面 HTML 与 Spec 文件哈希，不能另加 deck 字段。
+    不能用当前源文件哈希：源可能已改、正式 index.html 仍是旧构建；否则重建后
+    check.current 会在未重测的情况下保持 true。
     """
     from .dependencies import fingerprint_file
     from .state import check_input_fingerprint, read_unit_state, write_unit_state
     from .units import unit_paths
 
+    deck_sha = fingerprint_file(deck_path)
     for unit_id in unit_ids:
         state = read_unit_state(base, unit_id)
         paths = unit_paths(base, unit_id)
+        # 绑定最后一次成功构建的页面版本，而不是可能已编辑的 live 源文件。
+        html_sha = state["html"].get("build_sha256") or fingerprint_file(paths.page)
         state["check"] = {
             "input_fingerprint": check_input_fingerprint(
-                fingerprint_file(paths.page),
+                html_sha,
                 fingerprint_file(paths.spec),
+                deck_sha=deck_sha,
             ),
             "result": "pass" if passed else "fail",
             "current": passed,
@@ -304,7 +315,12 @@ def check_units_on_deck(
     if browser:
         browser_result = check_deck(path, unit_ids=unit_ids)
         errors.extend(browser_result["errors"])
-        record_unit_check_results(base, unit_ids, passed=not browser_result["errors"])
+        record_unit_check_results(
+            base,
+            unit_ids,
+            passed=not browser_result["errors"],
+            deck_path=path,
+        )
     return {
         "valid": not errors,
         "errors": errors,

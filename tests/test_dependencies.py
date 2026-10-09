@@ -18,7 +18,9 @@ from my_slides.state import (
     invalidate_for_changed_file,
     mark_report_approved,
     read_unit_state,
+    refresh_unit_currency,
 )
+from my_slides.unit_workflow import approve_unit_spec
 from my_slides.units import Unit, UnitsError, unit_paths, write_units_manifest
 import argparse
 
@@ -218,6 +220,61 @@ class DependencyStateTests(unittest.TestCase):
         )
         mark_report_approved(self.base, units[0], project_root=self.root, when="t0")
         self.assertTrue(read_unit_state(self.base, "cover")["report"]["current"])
+
+    def test_reapprove_unchanged_report_after_deps_change_keeps_spec_stale(self):
+        """Spec/HTML must stay stale when only dependencies changed and report body is re-approved."""
+        wiki = self.base / "wiki" / "linked.md"
+        wiki.write_text("# Linked\n", encoding="utf-8")
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="uses-w", chapter=self.chapters[0], role="content"),
+        ]
+        self._write_units(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening statement for the deck.\n",
+                "uses-w": "# A\n\nSee [W](../../wiki/linked.md) for the cited evidence.\n",
+            },
+        )
+        paths = unit_paths(self.base, "uses-w")
+        paths.spec.write_text(
+            "## Slide 1 — uses-w\n页面 ID：uses-w\n页面角色：content\n"
+            "### 目的\nExplain.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
+            "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
+            "### 布局意图\nLayout.\n### 图标需求\n无\n",
+            encoding="utf-8",
+        )
+        paths.page.write_text(
+            '<section class="slide" data-unit-id="uses-w" data-page-role="content">'
+            "<h1>uses-w</h1>"
+            '<script type="application/json" class="slide-notes">'
+            '{"title":"uses-w","script":"Hi","notes":[]}</script></section>',
+            encoding="utf-8",
+        )
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t0")
+        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root)
+        # Simulate a prior HTML build bound to that Spec.
+        state = read_unit_state(self.base, "uses-w")
+        state["html"] = {
+            "content_sha256": fingerprint_file(paths.page),
+            "spec_sha256": state["spec"]["approved_sha256"],
+            "build_sha256": fingerprint_file(paths.page),
+            "cache_key": "test-key",
+            "current": True,
+        }
+        from my_slides.state import write_unit_state
+
+        write_unit_state(self.base, "uses-w", state)
+        wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
+        refreshed = refresh_unit_currency(self.base, units[1], project_root=self.root)
+        self.assertFalse(refreshed["report"]["current"])
+        self.assertFalse(refreshed["spec"]["current"])
+        # Re-approve same report body against new deps — must not revive Spec/HTML.
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t2")
+        again = refresh_unit_currency(self.base, units[1], project_root=self.root)
+        self.assertTrue(again["report"]["current"])
+        self.assertFalse(again["spec"]["current"], again)
+        self.assertFalse(again["html"]["current"], again)
 
 
 if __name__ == "__main__":
