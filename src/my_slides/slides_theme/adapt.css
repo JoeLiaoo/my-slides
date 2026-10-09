@@ -1,0 +1,224 @@
+/* 本地适配层（adaptation v1）
+   原始 html-slides 文件保持不动。这里只解决三件事：
+   1. 画布用滚动吸附，组件用绝对定位和透明度切页，两者叠在一起会冲突。
+   2. 主题文件会从 Google Fonts 拉字体，成品必须离线。
+   3. 图表 SVG 和小图标不能共用一个最大高度。
+
+   浅色纸面层级沿用 editorial-light。
+   正文行高参考编辑式阅读：浅底、非纯黑文字、行高约 1.5。
+   品牌色只写在 --brand / --accent-blue，不改组件的其余规则。
+*/
+
+:root {
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+html {
+  scroll-snap-type: none !important;
+  scroll-behavior: auto !important;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-body);
+}
+
+.deck {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* 未激活页直接拿掉，避免透明页仍占位或被滚动吸附翻到。 */
+.slide {
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: none !important;
+  opacity: 1 !important;
+  pointer-events: none !important;
+  scroll-snap-align: none !important;
+  overflow: hidden;
+  font-family: var(--font-body);
+}
+
+.slide.active {
+  display: flex !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.slide h1 {
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.slide p,
+.slide li {
+  line-height: 1.5;
+}
+
+/* 窄屏把指标卡改成竖排，避免第三张卡被画布裁掉。 */
+@media (max-width: 600px) {
+  .stats-row {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    max-width: 100%;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .stat-card {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 16px 14px;
+  }
+
+  .stat-card:hover {
+    transform: none;
+  }
+
+  .stat-number {
+    font-size: clamp(1.75rem, 8vw, 2.5rem);
+  }
+}
+
+/* 图表 SVG 按容器内容区等比缩放，不按自身像素撑出边框。图标仍保持字号大小。 */
+.chart-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.chart-container .mls-chart {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mls-chart {
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+}
+
+.mls-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: min(50vh, 520px);
+  margin-inline: auto;
+}
+
+.chart-container .mls-chart svg {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+}
+
+.mls-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.mls-icon svg {
+  display: inline-block;
+  width: 1.25em;
+  height: 1.25em;
+  max-width: 96px;
+  max-height: 96px;
+  margin: 0;
+}
+
+#controls {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--text, #191c22);
+}
+
+#controls button {
+  font: inherit;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.55em 1em;
+  background: var(--brand, #a6192e);
+  color: #fff;
+  cursor: pointer;
+}
+
+#third-party-notices {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 20;
+  max-width: min(560px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 20px #0002;
+}
+
+#third-party-notices pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+@media print {
+  html, body {
+    height: auto;
+    overflow: visible;
+    background: white;
+  }
+
+  .deck {
+    width: 100%;
+    height: auto;
+    position: static;
+  }
+
+  .slide,
+  .slide.active {
+    display: flex !important;
+    position: relative !important;
+    width: 100% !important;
+    height: 100vh;
+    height: 100dvh;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  #controls,
+  #third-party-notices {
+    display: none !important;
+  }
+}

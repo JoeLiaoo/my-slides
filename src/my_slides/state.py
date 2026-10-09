@@ -166,15 +166,22 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
     html_sha = fingerprint_file(paths.page)
     state["html"]["content_sha256"] = html_sha
     build_sha = state["html"].get("build_sha256")
-    html_current = bool(
+    from .theme import shell_fingerprint
+
+    # 主题或外壳变了只让 HTML 和检查过期，不撤销报告和 Spec 的批准。
+    shell_ok = state["html"].get("shell_fingerprint") == shell_fingerprint()
+    content_ok = bool(
         build_sha
         and html_sha
         and build_sha == html_sha
         and spec_current
         and state["html"].get("spec_sha256") == spec_approved
     )
-    if build_sha and not html_current:
+    html_current = bool(content_ok and shell_ok)
+    if build_sha and not content_ok:
         reasons.append("HTML 片段或绑定 Spec 已变化")
+    elif build_sha and not shell_ok:
+        reasons.append("幻灯片主题或外壳已变化，需重新构建")
     state["html"]["current"] = html_current
 
     deck_path = base / "slides" / "index.html"

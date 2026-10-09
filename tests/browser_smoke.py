@@ -46,7 +46,7 @@ def main() -> None:
         page.on("request", lambda request: external_requests.append(request.url) if request.url.startswith(("http://", "https://")) else None)
         page.goto(html_path.as_uri(), wait_until="load")
         results = {}
-        for name, width, height in (("desktop", 1920, 1080), ("mobile", 390, 844)):
+        for name, width, height in (("desktop", 1920, 1080), ("mobile-portrait", 390, 844), ("mobile-landscape", 844, 390)):
             results[name] = inspect_page(page, width, height)
             page.screenshot(path=str(args.screenshots / f"{name}.png"), full_page=True)
             page.keyboard.press("ArrowRight")

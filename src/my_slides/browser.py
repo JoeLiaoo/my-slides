@@ -40,6 +40,20 @@ def _deck_slides(text: str) -> list[dict[str, str]]:
     return parser.slides
 
 
+# 等有限动画结束再测量。无限循环动画不等待，并设上限，避免检查卡住。
+_SETTLE_ANIMATIONS = """async () => {
+  const pending = document.getAnimations().filter((animation) => {
+    const effect = animation.effect;
+    const timing = effect && effect.getTiming ? effect.getTiming() : null;
+    return Boolean(timing) && timing.iterations !== Infinity;
+  });
+  await Promise.race([
+    Promise.all(pending.map((animation) => animation.finished.catch(() => undefined))),
+    new Promise((resolve) => setTimeout(resolve, 2000))
+  ]);
+}"""
+
+
 def structural_check_deck(path: Path, *, expected_units: list[str] | None = None) -> dict[str, Any]:
     """Layer-3 lightweight checks that do not need a browser."""
     errors: list[str] = []
@@ -134,11 +148,12 @@ def check_deck(
             targets = list(range(len(catalog)))
             measured_units = [item["unitId"] for item in catalog if item["unitId"]]
 
-        for label, width, height in (("desktop", 1920, 1080), ("mobile", 390, 844)):
+        # 桌面、手机竖屏、手机横屏都按真实窗口测量，不再假设 1920×1080 画布。
+        for label, width, height in (("desktop", 1920, 1080), ("mobile-portrait", 390, 844), ("mobile-landscape", 844, 390)):
             page.set_viewport_size({"width": width, "height": height})
             # Reset to first slide for deck-level smoke.
             page.evaluate("() => { const pages=[...document.querySelectorAll('.slide')]; pages.forEach((p,i)=>p.classList.toggle('active', i===0)); }")
-            page.wait_for_timeout(50)
+            page.evaluate(_SETTLE_ANIMATIONS)
             viewport_errors: list[str] = []
             per_slide: list[dict[str, Any]] = []
             for target in targets:
@@ -149,7 +164,7 @@ def check_deck(
                     }""",
                     target,
                 )
-                page.wait_for_timeout(80)
+                page.evaluate(_SETTLE_ANIMATIONS)
                 metrics = page.evaluate(
                     """(targetIndex) => {
                       const stage = document.querySelector('[data-deck-stage]');
@@ -194,6 +209,37 @@ def check_deck(
                         if (smaller > 0 && intersection / smaller > 0.12) overlaps.push({slide: targetIndex, first: a.tagName, second: b.tagName});
                       }
                       const overflow = slide.scrollWidth > slide.clientWidth + 1 || slide.scrollHeight > slide.clientHeight + 1;
+                      const chartOverflow = [];
+                      for (const container of slide.querySelectorAll('.chart-container')) {
+                        const box = container.getBoundingClientRect();
+                        const containerStyle = getComputedStyle(container);
+                        const content = {
+                          left: box.left + (parseFloat(containerStyle.borderLeftWidth) || 0) + (parseFloat(containerStyle.paddingLeft) || 0),
+                          right: box.right - (parseFloat(containerStyle.borderRightWidth) || 0) - (parseFloat(containerStyle.paddingRight) || 0),
+                          top: box.top + (parseFloat(containerStyle.borderTopWidth) || 0) + (parseFloat(containerStyle.paddingTop) || 0),
+                          bottom: box.bottom - (parseFloat(containerStyle.borderBottomWidth) || 0) - (parseFloat(containerStyle.paddingBottom) || 0),
+                        };
+                        for (const svg of container.querySelectorAll('svg')) {
+                          const svgBox = svg.getBoundingClientRect();
+                          if (svgBox.width < 0.5 || svgBox.height < 0.5) continue;
+                          if (svgBox.left < content.left - 2 || svgBox.top < content.top - 2 ||
+                              svgBox.right > content.right + 2 || svgBox.bottom > content.bottom + 2) {
+                            chartOverflow.push({slide: targetIndex, tag: 'svg'});
+                          }
+                        }
+                      }
+                      const clipped = [];
+                      for (const element of slide.querySelectorAll('*')) {
+                        if (element.matches('script,style')) continue;
+                        const elementStyle = getComputedStyle(element);
+                        if (elementStyle.display === 'none' || elementStyle.visibility === 'hidden') continue;
+                        const hides = ['hidden', 'clip', 'scroll', 'auto'].includes(elementStyle.overflowX)
+                          || ['hidden', 'clip', 'scroll', 'auto'].includes(elementStyle.overflowY);
+                        if (!hides) continue;
+                        if (element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) {
+                          clipped.push({slide: targetIndex, tag: element.tagName, text: (element.innerText || '').slice(0, 80)});
+                        }
+                      }
                       return {
                         documentWidth: document.documentElement.scrollWidth,
                         stageWidth: rect.width,
@@ -207,7 +253,9 @@ def check_deck(
                         visibleTextCount: visibleText.length,
                         outOfBounds,
                         invisibleText,
-                        overlaps
+                        overlaps,
+                        clipped,
+                        chartOverflow
                       };
                     }""",
                     target,
@@ -225,7 +273,11 @@ def check_deck(
                 if metrics["active"] != target:
                     viewport_errors.append(f"{prefix}: failed to activate target slide")
                 if metrics["overflow"]:
-                    viewport_errors.append(f"{prefix}: slide content overflows its 16:9 canvas")
+                    viewport_errors.append(f"{prefix}: slide content is clipped by the viewport")
+                if metrics["clipped"]:
+                    viewport_errors.append(f"{prefix}: overflow hidden is clipping slide content")
+                if metrics["chartOverflow"]:
+                    viewport_errors.append(f"{prefix}: chart svg extends outside its chart container")
                 if not metrics["visibleTextCount"]:
                     viewport_errors.append(f"{prefix}: no visible slide text was measured")
                 if metrics["outOfBounds"]:
