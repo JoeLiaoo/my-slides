@@ -409,31 +409,46 @@ def init_project(args: argparse.Namespace) -> int:
             )
     write_config(cfg_path, root, source_dirs, chapters, brand_color)
     ensure_v2_directories(base)
-    seed = [
-        Unit(id="cover", chapter=chapters[0], role="cover"),
-        *[
-            Unit(
-                id=f"{unit_id_prefix(chapter, fallback=f'chapter-{index:02d}')}-01",
-                chapter=chapter,
-                role="content",
-            )
-            for index, chapter in enumerate(chapters, start=1)
-        ],
-    ]
-    seen: set[str] = set()
-    unique: list[Unit] = []
-    for unit in seed:
-        unit_id = unit.id
-        suffix = 2
-        while unit_id in seen:
-            unit_id = f"{unit.id}-{suffix}"
-            suffix += 1
-        seen.add(unit_id)
-        unique.append(Unit(id=unit_id, chapter=unit.chapter, role=unit.role))
     from .units import write_units_manifest
 
-    write_units_manifest(base, unique)
+    # 已有合法清单时保留单元 ID、数量和顺序；只有缺失或损坏才写入种子单元。
+    preserved: list[Unit] | None = None
+    if (base / "units.json").is_file():
+        try:
+            preserved, _manifest_errors = load_units_manifest(base, chapters)
+        except UnitsError:
+            preserved = None
+    if preserved is None:
+        seed = [
+            Unit(id="cover", chapter=chapters[0], role="cover"),
+            *[
+                Unit(
+                    id=f"{unit_id_prefix(chapter, fallback=f'chapter-{index:02d}')}-01",
+                    chapter=chapter,
+                    role="content",
+                )
+                for index, chapter in enumerate(chapters, start=1)
+            ],
+        ]
+        seen: set[str] = set()
+        unique: list[Unit] = []
+        for unit in seed:
+            unit_id = unit.id
+            suffix = 2
+            while unit_id in seen:
+                unit_id = f"{unit.id}-{suffix}"
+                suffix += 1
+            seen.add(unit_id)
+            unique.append(Unit(id=unit_id, chapter=unit.chapter, role=unit.role))
+        write_units_manifest(base, unique)
+    else:
+        unique = preserved
     unit_ids = [unit.id for unit in unique]
+    unit_label = (
+        f"保留已有 {len(unit_ids)} 个单元"
+        if preserved is not None
+        else f"{len(unit_ids)} 个种子单元"
+    )
     _, pending, removed = scan_sources(root, base, read_config(cfg_path))
     result = {
         "project": str(root),
@@ -447,7 +462,7 @@ def init_project(args: argparse.Namespace) -> int:
     }
     human = (
         f"已初始化项目工作区：{base}\n报告章节主题：{len(chapters)}\n"
-        f"格式：v2（{len(unit_ids)} 个种子单元）\n待整理 Markdown：{len(pending)}"
+        f"格式：v2（{unit_label}）\n待整理 Markdown：{len(pending)}"
     )
     emit(args, result, human)
     return 0

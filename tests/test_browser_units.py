@@ -21,6 +21,19 @@ class BrowserUnitChecks(unittest.TestCase):
             self.assertFalse(bad["valid"])
             self.assertTrue(any("顺序" in error for error in bad["errors"]))
 
+    def test_structural_check_ignores_unit_ids_inside_css(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "index.html"
+            path.write_text(
+                '<meta name="generator" content="my-slides">'
+                '<style>@scope ([data-unit-id="cover"]) { h1 { color: #333 } }</style>'
+                '<section class="slide" data-unit-id="cover" data-page-role="cover"></section>',
+                encoding="utf-8",
+            )
+            result = structural_check_deck(path, expected_units=["cover"])
+            self.assertTrue(result["valid"], result["errors"])
+            self.assertEqual(result["unit_ids"], ["cover"])
+
 
 if __name__ == "__main__":
     unittest.main()

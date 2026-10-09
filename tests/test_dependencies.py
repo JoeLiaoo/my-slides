@@ -155,6 +155,70 @@ class DependencyStateTests(unittest.TestCase):
         state = read_unit_state(self.base, "cover")
         self.assertTrue(state["report"]["current"])
 
+    def test_approved_report_stale_after_linked_wiki_changes(self):
+        wiki = self.base / "wiki" / "linked.md"
+        wiki.write_text("# Linked\n", encoding="utf-8")
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="uses-w", chapter=self.chapters[0], role="content"),
+        ]
+        self._write_units(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening statement for the deck.\n",
+                "uses-w": "# A\n\nSee [W](../../wiki/linked.md) for the cited evidence.\n",
+            },
+        )
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t0")
+        self.assertTrue(read_unit_state(self.base, "uses-w")["report"]["current"])
+        wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
+        status = collect_units_status(self.base, chapters=self.chapters, project_root=self.root)
+        by_id = {row["id"]: row for row in status["units"]}
+        self.assertFalse(by_id["uses-w"]["report_current"])
+
+    def test_upstream_dependency_change_stales_downstream_approval(self):
+        wiki = self.base / "wiki" / "linked.md"
+        wiki.write_text("# Linked\n", encoding="utf-8")
+        units = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="upstream", chapter=self.chapters[0], role="content"),
+            Unit(id="downstream", chapter=self.chapters[1], role="content"),
+        ]
+        self._write_units(
+            units,
+            reports={
+                "cover": "# Cover\n\nOpening statement for the deck.\n",
+                "upstream": "# Up\n\nSee [W](../../wiki/linked.md) for the cited evidence.\n",
+                "downstream": "# Down\n\nUses the upstream unit without linking that wiki.\n",
+            },
+        )
+        sidecar = unit_paths(self.base, "downstream").report.parent / "downstream.depends-on.json"
+        sidecar.write_text(json.dumps(["upstream"]), encoding="utf-8")
+        for unit in units:
+            if unit.id == "cover":
+                continue
+            mark_report_approved(self.base, unit, project_root=self.root, when="t0")
+        wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
+        status = collect_units_status(self.base, chapters=self.chapters, project_root=self.root)
+        by_id = {row["id"]: row for row in status["units"]}
+        self.assertFalse(by_id["upstream"]["report_current"])
+        self.assertFalse(by_id["downstream"]["report_current"])
+
+    def test_binary_image_dependency_can_be_fingerprinted(self):
+        import hashlib
+
+        raw = b"\x89PNG\r\n\x1a\n\xff\xfe"
+        self.assertEqual(content_fingerprint(raw), hashlib.sha256(raw).hexdigest())
+        image = self.base / "wiki" / "chart.png"
+        image.write_bytes(raw)
+        units = [Unit(id="cover", chapter=self.chapters[0], role="cover")]
+        self._write_units(
+            units,
+            reports={"cover": "# Cover\n\nChart ![c](../../wiki/chart.png) supports the point.\n"},
+        )
+        mark_report_approved(self.base, units[0], project_root=self.root, when="t0")
+        self.assertTrue(read_unit_state(self.base, "cover")["report"]["current"])
+
 
 if __name__ == "__main__":
     unittest.main()

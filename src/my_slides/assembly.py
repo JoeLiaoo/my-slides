@@ -304,7 +304,8 @@ def build_units_deck(
         cached = _cache_path(base, cache_key) if cache_key else None
         if unit.id in page_payloads:
             payload = page_payloads[unit.id]
-        elif cached and cached.is_file() and state["spec"]["current"]:
+        # Spec 刚重新批准时，旧缓存仍然在，但 HTML 还绑着上一版 Spec，不能复用。
+        elif cached and cached.is_file() and state["html"]["current"]:
             payload = json.loads(cached.read_text(encoding="utf-8"))
             plan["reused"].append(unit.id)
         else:

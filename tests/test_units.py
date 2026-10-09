@@ -154,6 +154,21 @@ class UnitsFormatTests(unittest.TestCase):
         with self.assertRaises(UnitsError):
             load_units_manifest(self.base, self.chapters)
 
+    def test_init_force_preserves_existing_valid_units(self):
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        custom = [
+            Unit(id="cover", chapter=self.chapters[0], role="cover"),
+            Unit(id="custom-note", chapter=self.chapters[0], role="content"),
+        ]
+        write_units_manifest(self.base, custom)
+        before = (self.base / "units.json").read_text(encoding="utf-8")
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=True, json=False))
+        after = (self.base / "units.json").read_text(encoding="utf-8")
+        self.assertEqual(after, before)
+        loaded, errors = load_units_manifest(self.base, self.chapters)
+        self.assertEqual(errors, [])
+        self.assertEqual([unit.id for unit in loaded], ["cover", "custom-note"])
+
     def test_v2_refuses_legacy_approve_and_status_does_not_reuse_chapter_approval(self):
         self.init_v1()
         cfg = {"chapters": self.chapters, "source_dirs": ["."]}

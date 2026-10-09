@@ -26,15 +26,22 @@ UNIT_DEPS_FILENAME = "depends-on.json"
 
 
 def content_fingerprint(data: bytes | str) -> str:
-    """SHA-256 of UTF-8 text with newlines normalized to LF (mtime ignored)."""
+    """SHA-256 of LF-normalized text, or raw bytes when the payload is not UTF-8.
+
+    图片等二进制不能按文本解码；解码失败时直接哈希原始字节，换行规范化只用于文本。
+    """
     import hashlib
 
     if isinstance(data, str):
-        text = data
+        payload = data.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
     else:
-        text = data.decode("utf-8")
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            payload = data
+        else:
+            payload = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def fingerprint_file(path: Path) -> str | None:
@@ -186,29 +193,69 @@ def detect_unit_cycles(graph: dict[str, list[str]]) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
+def unit_dependency_version(
+    base: Path,
+    unit_id: str,
+    *,
+    project_root: Path | None = None,
+    stack: set[str] | None = None,
+    cache: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fingerprint one unit's report, local files, and recursive upstream versions.
+
+    只记录上游 ID 不够：上游正文或它自己的引用变化时，下游批准也必须失效。
+    """
+    stack = set() if stack is None else stack
+    cache = {} if cache is None else cache
+    if unit_id in cache and unit_id not in stack:
+        return cache[unit_id]
+    if unit_id in stack:
+        return {"unit_id": unit_id, "cycle": True}
+    stack.add(unit_id)
+    report = unit_paths(base, unit_id).report
+    root = project_root or base.parent
+    deps, _warnings = walk_local_dependencies(report, root=root) if report.is_file() else ([], [])
+    file_fps: dict[str, str] = {}
+    for path in deps:
+        digest = fingerprint_file(path)
+        if digest is not None:
+            file_fps[_display(path, root)] = digest
+    nested = {
+        dep_id: unit_dependency_version(
+            base,
+            dep_id,
+            project_root=project_root,
+            stack=stack,
+            cache=cache,
+        )
+        for dep_id in load_explicit_unit_deps(base, unit_id)
+    }
+    stack.remove(unit_id)
+    version = {
+        "report_sha256": fingerprint_file(report),
+        "local_files": file_fps,
+        "depends_on_units": nested,
+    }
+    cache[unit_id] = version
+    return version
+
+
 def report_closure_fingerprints(
     base: Path,
     unit: Unit,
     *,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Fingerprints for a unit report + recursive local file deps (+ optional unit edges)."""
-    paths = unit_paths(base, unit.id)
-    report = paths.report
+    """Fingerprints for a unit report + recursive local file deps (+ upstream versions)."""
+    report = unit_paths(base, unit.id).report
     root = project_root or base.parent
-    report_fp = fingerprint_file(report)
-    deps, warnings = walk_local_dependencies(report, root=root) if report.is_file() else ([], [])
-    file_fps = {
-        _display(path, root): fingerprint_file(path)
-        for path in deps
-        if fingerprint_file(path) is not None
-    }
-    explicit = load_explicit_unit_deps(base, unit.id)
+    _deps, warnings = walk_local_dependencies(report, root=root) if report.is_file() else ([], [])
+    version = unit_dependency_version(base, unit.id, project_root=project_root)
     return {
         "unit_id": unit.id,
-        "report_sha256": report_fp,
-        "local_files": file_fps,
-        "depends_on_units": explicit,
+        "report_sha256": version["report_sha256"],
+        "local_files": version["local_files"],
+        "depends_on_units": version["depends_on_units"],
         "warnings": warnings,
     }
 
