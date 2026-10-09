@@ -1,6 +1,10 @@
 # 测试说明
 
-GitHub Actions 在 PR 和推送到 `main` 时运行 `./scripts/run-full-tests.sh`。工作流使用 Ubuntu、Python 3.11 和 Node 22，安装 Playwright 的 Chromium 系统依赖；脚本再安装锁定的渲染器、Chromium 并执行完整测试。本地也可以使用以下脚本。
+## GitHub Actions
+
+[CI 工作流](../.github/workflows/ci.yml)在 PR、推送到 `main` 和手动触发时运行 `./scripts/run-full-tests.sh`。它使用 Ubuntu、Python 3.11 和 Node 22，先安装 `.[browser]` 与 Playwright 的 Chromium 系统依赖，再由脚本安装锁定的渲染器、Chromium 并执行完整测试。缺少可选依赖会使完整测试失败。
+
+本地开发可以使用以下脚本。
 
 ## 快速测试（默认）
 
@@ -14,10 +18,12 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 ## 完整测试（门禁）
 
-安装锁定版本的渲染器与 Playwright Chromium，并将「缺依赖」从 skip 改为 **失败**：
+脚本安装锁定版本的渲染器与 Playwright Chromium，并将「缺依赖」从 skip 改为 **失败**。在 Bash 环境中，先让当前 Python 环境安装 `browser` extra：
 
 ```bash
-chmod +x scripts/run-full-tests.sh   # 首次
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[browser]'
 ./scripts/run-full-tests.sh
 ```
 
@@ -29,7 +35,7 @@ chmod +x scripts/run-full-tests.sh   # 首次
 | `MY_SLIDES_FULL_TESTS=1` | 可选依赖未就绪时失败而非跳过 |
 | `MY_SLIDES_RENDERER_HOME` | 渲染器安装目录（脚本会设默认值） |
 
-前置：本机已安装 **Python 3.11+**、**Node.js / npm**。首次完整跑会下载 Chromium。
+前置：本机已安装 **Python 3.11+**、**Node.js / npm** 和 **uv**（wheel 测试需要）。首次完整跑会下载 Chromium；Linux 还可能需要先运行 `python -m playwright install-deps chromium` 安装浏览器系统依赖。`uv tool install` 创建的工具环境与上述测试虚拟环境相互独立。
 
 ## `slides check`：结构 vs 浏览器
 

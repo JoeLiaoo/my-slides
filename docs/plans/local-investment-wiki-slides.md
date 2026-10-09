@@ -135,7 +135,7 @@
 
 目标：一个报告内容单元 ↔ 一个 Presentation Spec 单元 ↔ 一张 HTML Slide，支持局部审批、增量构建与检查。
 
-**已实现（单元化／阶段 10）**：`units.json` 与单元目录为日常路径；按单元 prepare/validate/approve、组装、增量 build/check；无 `units.json` 时 CLI 拒绝；本地 `scripts/run-full-tests.sh` 做完整回归（**不用 GitHub Actions**）。
+**已实现（单元化／阶段 10）**：`units.json` 与单元目录为日常路径；按单元 prepare/validate/approve、组装、增量 build/check；无 `units.json` 时 CLI 拒绝；`scripts/run-full-tests.sh` 在本地和 GitHub Actions 中运行完整回归。
 
 **计划中（尚未作为交付承诺，P3-4）**：目录页自动生成、每章独立预览入口的产品化包装、报告段落覆盖率仪表盘、Wiki 产品大升级、文档转换流水线。
 
