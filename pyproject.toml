@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "my-slides"
-version = "0.2.3"
+version = "0.2.4"
 description = "Local agent workflow for investment project wikis, reports, and HTML slides"
 readme = "README.md"
 requires-python = ">=3.11"

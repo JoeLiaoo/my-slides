@@ -1,0 +1,22 @@
+# My Slides：给首次使用的 Agent
+
+My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claude Code 或其他 Agent）阅读项目资料，维护 Markdown Wiki，撰写逐页报告和 Presentation Spec，再生成离线 HTML Slides。CLI 负责初始化、提供阶段交接材料、检查产物、记录用户审批和合并页面；CLI 本身不会替你撰写内容。
+
+开始前
+
+1. 在项目目录运行 `my-slides init`；若当前目录不是项目目录，各项目命令加 `--project <项目目录>`。
+2. 运行 `my-slides agent install` 安装项目级 Agent 指引，阅读 `my-slides/project.yaml`、`my-slides/units.json` 和安装的工作流指引。
+3. 运行 `my-slides doctor`、`my-slides units list`、`my-slides status --json`，确认项目结构和各单元状态。缺少 `units.json` 的旧项目需要重新初始化。
+
+按阶段执行（以下命令均在项目目录中运行）
+
+1. Wiki：`my-slides sources scan` → `my-slides prepare wiki` → 阅读来源 Markdown 并更新 `my-slides/wiki/` → `my-slides validate wiki` → `my-slides sources mark-ingested`。原始资料保持只读。Wiki 使用普通 Markdown 和链接；从 `wiki/README.md`、`wiki/index.md` 开始，不添加复杂标签。
+2. 报告：`my-slides units list` 找到稳定单元 ID；对每个单元运行 `my-slides prepare report --unit <id>`，按交接材料撰写 `my-slides/reports/units/<id>.md`，再运行 `my-slides validate report --unit <id>`。交给用户审阅，获得明确批准后才能运行 `my-slides approve report --unit <id>`。需要整份报告时运行 `my-slides assemble`。
+3. Presentation Spec：运行 `my-slides prepare spec --unit <id>`，撰写 `my-slides/specs/units/<id>.md`，运行 `my-slides validate spec --unit <id>`。交给用户审阅，获得明确批准后才能运行 `my-slides approve spec --unit <id>`。
+4. Slides：只根据已批准的 Spec 运行 `my-slides prepare slides --unit <id>`，生成 `my-slides/slides/pages/<id>.html`，运行 `my-slides slides build --unit <id>` 和 `my-slides slides check --unit <id>`。需要桌面与手机视口检查时加 `--browser`。
+
+每个单元 ID 对应一份报告、一份 Spec、一页 HTML。修改单个页面时用 `--unit <id>`；批量处理受影响单元用 `--changed`，全部单元用 `--all`。这些选择参数适用于逐单元的 prepare、validate、approve、slides build/check 命令。先看 `my-slides status --json` 再决定处理范围。
+
+生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查。
+
+其他入口：`my-slides --help` 查看命令列表；`my-slides <命令> --help` 查看参数；`my-slides help --json` 获取机器可读的本指南；`my-slides --version` 查看版本。

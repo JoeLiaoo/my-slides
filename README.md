@@ -22,6 +22,8 @@ Spec 单元（specs/units/<id>.md）→ 用户按单元审阅
 
 ## 开始使用
 
+安装后先运行 `my-slides help`。它会向 Agent 说明工具职责、项目初始化、Wiki → 报告 → Spec → Slides 的完整流程、逐单元命令和需要用户审阅的节点；在项目目录外也能运行。`my-slides --help` 显示命令列表，`my-slides <命令> --help` 显示参数，`my-slides help --json` 输出可供 Agent 读取的 JSON。
+
 ```powershell
 uv tool install --editable ".[browser]" --link-mode copy --cache-dir .uv-cache
 my-slides renderer install

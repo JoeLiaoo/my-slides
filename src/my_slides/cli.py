@@ -1538,9 +1538,15 @@ def install_agent_workflow(root: Path) -> dict[str, Any]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="my-slides", description="投资项目 Wiki、报告与 HTML Slides 本地工作流")
+    parser = argparse.ArgumentParser(
+        prog="my-slides",
+        description="投资项目 Wiki、报告与 HTML Slides 本地工作流",
+        epilog="首次使用请运行 my-slides help；具体参数请运行 my-slides <命令> --help。",
+    )
     parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
+    guide = sub.add_parser("help", help="查看面向首次使用的 Agent 工作流指南（无需项目目录）")
+    guide.add_argument("--json", action="store_true", help="以 JSON 输出指南")
     init = sub.add_parser("init", help="初始化 v2 单元格式投资项目工作区")
     init.add_argument("--project", help="项目目录，默认当前目录")
     init.add_argument("--source-dir", action="append", help="资料目录（相对项目目录，可重复指定）")
@@ -1629,7 +1635,11 @@ def main() -> None:
         sys.stderr.reconfigure(encoding="utf-8")
     args = build_parser().parse_args()
     try:
-        if args.command == "init":
+        if args.command == "help":
+            guide = package_files("my_slides").joinpath("templates", "agent-help.md").read_text(encoding="utf-8").strip()
+            emit(args, {"version": __version__, "guide": guide}, guide)
+            code = 0
+        elif args.command == "init":
             code = init_project(args)
         elif args.command == "renderer":
             status = install_renderers() if args.renderer_command == "install" else renderer_status()
