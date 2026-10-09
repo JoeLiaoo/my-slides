@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import init_project, slug, template_chapters
+from my_slides.commands.init import init_project
+from my_slides.project import template_chapters
+from my_slides.units import slug
 from my_slides.dependencies import (
     build_unit_dependency_graph,
     content_fingerprint,

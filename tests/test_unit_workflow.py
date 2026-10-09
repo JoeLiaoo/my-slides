@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import init_project
+from my_slides.commands.init import init_project
 from my_slides.state import read_unit_state
 from my_slides.unit_workflow import (
     approve_unit_report,

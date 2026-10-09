@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from my_slides.assembly import build_units_deck
-from my_slides.cli import init_project
+from my_slides.commands.init import init_project
 from my_slides.state import refresh_unit_currency
 from my_slides.theme import THEME_NAME, shell_css, verify_assets
 from my_slides.unit_workflow import approve_unit_report, approve_unit_spec, prepare_unit_handoff
@@ -201,7 +201,7 @@ def _measure(html: str, width: int, height: int, script: str, *, media: str = "s
 
 class ComponentLayoutBrowserTests(unittest.TestCase):
     def setUp(self):
-        from my_slides.cli import browser_status
+        from my_slides.browser_runtime import browser_status
 
         if not browser_status()["chromium_installed"]:
             self.skipTest("optional Playwright Chromium browser is not installed")

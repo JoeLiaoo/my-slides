@@ -96,7 +96,7 @@ def strip_markdown_code_regions(text: str) -> str:
 def resolve_local_markdown_path(target: str, base_file: Path) -> Path | None:
     """Resolve one local Markdown link from base_file; None means external/skip.
 
-    Shared by v1 validators and v2 assemble so `%20` / percent-encoding behave the same.
+    Shared by Wiki validation, unit validation, and report assembly.
     """
     target = strip_markdown_link_target(target or "")
     if _is_external_link(target):
@@ -113,7 +113,7 @@ def units_manifest_path(base: Path) -> Path:
 
 
 def detect_format_version(base: Path) -> str:
-    """Return 'v2' when units.json exists; otherwise 'v1' chapter layout."""
+    """Return 'v2' for a unit project, otherwise 'v1' for unsupported legacy data."""
     return "v2" if units_manifest_path(base).is_file() else "v1"
 
 

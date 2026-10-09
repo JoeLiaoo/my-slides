@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.cli import approve_revision, init_project, slug, template_chapters
+from my_slides.commands.init import init_project
+from my_slides.project import template_chapters
 from my_slides.units import (
     UnitsError,
     assemble_report,
@@ -20,6 +21,7 @@ from my_slides.units import (
     validate_units,
     write_units_manifest,
     Unit,
+    slug,
 )
 
 class UnitsFormatTests(unittest.TestCase):
@@ -32,15 +34,14 @@ class UnitsFormatTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def init_v1(self):
+    def init_without_units(self):
         init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
         units = self.base / "units.json"
         if units.exists():
             units.unlink()
-        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
 
     def write_v2(self, units: list[Unit], *, reports: dict[str, str] | None = None):
-        self.init_v1()
+        self.init_without_units()
         write_units_manifest(self.base, units)
         for unit in units:
             paths = unit_paths(self.base, unit.id)
@@ -53,7 +54,7 @@ class UnitsFormatTests(unittest.TestCase):
             paths.page.write_text(f'<section class="slide" id="{unit.id}" data-page-role="{unit.role}"></section>', encoding="utf-8")
 
     def test_detect_format_version_defaults_to_v1(self):
-        self.init_v1()
+        self.init_without_units()
         self.assertEqual(detect_format_version(self.base), "v1")
         self.assertFalse((self.base / "units.json").exists())
 
@@ -71,7 +72,7 @@ class UnitsFormatTests(unittest.TestCase):
             Unit(id="cover", chapter=self.chapters[0], role="cover"),
             Unit(id="industry-demand-01", chapter=self.chapters[2], role="content"),
         ]
-        self.init_v1()
+        self.init_without_units()
         write_units_manifest(self.base, units)
         loaded, errors = load_units_manifest(self.base, self.chapters)
         self.assertEqual(errors, [])
@@ -119,7 +120,7 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(status["missing"][0]["artifact"], "page")
 
     def test_cli_units_list_refuses_v1_without_units_json(self):
-        self.init_v1()
+        self.init_without_units()
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
 
         listed = subprocess.run(
@@ -150,7 +151,7 @@ class UnitsFormatTests(unittest.TestCase):
         payload = json.loads(text)
         self.assertEqual(payload["schema_version"], 2)
         self.assertEqual(payload["units"][0]["id"], "cover")
-        self.init_v1()
+        self.init_without_units()
         with self.assertRaises(UnitsError):
             load_units_manifest(self.base, self.chapters)
 
@@ -169,21 +170,15 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual([unit.id for unit in loaded], ["cover", "custom-note"])
 
-    def test_v2_refuses_legacy_approve_and_status_does_not_reuse_chapter_approval(self):
-        self.init_v1()
-        cfg = {"chapters": self.chapters, "source_dirs": ["."]}
+    def test_v2_status_does_not_reuse_chapter_approval(self):
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
         for chapter in self.chapters:
             (self.base / "reports" / f"{slug(chapter)}.md").write_text(
                 f"# {chapter}\n\n" + "Evidence-backed report text. " * 4, encoding="utf-8"
             )
-        digest, errors = approve_revision(self.base, cfg, "report")
-        self.assertEqual(errors, [])
-        self.assertTrue(digest)
-        # Switch to v2 without creating report units — legacy approve must not succeed.
-        write_units_manifest(self.base, [Unit(id="cover", chapter=self.chapters[0], role="cover")])
-        refused, refuse_errors = approve_revision(self.base, cfg, "report")
-        self.assertIsNone(refused)
-        self.assertTrue(any("v2" in error for error in refuse_errors), refuse_errors)
+        (self.base / ".state" / "approvals.json").write_text(
+            json.dumps({"report": {"sha256": "old-chapter-digest"}}), encoding="utf-8"
+        )
 
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
         status = subprocess.run(
@@ -194,7 +189,7 @@ class UnitsFormatTests(unittest.TestCase):
         payload = json.loads(status.stdout)
         self.assertEqual(payload["format_version"], "v2")
         self.assertFalse(payload["approvals"]["report"]["current"])
-        # Unit-level approve is supported; chapter digests must not look "current".
+        # Unit-level approve is supported; old chapter approval state stays ignored.
         self.assertTrue(payload["approvals"]["report"]["supported"])
         self.assertIn("--unit", payload["approvals"]["report"]["message"])
         approve_cli = subprocess.run(
@@ -300,7 +295,7 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(report.read_text(encoding="utf-8"), original)
 
     def test_shared_local_link_resolution_matches_percent_encoding(self):
-        self.init_v1()
+        self.init_without_units()
         report = self.base / "reports" / f"{slug(self.chapters[0])}.md"
         target = self.base / "wiki" / "my notes.md"
         target.write_text("# Notes\n", encoding="utf-8")

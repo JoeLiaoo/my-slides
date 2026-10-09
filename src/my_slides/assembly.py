@@ -13,14 +13,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .cli import (
+from .slide_fragments import (
     SlideFragmentParser,
     extract_approved_icons,
-    render_assets,
-    renderer_status,
-    validate_chart_spec,
     validate_scoped_css,
 )
+from .rendering import render_assets, renderer_status, validate_chart_spec
 from .dependencies import fingerprint_file, fingerprint_json
 from .state import read_unit_state, refresh_unit_currency, write_unit_state
 from .theme import render_document, shell_fingerprint, theme_cache_fields, wrap_rendered_asset

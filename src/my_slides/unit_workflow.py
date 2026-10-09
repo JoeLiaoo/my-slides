@@ -1,8 +1,4 @@
-"""v2 per-unit prepare / validate / approve (Phase 4).
-
-Chapter-level commands remain for v1. When units.json exists, callers must pass
-``--unit`` / ``--changed`` / ``--all`` instead of using chapter approve digests.
-"""
+"""Per-unit prepare, validation, and approval for v2 projects."""
 
 from __future__ import annotations
 

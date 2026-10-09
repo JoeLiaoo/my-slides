@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from my_slides.assembly import build_units_deck, compile_unit_page
-from my_slides.cli import init_project
+from my_slides.commands.init import init_project
 from my_slides.unit_workflow import approve_unit_report, approve_unit_spec
 from my_slides.units import Unit, unit_paths, write_units_manifest
 
