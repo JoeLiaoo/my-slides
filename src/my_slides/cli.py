@@ -1140,7 +1140,9 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
             nonlocal asset_index
             asset = slide["assets"][asset_index]
             asset_index += 1
-            return rendered_assets[asset["id"]]
+            from .theme import wrap_rendered_asset
+
+            return wrap_rendered_asset(asset["kind"], rendered_assets[asset["id"]])
         source = marker_pattern.sub(replace_asset, source)
         if asset_index != len(slide["assets"]):
             return None, [f"{chapter}：Slides 渲染标记解析数量不一致"]
@@ -1163,36 +1165,16 @@ def build_slides(base: Path, cfg: dict[str, Any], *, write: bool = True) -> tupl
         sections.append(source)
     title = cfg.get("project", "Investment presentation")
     brand_color = cfg.get("brand_color", "#A6192E")
-    renderer_meta = "ECharts 6.1.0 (Apache-2.0); Lucide Static 1.52.0 (ISC)" if assets_to_render else "Native HTML/CSS only"
-    design_meta = "bluedusk/html-slides@d8289f4c317905cc5d0ca265d32b791e6cb387b7 (MIT)"
-    notices = ""
-    if assets_to_render:
-        notices = '<details id="third-party-notices"><summary>第三方许可与来源</summary>' + renderer_notices() + "</details>"
-    document = f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="generator" content="my-slides"><meta name="my-slides-renderers" content="{html.escape(renderer_meta, quote=True)}"><meta name="design-reference" content="{html.escape(design_meta, quote=True)}"><title>{html.escape(title)}</title><style>
-*{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;background:#ececee;color:#20232a;font-family:Inter,"Microsoft YaHei",sans-serif}}
-body{{display:grid;place-items:center;min-height:100vh}}#deckStage{{width:min(100vw,177.7778vh);aspect-ratio:16/9;background:#f9f8f5;box-shadow:0 12px 48px #1113;position:relative;overflow:hidden}}
-#deck{{position:absolute;inset:0}}.slide{{position:absolute;left:0;top:0;width:1920px;height:1080px;padding:5.5%;overflow:hidden;display:none;background:#f9f8f5;transform-origin:top left}}.slide.active{{display:block}}
-.slide svg{{display:block;max-width:100%;max-height:58%;width:auto;height:auto;margin-inline:auto}}
-button{{font:inherit;border:0;border-radius:6px;padding:.6em 1em;background:{brand_color};color:#fff;cursor:pointer}}#controls{{position:fixed;bottom:16px;display:flex;gap:12px;align-items:center;color:#333}}
-#third-party-notices{{position:fixed;right:12px;top:12px;z-index:1000;max-width:min(560px,90vw);max-height:80vh;overflow:auto;background:#fff;border:1px solid #d4d4d8;border-radius:8px;padding:8px 12px;box-shadow:0 4px 20px #0002}}#third-party-notices pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}}
-@media print{{body{{display:block;background:white}}#deckStage{{width:100%;height:auto;box-shadow:none;overflow:visible}}.slide{{position:relative;display:block;page-break-after:always;width:1920px!important;height:1080px!important;zoom:1!important}}#controls{{display:none}}}}
-{''.join(css_blocks)}
-</style></head><body><main id="deckStage" class="deck-stage" data-deck-stage><div id="deck" class="deck">{''.join(sections)}</div></main>
-<nav id="controls" aria-label="Slides navigation"><button type="button" onclick="prev()">上一页</button><span id="pageCount"></span><button type="button" onclick="next()">下一页</button></nav>
-{notices}
-<script>
-const pages=Array.from(document.querySelectorAll(".slide"));let current=0;
-function fitSlides(){{const stage=document.getElementById("deckStage");const scale=Math.min(stage.clientWidth/1920,stage.clientHeight/1080);pages.forEach(p=>{{p.style.setProperty("width","1920px","important");p.style.setProperty("height","1080px","important");p.style.setProperty("zoom",String(scale),"important")}})}}
-function goTo(n){{current=Math.max(0,Math.min(pages.length-1,n));pages.forEach((p,i)=>p.classList.toggle("active",i===current));document.getElementById("pageCount").textContent=(current+1)+" / "+pages.length}}
-function next(){{goTo(current+1)}}function prev(){{goTo(current-1)}}
-window.addEventListener("resize",fitSlides);fitSlides();
-document.addEventListener("keydown",e=>{{if(["ArrowRight","PageDown"," "].includes(e.key))next();if(["ArrowLeft","PageUp"].includes(e.key))prev()}});
-let touchX=0;document.getElementById("deckStage").addEventListener("touchstart",e=>touchX=e.changedTouches[0].clientX,{{passive:true}});
-document.getElementById("deckStage").addEventListener("touchend",e=>{{const delta=e.changedTouches[0].clientX-touchX;if(Math.abs(delta)>50)(delta<0?next:prev)()}},{{passive:true}});goTo(0);
-</script></body></html>
-"""
+    from .theme import render_document
+
+    document = render_document(
+        sections,
+        css_blocks,
+        title=str(title),
+        brand_color=str(brand_color),
+        has_assets=bool(assets_to_render),
+        kind="deck",
+    )
     output = base / "slides" / "index.html"
     if write:
         generated_hash = hashlib.sha256(document.encode("utf-8")).hexdigest()

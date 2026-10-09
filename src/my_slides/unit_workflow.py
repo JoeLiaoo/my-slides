@@ -131,6 +131,11 @@ def prepare_unit_handoff(
         "不要编辑组装产物 reports/report.md（由 CLI 组装）。",
         "",
     ]
+    if kind == "slides":
+        from importlib.resources import files
+
+        examples = files("my_slides").joinpath("slides_theme").joinpath("component-examples.md").read_text(encoding="utf-8")
+        lines.extend([examples.strip(), ""])
     for unit in units:
         paths = unit_paths(base, unit.id)
         lines.extend(

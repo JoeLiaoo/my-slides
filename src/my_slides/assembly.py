@@ -17,13 +17,13 @@ from .cli import (
     SlideFragmentParser,
     extract_approved_icons,
     render_assets,
-    renderer_notices,
     renderer_status,
     validate_chart_spec,
     validate_scoped_css,
 )
 from .dependencies import fingerprint_file, fingerprint_json
 from .state import read_unit_state, refresh_unit_currency, write_unit_state
+from .theme import render_document, shell_fingerprint, theme_cache_fields, wrap_rendered_asset
 from .unit_workflow import resolve_unit_selection
 from .units import Unit, UnitsError, load_units_manifest, unit_paths
 
@@ -142,6 +142,7 @@ def compute_unit_cache_key(
             "css": css,
             "brand": brand_color,
             "renderer": renderer_status().get("packages"),
+            "theme": theme_cache_fields(),
             "assets": [asset["spec"] for asset in assets_to_render],
         }
     )
@@ -194,7 +195,7 @@ def compile_unit_page(
             nonlocal asset_index
             asset = assets_to_render[asset_index]
             asset_index += 1
-            return rendered[asset["id"]]
+            return wrap_rendered_asset(asset["kind"], rendered[asset["id"]])
 
         if assets_to_render:
             source = marker_pattern.sub(replace_asset, source)
@@ -219,7 +220,14 @@ def compile_unit_page(
         _atomic_write(cached, json.dumps(payload, ensure_ascii=False))
 
     if write_preview:
-        preview = _preview_document(payload["html"], payload.get("css") or "", brand_color, title=unit.id)
+        preview = render_document(
+            [payload["html"]],
+            [payload.get("css") or ""],
+            title=unit.id,
+            brand_color=brand_color,
+            has_assets="mls-chart" in payload["html"] or "mls-icon" in payload["html"] or "<svg" in payload["html"],
+            kind="preview",
+        )
         _atomic_write(paths.preview, preview)
 
     state["html"] = {
@@ -227,54 +235,12 @@ def compile_unit_page(
         "spec_sha256": state["spec"]["approved_sha256"],
         "build_sha256": fingerprint_file(paths.page),
         "cache_key": cache_key,
+        "shell_fingerprint": shell_fingerprint(),
         "current": True,
     }
     state["reasons"] = [r for r in state.get("reasons", []) if "HTML" not in r]
     write_unit_state(base, unit.id, state)
     return payload["html"], []
-
-
-def _preview_document(section_html: str, css: str, brand_color: str, title: str) -> str:
-    return f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="generator" content="my-slides-preview"><title>{html.escape(title)}</title>
-<style>
-*{{box-sizing:border-box}}html,body{{margin:0;background:#ececee}}
-.slide{{width:1920px;height:1080px;padding:5.5%;background:#f9f8f5;position:relative}}
-{css}
-</style></head><body>{section_html}</body></html>
-"""
-
-
-def _deck_shell(sections: list[str], css_blocks: list[str], *, title: str, brand_color: str, has_assets: bool) -> str:
-    renderer_meta = "ECharts 6.1.0 (Apache-2.0); Lucide Static 1.52.0 (ISC)" if has_assets else "Native HTML/CSS only"
-    design_meta = "bluedusk/html-slides@d8289f4c317905cc5d0ca265d32b791e6cb387b7 (MIT)"
-    notices = ""
-    if has_assets:
-        notices = '<details id="third-party-notices"><summary>第三方许可与来源</summary>' + renderer_notices() + "</details>"
-    return f"""<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="generator" content="my-slides"><meta name="my-slides-renderers" content="{html.escape(renderer_meta, quote=True)}"><meta name="design-reference" content="{html.escape(design_meta, quote=True)}"><title>{html.escape(title)}</title><style>
-*{{box-sizing:border-box}}html,body{{margin:0;min-height:100%;background:#ececee;color:#20232a;font-family:Inter,"Microsoft YaHei",sans-serif}}
-body{{display:grid;place-items:center;min-height:100vh}}#deckStage{{width:min(100vw,177.7778vh);aspect-ratio:16/9;background:#f9f8f5;box-shadow:0 12px 48px #1113;position:relative;overflow:hidden}}
-#deck{{position:absolute;inset:0}}.slide{{position:absolute;left:0;top:0;width:1920px;height:1080px;padding:5.5%;overflow:hidden;display:none;background:#f9f8f5;transform-origin:top left}}.slide.active{{display:block}}
-.slide svg{{display:block;max-width:100%;max-height:58%;width:auto;height:auto;margin-inline:auto}}
-button{{font:inherit;border:0;border-radius:6px;padding:.6em 1em;background:{brand_color};color:#fff;cursor:pointer}}#controls{{position:fixed;bottom:16px;display:flex;gap:12px;align-items:center;color:#333}}
-#third-party-notices{{position:fixed;right:12px;top:12px;z-index:1000;max-width:min(560px,90vw);max-height:80vh;overflow:auto;background:#fff;border:1px solid #d4d4d8;border-radius:8px;padding:8px 12px;box-shadow:0 4px 20px #0002}}#third-party-notices pre{{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}}
-@media print{{body{{display:block;background:white}}#deckStage{{width:100%;height:auto;box-shadow:none;overflow:visible}}.slide{{position:relative;display:block;page-break-after:always;width:1920px!important;height:1080px!important;zoom:1!important}}#controls{{display:none}}}}
-{''.join(css_blocks)}
-</style></head><body><main id="deckStage" class="deck-stage" data-deck-stage><div id="deck" class="deck">{''.join(sections)}</div></main>
-<nav id="controls" aria-label="Slides navigation"><button type="button" onclick="prev()">上一页</button><span id="pageCount"></span><button type="button" onclick="next()">下一页</button></nav>
-{notices}
-<script>
-const pages=Array.from(document.querySelectorAll(".slide"));let current=0;
-function fitSlides(){{const stage=document.getElementById("deckStage");const scale=Math.min(stage.clientWidth/1920,stage.clientHeight/1080);pages.forEach(p=>{{p.style.setProperty("width","1920px","important");p.style.setProperty("height","1080px","important");p.style.setProperty("zoom",String(scale),"important")}})}}
-function goTo(n){{current=Math.max(0,Math.min(pages.length-1,n));pages.forEach((p,i)=>p.classList.toggle("active",i===current));document.getElementById("pageCount").textContent=(current+1)+" / "+pages.length}}
-function next(){{goTo(current+1)}}function prev(){{goTo(current-1)}}
-addEventListener("keydown",e=>{{if(e.key==="ArrowRight"||e.key==="PageDown")next();if(e.key==="ArrowLeft"||e.key==="PageUp")prev()}});
-addEventListener("resize",fitSlides);fitSlides();goTo(0);
-</script></body></html>
-"""
 
 
 def build_units_deck(
@@ -385,12 +351,13 @@ def build_units_deck(
 
     output = base / "slides" / "index.html"
     if write:
-        document = _deck_shell(
+        document = render_document(
             sections,
             css_blocks,
             title=str(cfg.get("project", "Investment presentation")),
             brand_color=brand_color,
             has_assets=has_assets,
+            kind="deck",
         )
         _atomic_write(output, document)
         state_path = base / ".state" / "slides.json"

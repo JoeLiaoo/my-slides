@@ -18,7 +18,7 @@ Projects without `units.json` are unsupported. Legacy chapter migration is unsup
 - Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). In v2, delivery structure comes from `units.json`.
 - State evidence gaps, conflicting figures, assumptions, and dates in natural prose.
 - Never approve a report or Spec on the user's behalf; approval commands record an explicit user review decision.
-- Generate HTML only from approved Specs. Keep styles scoped; include one `slide-notes` JSON block on every slide. Use only approved `echarts-spec` and Lucide markers. Do not use a CDN.
+- Generate HTML only from approved Specs. Write one content fragment per unit using the component examples from `prepare slides`. Keep custom styles scoped; include one `slide-notes` JSON block on every slide. Use only approved `echarts-spec` and Lucide markers. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`.
 
 ## v2 workflow
 

@@ -1,0 +1,33 @@
+{
+  "upstream": {
+    "repository": "https://github.com/bluedusk/html-slides",
+    "commit": "d8289f4c317905cc5d0ca265d32b791e6cb387b7",
+    "license": "MIT"
+  },
+  "theme": "editorial-light",
+  "shell_version": "1",
+  "font_policy": "system-cjk-v1",
+  "adaptation_version": "1",
+  "files": {
+    "upstream/viewport-base.css": {
+      "role": "original",
+      "sha256": "dab42c1a556a0fa51d3c39f7edfb93d8303e5c29625ade479a18ba97f2640734"
+    },
+    "upstream/components.css": {
+      "role": "original",
+      "sha256": "eb0cd15a10b58ada4267d56be23927eda38a065eba1b746b876d154cfc7bac86"
+    },
+    "upstream/editorial-light.css": {
+      "role": "original",
+      "sha256": "3ed9da98986031c1e6748f8111688141b43cd1c10be864a89cc418c7b5f52e49"
+    },
+    "upstream/LICENSE": {
+      "role": "original",
+      "sha256": "5da994e3f2dbd6f698081d312c3fbcf64471fd2b42e3814b300c08427df968e1"
+    },
+    "adapt.css": {
+      "role": "adaptation",
+      "sha256": "005bc52c232fc963fc4c4537a358226ff92d3026876c69eb589d881f4766dca8"
+    }
+  }
+}
