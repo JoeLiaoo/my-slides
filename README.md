@@ -20,6 +20,16 @@ Spec 单元（specs/units/<id>.md）→ 用户按单元审阅
 
 每个单元有稳定 ID，对应一份报告、一份 Spec、一页 HTML。改单元 A 时只处理 A 及真正依赖它的部分。
 
+## 先装这些
+
+| 用途 | 需要先有 | 然后运行 |
+| --- | --- | --- |
+| 使用命令 | Python 3.11 或更新版本，以及安装工具 [uv](https://docs.astral.sh/uv/) | 下面的 `uv tool install` |
+| 图表和图标 | Node.js 和 npm | `my-slides renderer install`（装好 ECharts 6.1.0 和 Lucide 1.52.0） |
+| 手机和电脑屏幕检查 | 安装命令里带上 `[browser]` | `my-slides browser install`（下载 Playwright Chromium） |
+
+只做资料整理、报告和结构检查时，有 Python 和 uv 即可。没装 Node.js 时，带图表或图标的页面生成不了。没装浏览器时，`slides check` 仍可做结构检查，加上 `--browser` 才会测屏幕显示。装完可运行 `my-slides doctor` 查看这三项是否就绪。
+
 ## 开始使用
 
 安装后先运行 `my-slides help`。它会向 Agent 说明工具职责、项目初始化、Wiki → 报告 → Spec → Slides 的完整流程、逐单元命令和需要用户审阅的节点；在项目目录外也能运行。`my-slides --help` 显示命令列表，`my-slides <命令> --help` 显示参数，`my-slides help --json` 输出可供 Agent 读取的 JSON。
