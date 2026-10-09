@@ -15,7 +15,7 @@ My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claud
 3. Presentation Spec：运行 `my-slides prepare spec --unit <id>`，撰写 `my-slides/specs/units/<id>.md`，运行 `my-slides validate spec --unit <id>`。`my-slides approve spec --unit <id>` 只提交待审申请；用户本人审阅并运行 `my-slides confirm spec --unit <id>`。
 4. Slides：只根据已批准的 Spec 运行 `my-slides prepare slides --unit <id>`，生成 `my-slides/slides/pages/<id>.html`，运行 `my-slides slides build --unit <id>` 和 `my-slides slides check --unit <id>`。需要桌面与手机视口检查时加 `--browser`。
 
-每个单元 ID 对应一份报告、一份 Spec、一页 HTML。修改单个页面时用 `--unit <id>`；批量处理受影响单元用 `--changed`，全部单元用 `--all`。这些选择参数适用于逐单元的 prepare、validate、approve、slides build/check 命令；`confirm` 始终逐单元由用户执行。用 `my-slides next --json` 获取下一条建议及原因。交接材料写入固定的 `my-slides/work/<阶段>/<id>.md`，再次 prepare 会覆盖同一文件。
+每个单元 ID 对应一份报告、一份 Spec、一页 HTML。修改单个页面时用 `--unit <id>`；批量处理受影响单元用 `--changed`，全部单元用 `--all`。这些选择参数适用于逐单元的 prepare、validate、approve、slides build/check 命令；`confirm` 始终逐单元由用户执行。Agent 不得借助伪终端、`script`、`expect`、tmux `send-keys`、管道或读取 `.state/` 来代填确认。用 `my-slides next --json` 获取下一条建议及原因。交接材料写入固定的 `my-slides/work/<阶段>/<id>.md`，再次 prepare 会覆盖同一文件。
 
 生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查。
 

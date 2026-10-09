@@ -357,6 +357,13 @@ def build_units_deck(
             has_assets=has_assets,
             kind="deck",
         )
+        if output.is_file():
+            previous = output.read_bytes()
+            if previous != document.encode("utf-8"):
+                previous_hash = hashlib.sha256(previous).hexdigest()
+                archive = base / ".state" / "deliveries" / f"{previous_hash}.html"
+                if not archive.is_file():
+                    _atomic_write(archive, previous)
         _atomic_write(output, document)
         state_path = base / ".state" / "slides.json"
         _atomic_write(

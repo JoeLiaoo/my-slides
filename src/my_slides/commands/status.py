@@ -42,8 +42,7 @@ def run(args: argparse.Namespace) -> int:
         ]
         unattributed = [
             row["id"] for row in selected_rows
-            if row[f"{kind}_current"]
-            and (not row[f"{kind}_approved_by"] or not row[f"{kind}_approved_account"])
+            if row[f"{kind}_unattributed"]
         ]
         needs_review = [
             row["id"] for row in selected_rows
@@ -52,7 +51,6 @@ def run(args: argparse.Namespace) -> int:
         approval_status[kind] = {
             "supported": True,
             "current": bool(selected_rows) and len(approved) == len(selected_rows),
-            "attributed_current": bool(selected_rows) and len(approved) == len(selected_rows) and not unattributed,
             "approved_units": approved,
             "pending_units": pending_approval,
             "unattributed_units": unattributed,

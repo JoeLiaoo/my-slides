@@ -60,7 +60,7 @@ def run(args: argparse.Namespace) -> int:
                 "报告已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。",
                 unit=unit.id, actor="human",
             )
-        if row["report_current"] and (not row["report_approved_by"] or not row["report_approved_account"]):
+        if row["report_unattributed"]:
             return recommend(f"my-slides approve report --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["report_current"]:
             return recommend(f"my-slides approve report --unit {unit.id}", "报告内容有效，但当前版本尚未由用户确认；先提交审批申请。", unit=unit.id)
@@ -86,7 +86,7 @@ def run(args: argparse.Namespace) -> int:
                 "Spec 已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。",
                 unit=unit.id, actor="human",
             )
-        if row["spec_current"] and (not row["spec_approved_by"] or not row["spec_approved_account"]):
+        if row["spec_unattributed"]:
             return recommend(f"my-slides approve spec --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["spec_current"]:
             return recommend(f"my-slides approve spec --unit {unit.id}", "Spec 尚未获得当前版本的用户确认；先提交审批申请。", unit=unit.id)

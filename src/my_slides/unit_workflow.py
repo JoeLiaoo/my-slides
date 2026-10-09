@@ -208,7 +208,7 @@ def approve_unit_spec(
         "approved_account": approved_account,
         "pending_approval": None,
         "pending_current": False,
-        "current": True,
+        "current": bool(approved_by and approved_account),
     }
     # HTML must be rebuilt against the new Spec — never auto-revive.
     if state["html"].get("build_sha256"):
@@ -285,6 +285,16 @@ def confirm_unit_approval(
 def assemble_after_report_approvals(base: Path, units: list[Unit] | None = None) -> tuple[str, list[str]]:
     """Assemble full report.md; on failure leave the previous file untouched."""
     ensure_v2_directories(base)
+    if units is None:
+        units, errors = load_units_manifest(base, chapters=None)
+        if errors:
+            return "", errors
+    unapproved = [
+        unit.id for unit in units
+        if not refresh_unit_currency(base, unit, project_root=base.parent)["report"]["current"]
+    ]
+    if unapproved:
+        return "", ["报告单元未获得当前有效且有审阅者记录的批准：" + "、".join(unapproved)]
     return assemble_report(base, units, write=True)
 
 

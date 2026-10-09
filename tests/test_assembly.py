@@ -1,12 +1,22 @@
 import argparse
+import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from my_slides.assembly import build_units_deck, compile_unit_page
 from my_slides.commands.init import init_project
-from my_slides.unit_workflow import approve_unit_report, approve_unit_spec
+from my_slides.browser_runtime import browser_status
+from my_slides.project import template_chapters
+from my_slides.rendering import renderer_status
+from my_slides.sources import mark_ingested, scan_sources
+from my_slides.state import collect_units_status
+from my_slides.unit_workflow import approve_unit_report, approve_unit_spec, assemble_after_report_approvals
 from my_slides.units import Unit, unit_paths, write_units_manifest
+from my_slides.wiki import validate_wiki
+
+TEST_APPROVER = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
 
 
 def _spec(unit_id: str, role: str) -> str:
@@ -53,8 +63,8 @@ class AssemblyTests(unittest.TestCase):
             paths.report.write_text(f"# {unit.id}\n\n" + "Enough report text for approval. " * 3, encoding="utf-8")
             paths.spec.write_text(_spec(unit.id, unit.role), encoding="utf-8")
             paths.page.write_text(_page(unit.id, unit.role), encoding="utf-8")
-            approve_unit_report(self.base, unit, when="t0", project_root=self.root)
-            approve_unit_spec(self.base, unit, when="t1", project_root=self.root)
+            approve_unit_report(self.base, unit, when="t0", project_root=self.root, **TEST_APPROVER)
+            approve_unit_spec(self.base, unit, when="t1", project_root=self.root, **TEST_APPROVER)
         return units
 
     def test_unit_build_writes_preview_and_index(self):
@@ -69,6 +79,157 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn('data-unit-id="cover"', html)
         self.assertIn('data-unit-id="summary-01"', html)
         self.assertIn("cover", plan["rebuild"] + plan["reused"])
+
+    def test_legacy_spec_without_reviewer_cannot_build(self):
+        from my_slides.state import read_unit_state, write_unit_state
+
+        self._seed()
+        state = read_unit_state(self.base, "summary-01")
+        state["spec"]["approved_by"] = None
+        state["spec"]["approved_account"] = None
+        write_unit_state(self.base, "summary-01", state)
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertIsNone(output)
+        self.assertTrue(any("Spec 未批准" in error for error in errors), errors)
+        self.assertFalse((self.base / "slides" / "index.html").exists())
+
+    def test_unit_build_requires_valid_notes(self):
+        self._seed()
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        page = unit_paths(self.base, "summary-01").page
+        valid = page.read_text(encoding="utf-8")
+        page.write_text(re.sub(r'<script[^>]*class="slide-notes".*?</script>', "", valid), encoding="utf-8")
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertIsNone(output)
+        self.assertTrue(any("slide-notes" in error for error in errors), errors)
+        page.write_text(valid, encoding="utf-8")
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        self.assertTrue(output.is_file())
+
+    def test_chart_data_must_match_approved_unit_spec(self):
+        units = self._seed()
+        chart = {"type": "bar", "categories": ["2024", "2025"], "values": [10, 14], "unit": "亿元"}
+        spec = unit_paths(self.base, "summary-01").spec
+        spec.write_text(_spec("summary-01", "content") + "\n```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n", encoding="utf-8")
+        approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
+        chart["values"] = [10, 15]
+        page = unit_paths(self.base, "summary-01").page
+        page.write_text(
+            _page("summary-01", "content").replace(
+                '<script type="application/json" class="slide-notes">',
+                '<script type="application/json" class="mls-echarts-spec">'
+                + json.dumps(chart, ensure_ascii=False) + '</script>'
+                '<script type="application/json" class="slide-notes">',
+            ), encoding="utf-8",
+        )
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertIsNone(output)
+        self.assertTrue(any("完全一致" in error for error in errors), errors)
+
+    def test_deck_keeps_active_word_in_body_text(self):
+        self._seed()
+        page = unit_paths(self.base, "summary-01").page
+        page.write_text(_page("summary-01", "content").replace(
+            'class="slide"', 'class="slide active"',
+        ).replace("<h1>summary-01</h1>", "<h1>summary-01</h1><p>The market is active today</p>"), encoding="utf-8")
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [])
+        html = output.read_text(encoding="utf-8")
+        self.assertIn("The market is active today", html)
+        second = re.search(r'<section[^>]*data-slide="1"[^>]*>', html)
+        self.assertIsNotNone(second)
+        self.assertNotRegex(second.group(0), r'\bactive\b')
+
+    @unittest.skipUnless(renderer_status()["ready"] and browser_status()["chromium_installed"],
+                         "local renderer or Playwright Chromium is unavailable")
+    def test_chart_icon_deck_is_offline_and_archives_rebuild(self):
+        from my_slides.browser import check_deck
+
+        units = self._seed()
+        chart = {"type": "bar", "title": "Revenue", "categories": ["2024", "2025"],
+                 "values": [10, 14], "unit": "亿元"}
+        spec = unit_paths(self.base, "summary-01").spec
+        spec.write_text(
+            _spec("summary-01", "content").replace("### 图标需求\n无", "### 图标需求\narrow-right")
+            + "\n```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n",
+            encoding="utf-8",
+        )
+        approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
+        page = unit_paths(self.base, "summary-01").page
+        page.write_text(
+            _page("summary-01", "content").replace(
+                '<script type="application/json" class="slide-notes">',
+                '<script type="application/json" class="mls-echarts-spec">'
+                + json.dumps(chart, ensure_ascii=False) + '</script>'
+                '<script type="application/json" class="mls-lucide-spec">{"name":"arrow-right"}</script>'
+                '<script type="application/json" class="slide-notes">',
+            ), encoding="utf-8",
+        )
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [], errors)
+        first = output.read_bytes()
+        self.assertIn("<svg", first.decode("utf-8"))
+        self.assertNotIn("mls-echarts-spec", first.decode("utf-8"))
+        self.assertIn("third-party-notices", first.decode("utf-8"))
+        checked = check_deck(output, unit_ids=["cover", "summary-01"])
+        self.assertTrue(checked["valid"], checked)
+        self.assertEqual(checked["external_requests"], [])
+        page.write_text(page.read_text(encoding="utf-8").replace("<h1>summary-01</h1>", "<h1>Revenue revised</h1>"), encoding="utf-8")
+        output, errors, _ = build_units_deck(self.base, cfg, unit_ids=["summary-01"], write=True)
+        self.assertEqual(errors, [], errors)
+        self.assertNotEqual(output.read_bytes(), first)
+        self.assertTrue(any((self.base / ".state" / "deliveries").glob("*.html")))
+
+    def test_synthetic_six_chapter_unit_project_end_to_end(self):
+        from my_slides.browser import structural_check_deck
+
+        chapters = template_chapters()
+        self.assertEqual(len(chapters), 6)
+        source_dir = self.root / "sources"
+        source_dir.mkdir()
+        (source_dir / "metrics.md").write_text("# Metrics\n\nRevenue: 10, 14, 19.\n", encoding="utf-8")
+        wiki = self.base / "wiki" / "company.md"
+        wiki.write_text("# Company\n\n[Revenue source](../../sources/metrics.md).\n", encoding="utf-8")
+        index = self.base / "wiki" / "index.md"
+        index.write_text(index.read_text(encoding="utf-8").replace(
+            "## 投资概要", "## 投资概要\n\n- [Company](company.md) — synthetic evidence",
+        ), encoding="utf-8")
+        cfg = {"project": "Synthetic", "chapters": chapters, "brand_color": "#A6192E"}
+        self.assertEqual(validate_wiki(self.base, cfg), [])
+        _, pending, removed = scan_sources(self.root, self.base, {"source_dirs": ["sources"]})
+        self.assertEqual(pending, ["sources/metrics.md"])
+        self.assertEqual(removed, [])
+        self.assertEqual(mark_ingested(self.base, pending), 1)
+        units = [Unit(id=f"chapter-{number}", chapter=chapter,
+                      role="cover" if number == 1 else "content")
+                 for number, chapter in enumerate(chapters, 1)]
+        write_units_manifest(self.base, units)
+        for unit in units:
+            paths = unit_paths(self.base, unit.id)
+            paths.report.write_text(
+                f"# {unit.chapter}\n\nSynthetic investment analysis using [company evidence](../../wiki/company.md).\n",
+                encoding="utf-8",
+            )
+            paths.spec.write_text(_spec(unit.id, unit.role), encoding="utf-8")
+            paths.page.write_text(_page(unit.id, unit.role), encoding="utf-8")
+            approve_unit_report(self.base, unit, when="t0", project_root=self.root, **TEST_APPROVER)
+        document, errors = assemble_after_report_approvals(self.base)
+        self.assertEqual(errors, [], errors)
+        self.assertEqual(document.count("company evidence"), 6)
+        for unit in units:
+            approve_unit_spec(self.base, unit, when="t1", project_root=self.root, **TEST_APPROVER)
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [], errors)
+        self.assertTrue(structural_check_deck(output, expected_units=[unit.id for unit in units])["valid"])
+        state = collect_units_status(self.base, chapters=chapters, project_root=self.root)
+        self.assertEqual(len(state["units"]), 6)
+        self.assertTrue(all(row["report_current"] and row["spec_current"] and row["html_current"]
+                            for row in state["units"]))
 
     def test_assembled_deck_has_exactly_one_data_unit_id_per_unit(self):
         """Pages already carry data-unit-id; assemble must not inject a duplicate."""
@@ -144,7 +305,7 @@ class AssemblyTests(unittest.TestCase):
             spec_path.read_text(encoding="utf-8").replace("Conclusion.", "Conclusion revised."),
             encoding="utf-8",
         )
-        approve_unit_spec(self.base, units[1], when="t2", project_root=self.root)
+        approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
         output, errors, plan = build_units_deck(self.base, cfg, unit_ids=["cover"], write=True)
         self.assertEqual(errors, [], errors)
         self.assertNotIn("summary-01", plan["reused"])

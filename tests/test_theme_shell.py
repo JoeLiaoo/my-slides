@@ -14,6 +14,8 @@ from my_slides.theme import THEME_NAME, shell_css, verify_assets
 from my_slides.unit_workflow import approve_unit_report, approve_unit_spec, prepare_unit_handoff
 from my_slides.units import Unit, unit_paths, write_units_manifest
 
+TEST_APPROVER = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
+
 
 def _spec(unit_id: str, role: str) -> str:
     return (
@@ -49,8 +51,8 @@ class ThemeShellTests(unittest.TestCase):
             paths.report.write_text(f"# {unit.id}\n\n" + "Enough report text for approval. " * 3, encoding="utf-8")
             paths.spec.write_text(_spec(unit.id, unit.role), encoding="utf-8")
             paths.page.write_text(_page(unit.id, unit.role), encoding="utf-8")
-            approve_unit_report(self.base, unit, when="t0", project_root=self.root)
-            approve_unit_spec(self.base, unit, when="t1", project_root=self.root)
+            approve_unit_report(self.base, unit, when="t0", project_root=self.root, **TEST_APPROVER)
+            approve_unit_spec(self.base, unit, when="t1", project_root=self.root, **TEST_APPROVER)
         self.cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
 
     def tearDown(self):

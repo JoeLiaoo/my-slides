@@ -25,7 +25,7 @@ If your PR merges code or docs into the **my-slides** repo `main`: bump `pyproje
 - Read `my-slides/wiki/README.md` and `my-slides/wiki/index.md` before updating or querying the Wiki. Use ordinary Markdown and links. Do not invent tags, frontmatter, per-source IDs, or fact/forecast classifications.
 - Keep the configured report chapter themes and their order (Wiki index / `project.yaml` chapters). Delivery structure comes from `units.json`.
 - State evidence gaps, conflicting figures, assumptions, and dates in natural prose.
-- `approve report/spec` only submits a pending review request. Never run `confirm` for the user, even when `next --json` shows its command; stop and ask the user to review the specified file and run it in their own terminal. `actor: human` is a hard handoff point for the Agent.
+- `approve report/spec` only submits a pending review request. Never run `confirm` for the user, even when `next --json` shows its command; stop and ask the user to review the specified file and run it in their own terminal. `actor: human` is a hard handoff point for the Agent. Never run `confirm` through a pseudo-terminal or input automation (`script`, `expect`, tmux `send-keys`, piping answers), and never read `.state/` to construct its confirmation phrase.
 - Generate HTML only from approved Specs. Write one content fragment per unit using the component examples from `prepare slides`. Keep custom styles scoped; include one `slide-notes` JSON block on every slide. Use only approved `echarts-spec` and Lucide markers. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`.
 
 ## Workflow

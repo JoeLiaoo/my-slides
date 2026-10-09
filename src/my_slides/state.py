@@ -146,9 +146,14 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and approved == report_sha
         and approved_input
         and approved_input == input_fp
+        and state["report"].get("approved_by")
+        and state["report"].get("approved_account")
     )
     if approved and not report_current:
-        reasons.append("报告内容或本地依赖已变化，需重新审阅")
+        if not state["report"].get("approved_by") or not state["report"].get("approved_account"):
+            reasons.append("报告旧批准缺少审阅者记录，需重新审阅")
+        else:
+            reasons.append("报告内容或本地依赖已变化，需重新审阅")
     state["report"]["current"] = report_current
     report_request = state["report"].get("pending_approval")
     state["report"]["pending_current"] = bool(
@@ -172,9 +177,14 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and bound_report == approved
         and bound_report_input
         and bound_report_input == approved_input
+        and state["spec"].get("approved_by")
+        and state["spec"].get("approved_account")
     )
     if spec_approved and not spec_current:
-        reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
+        if not state["spec"].get("approved_by") or not state["spec"].get("approved_account"):
+            reasons.append("Spec 旧批准缺少审阅者记录，需重新审阅")
+        else:
+            reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
     state["spec"]["current"] = spec_current
     spec_request = state["spec"].get("pending_approval")
     state["spec"]["pending_current"] = bool(
@@ -267,11 +277,15 @@ def collect_units_status(
             "report_approved_by": state["report"].get("approved_by"),
             "report_approved_account": state["report"].get("approved_account"),
             "report_approved_at": state["report"].get("approved_at"),
+            "report_unattributed": bool(state["report"].get("approved_sha256"))
+            and (not state["report"].get("approved_by") or not state["report"].get("approved_account")),
             "spec_current": state["spec"]["current"],
             "spec_pending": state["spec"]["pending_current"],
             "spec_approved_by": state["spec"].get("approved_by"),
             "spec_approved_account": state["spec"].get("approved_account"),
             "spec_approved_at": state["spec"].get("approved_at"),
+            "spec_unattributed": bool(state["spec"].get("approved_sha256"))
+            and (not state["spec"].get("approved_by") or not state["spec"].get("approved_account")),
             "html_current": state["html"]["current"],
             "check_current": state["check"]["current"],
             "reasons": state["reasons"],
@@ -325,7 +339,7 @@ def mark_report_approved(
         "approved_account": approved_account,
         "pending_approval": None,
         "pending_current": False,
-        "current": True,
+        "current": bool(approved_by and approved_account),
     }
     # Spec must be re-bound after report re-approval (never auto-revive).
     if state["spec"].get("approved_sha256"):

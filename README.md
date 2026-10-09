@@ -77,9 +77,9 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 `my-slides next --json` 返回下一步命令、目标单元、原因和执行者（`agent` 或 `human`）。Agent 遇到 `actor: human` 必须停下，请用户自行审阅并执行 `confirm`。`approve` 只记录文件内容与依赖的待审版本；`confirm` 不提供 `--json` 或批量确认，要求在交互终端输入审阅者姓名与针对当前 SHA-256 的确认文字。状态文件记录姓名、本机账户与批准时间。申请后若文件或依赖变化，确认会拒绝，必须重新提交。完成报告确认后运行 `assemble`。
 
-交接材料使用固定路径 `my-slides/work/wiki.md`、`my-slides/work/wiki-question.md` 和 `my-slides/work/<report|spec|slides>/<id>.md`；再次 `prepare` 会更新同一路径。`status --json` 的 `approvals.<kind>.current` 按选定单元计算，另列出待确认、需重审及旧版无审阅者记录的单元；`attributed_current` 仅在所有选定单元当前有效且有审阅者记录时为真。`slides.current` 表示构建有效，`slides.checked_current` 表示浏览器检查有效。
+交接材料使用固定路径 `my-slides/work/wiki.md`、`my-slides/work/wiki-question.md` 和 `my-slides/work/<report|spec|slides>/<id>.md`；再次 `prepare` 会更新同一路径。`status --json` 的 `approvals.<kind>.current` 按选定单元计算，仅在其批准版本仍有效且有审阅者姓名和本机账户时为真；另列出待确认、需重审及旧版无审阅者记录的单元。旧批准必须重新确认才能继续组装报告或构建 Slides。`slides.current` 表示构建有效，`slides.checked_current` 表示浏览器检查有效。
 
-交互终端与自填姓名只能防止普通非交互调用和误操作，**不能证明操作者一定是人**。如果 Agent 拥有同一系统账户、能控制终端或改写本地状态文件，仍可能伪造确认；需要可验证的强制人审时，应使用独立身份与权限的外部审批系统。
+交互终端与自填姓名只能减少误操作，**不能阻止 Agent 有意绕过**。常见 Agent 可通过伪终端、输入自动化或直接改写本地状态伪造确认；用户应亲自核对 `status --json` 里的审批人和时间。若需要可验证的强制人审，必须使用独立身份与权限的外部审批系统。
 
 无 `units.json` 时 CLI 会拒绝执行；请重新 `my-slides init`。
 
