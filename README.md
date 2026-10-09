@@ -1,5 +1,7 @@
 # My Slides
 
+[![CI](https://github.com/JoeLiaoo/my-slides/actions/workflows/ci.yml/badge.svg)](https://github.com/JoeLiaoo/my-slides/actions/workflows/ci.yml)
+
 面向投资研究的本地 Agent 工具。用户在投资项目目录中使用 Codex、Claude Code 或 DeepSeek harness，通过统一 CLI 整理项目资料、维护 Wiki、撰写投资报告，并生成可离线浏览的 HTML 投资汇报 Slides。
 
 项目以 `my-slides/units.json` 中的单元组织：每个单元对应一份报告、一份 Spec、一页 HTML，支持按单元审阅与增量构建。
@@ -32,15 +34,25 @@ Spec 单元（specs/units/<id>.md）→ 用户按单元审阅
 
 ## 开始使用
 
-安装后先运行 `my-slides help`。它会向 Agent 说明工具职责、项目初始化、Wiki → 报告 → Spec → Slides 的完整流程、逐单元命令和需要用户审阅的节点；在项目目录外也能运行。`my-slides --help` 显示命令列表，`my-slides <命令> --help` 显示参数，`my-slides help --json` 输出可供 Agent 读取的 JSON。
+克隆仓库，在仓库目录中安装命令：
 
-```powershell
+```bash
+git clone https://github.com/JoeLiaoo/my-slides.git
+cd my-slides
 uv tool install --editable ".[browser]" --link-mode copy --cache-dir .uv-cache
+my-slides help
+```
+
+`my-slides help` 会向 Agent 说明工具职责、项目初始化、Wiki → 报告 → Spec → Slides 的完整流程、逐单元命令和需要用户审阅的节点；在项目目录外也能运行。`my-slides --help` 显示命令列表，`my-slides <命令> --help` 显示参数，`my-slides help --json` 输出可供 Agent 读取的 JSON。
+
+这是可编辑安装；更新工具时保留该目录并运行 `git pull`。然后为投资项目初始化工作区（将占位路径换成实际路径）：
+
+```text
 my-slides renderer install
 my-slides browser install
-my-slides init --project "C:\Projects\某投资项目"
-my-slides agent install --project "C:\Projects\某投资项目"
-my-slides doctor --project "C:\Projects\某投资项目"
+my-slides init --project "<投资项目目录>"
+my-slides agent install --project "<投资项目目录>"
+my-slides doctor --project "<投资项目目录>"
 ```
 
 按单元推进：
@@ -64,7 +76,7 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 ### 版本
 
-用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新。**合并进 `main` 的 PR 必须在同一 PR 内把 `[project].version` 的 patch +1**（见 [`AGENTS.md`](./AGENTS.md)）；勿依赖 CI。
+用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新。**合并进 `main` 的 PR 必须在同一 PR 内把 `[project].version` 的 patch +1**（见 [`AGENTS.md`](./AGENTS.md)）；CI 不会自动修改版本号。
 
 ### 最小冒烟（命令骨架）
 
@@ -84,7 +96,7 @@ my-slides slides check --all
 
 ## 测试
 
-PR 和推送到 `main` 时，GitHub Actions 会在 Ubuntu 上运行完整回归（Python 3.11、Node 22、渲染器和 Chromium）。本地也可运行：
+PR、推送到 `main` 和手动触发时，[GitHub Actions 工作流](.github/workflows/ci.yml)会在 Ubuntu 上运行完整回归（Python 3.11、Node 22、渲染器和 Chromium）。本地也可运行：
 
 ```bash
 # 快速（缺渲染器/浏览器时相关用例会 skip）
