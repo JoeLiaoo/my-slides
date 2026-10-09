@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from my_slides import __version__
-from my_slides.browser import check_deck
+from my_slides.browser import _deck_slides, check_deck
 from my_slides.cli import (
     SlideFragmentParser,
     approval_is_current,
@@ -418,7 +418,8 @@ class ProjectWorkflowTests(unittest.TestCase):
             fragment.write_text(body, encoding="utf-8")
         output, errors = build_slides(self.base, self.cfg)
         self.assertEqual(errors, [])
-        self.assertEqual(output.read_text(encoding="utf-8").count('class="slide '), 6)
+        # 只统计 class 词为 slide 的页面。封面才带 active，其余页是 class="slide"，不能靠 "slide " 后面的空格计数。
+        self.assertEqual(len(_deck_slides(output.read_text(encoding="utf-8"))), 6)
         state = json.loads((self.base / ".state" / "slides.json").read_text(encoding="utf-8"))
         diagnostics = {"state": state, "report_current": approval_is_current(self.base, "report", self.cfg),
                        "spec_current": approval_is_current(self.base, "spec", self.cfg),

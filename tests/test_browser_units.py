@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides.browser import structural_check_deck
+from my_slides.browser import _deck_slides, structural_check_deck
 
 
 class BrowserUnitChecks(unittest.TestCase):
@@ -33,6 +33,20 @@ class BrowserUnitChecks(unittest.TestCase):
             result = structural_check_deck(path, expected_units=["cover"])
             self.assertTrue(result["valid"], result["errors"])
             self.assertEqual(result["unit_ids"], ["cover"])
+
+    def test_slide_count_uses_class_token_not_trailing_space(self):
+        pages = ['<section class="slide active" data-page-role="cover"><h1>Cover</h1></section>']
+        pages.extend(
+            f'<section class="slide" data-page-role="content"><h1>Page {index}</h1></section>'
+            for index in range(1, 6)
+        )
+        text = (
+            '<style>.slide { color: red } /* class="slide " */</style>'
+            '<p>正文里出现 class="slide " 和 slide 都不算一页。</p>'
+            + "".join(pages)
+        )
+        self.assertEqual(len(_deck_slides(text)), 6)
+        self.assertNotEqual(text.count('class="slide '), 6)
 
 
 if __name__ == "__main__":
