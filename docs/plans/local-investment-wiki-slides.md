@@ -107,6 +107,8 @@
 | `my-slides browser install / doctor` | 安装并核验 Playwright Chromium |
 | `my-slides slides build / check --browser` | 渲染图表和图标、合并页面，并在桌面与手机视口运行质量检查 |
 | `my-slides units list` | 列出单元身份、章节与产物是否齐全 |
+| `my-slides units add / move / rename` | 通过 CLI 调整单元清单与产物身份；移动后按审批规则保留或重新确认 |
+| `my-slides units remove / trash list / restore` | 预览并将删除内容移入可恢复回收区，列出或按原位置恢复；清理留待后续阶段 |
 | `my-slides assemble` | 将报告单元组装为 `reports/report.md` |
 | `my-slides init` | 写入 `project.yaml`、`units.json` 与单元目录骨架 |
 

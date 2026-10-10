@@ -6,6 +6,17 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.2.12] - Pending
+
+### Added
+
+- Add `units add`, `move`, `rename`, `remove`, `restore`, and `trash list`. Removal previews the effect and, with `--yes`, moves the unit into recoverable `.state/trash/`.
+- `units move` can append to a chapter, including an empty one, or use `--before` to place a unit first in that chapter.
+
+### Changed
+
+- A cross-chapter move asks the user to reconfirm the report while keeping an unchanged Spec approval. Same-chapter reordering and a mechanical rename keep both approvals. Structural changes require rebuilding and rechecking the deck.
+
 ## [0.2.11] - Pending
 
 ### Added

@@ -11,9 +11,9 @@ from ..unit_workflow import assemble_after_report_approvals
 
 def run(args: argparse.Namespace) -> int:
     root = project_root(args.project)
-    base, _cfg = ensure_project(root)
+    base, cfg = ensure_project(root)
     require_v2_project(base)
-    _document, errors = assemble_after_report_approvals(base)
+    _document, errors = assemble_after_report_approvals(base, chapters=cfg.get("chapters", []))
     emit(
         args,
         {"assembled": not errors, "path": str(base / "reports" / "report.md"), "errors": errors},

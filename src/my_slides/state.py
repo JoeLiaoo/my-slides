@@ -40,6 +40,8 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "approved_account": None,
             "pending_approval": None,
             "pending_current": False,
+            "reconfirmation_required": False,
+            "reconfirmation_context": None,
             "current": False,
         },
         "spec": {
@@ -85,6 +87,8 @@ def read_unit_state(base: Path, unit_id: str) -> dict[str, Any]:
             merged[key].update(data[key])
     if isinstance(data.get("reasons"), list):
         merged["reasons"] = [str(item) for item in data["reasons"]]
+    if isinstance(data.get("identity_migrations"), list):
+        merged["identity_migrations"] = data["identity_migrations"]
     return merged
 
 
@@ -140,6 +144,7 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
     state["report"]["content_sha256"] = report_sha
     state["report"]["input_fingerprint"] = input_fp
     approved = state["report"].get("approved_sha256")
+    reconfirmation_required = bool(state["report"].get("reconfirmation_required"))
     report_current = bool(
         approved
         and report_sha
@@ -148,10 +153,24 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and approved_input == input_fp
         and state["report"].get("approved_by")
         and state["report"].get("approved_account")
+        and not reconfirmation_required
+    )
+    # A chapter-only move explicitly asks for a context reconfirmation, while an
+    # unchanged report remains a valid binding for its already approved Spec.
+    unchanged_reconfirmation = bool(
+        reconfirmation_required
+        and approved
+        and report_sha == approved
+        and approved_input
+        and approved_input == input_fp
+        and state["report"].get("approved_by")
+        and state["report"].get("approved_account")
     )
     if approved and not report_current:
         if not state["report"].get("approved_by") or not state["report"].get("approved_account"):
             reasons.append("报告旧批准缺少审阅者记录，需重新审阅")
+        elif reconfirmation_required and state["report"].get("reconfirmation_context"):
+            reasons.append("章节变更待用户重新确认：" + str(state["report"]["reconfirmation_context"]))
         else:
             reasons.append("报告内容或本地依赖已变化，需重新审阅")
     state["report"]["current"] = report_current
@@ -172,7 +191,7 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         spec_approved
         and spec_sha
         and spec_approved == spec_sha
-        and report_current
+        and (report_current or unchanged_reconfirmation)
         and bound_report
         and bound_report == approved
         and bound_report_input
@@ -274,6 +293,7 @@ def collect_units_status(
             "role": unit.role,
             "report_current": state["report"]["current"],
             "report_pending": state["report"]["pending_current"],
+            "report_reconfirmation_context": state["report"].get("reconfirmation_context"),
             "report_approved_by": state["report"].get("approved_by"),
             "report_approved_account": state["report"].get("approved_account"),
             "report_approved_at": state["report"].get("approved_at"),
@@ -329,6 +349,9 @@ def mark_report_approved(
         raise UnitsError(f"缺少报告单元：{unit.id}")
     sha = fingerprint_file(paths.report)
     input_fp = compute_report_input_fingerprint(base, unit, project_root=project_root)
+    prior_sha = state["report"].get("approved_sha256")
+    prior_input = state["report"].get("approved_input_fingerprint")
+    report_changed = prior_sha != sha or prior_input != input_fp
     state["report"] = {
         "content_sha256": sha,
         "input_fingerprint": input_fp,
@@ -339,14 +362,17 @@ def mark_report_approved(
         "approved_account": approved_account,
         "pending_approval": None,
         "pending_current": False,
+        "reconfirmation_required": False,
+        "reconfirmation_context": None,
         "current": bool(approved_by and approved_account),
     }
-    # Spec must be re-bound after report re-approval (never auto-revive).
-    if state["spec"].get("approved_sha256"):
+    # A context-only reconfirmation keeps a Spec bound to the identical report.
+    # Substantive report or dependency changes still require a new Spec approval.
+    if report_changed and state["spec"].get("approved_sha256"):
         state["spec"]["current"] = False
         state["reasons"] = ["报告已重新批准，Spec 需按新报告版本更新后重审"]
-    state["spec"]["pending_approval"] = None
-    state["spec"]["pending_current"] = False
+        state["spec"]["pending_approval"] = None
+        state["spec"]["pending_current"] = False
     write_unit_state(base, unit.id, state)
     return state
 

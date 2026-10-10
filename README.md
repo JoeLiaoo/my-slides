@@ -22,6 +22,22 @@ Spec 单元（specs/units/<id>.md）→ 提交申请 → 用户在终端逐单�
 
 每个单元有稳定 ID，对应一份报告、一份 Spec、一页 HTML。改单元 A 时只处理 A 及真正依赖它的部分。
 
+## 管理单元
+
+用 `my-slides units add <id> --chapter <章节>` 新增内容单元，或用 `units move`、`units rename` 调整清单；无需手工编辑 `units.json`。章节移动要求用户重新确认报告，报告内容没变时保留 Spec 批准。结构变化后运行 `my-slides next --json`，按建议重建整套 Slides 并重新检查。
+
+```text
+my-slides units add <id> --chapter <章节> [--after <id>]
+my-slides units move <id> [--after <id> | --before <id>] [--chapter <章节>]
+my-slides units rename <old-id> <new-id>
+my-slides units remove <id> [--json]          # 只预览影响
+my-slides units remove <id> --yes              # 移入可恢复回收区
+my-slides units trash list [--json]
+my-slides units restore <trash-id>
+```
+
+`my-slides units remove <id>` 默认只显示影响预览，包括文件、批准和依赖/链接。预览确认无阻碍后添加 `--yes`，单元会移入 `my-slides/.state/trash/`，不会永久删除。若单元曾获报告或 Spec 批准，Agent 必须先取得用户明确同意再执行。命令会打印恢复命令；也可运行 `my-slides units trash list` 查看记录，并用 `my-slides units restore <trash-id>` 按原章节和位置恢复。清理回收区将在后续版本提供。
+
 ## 先装这些
 
 | 用途 | 需要先有 | 然后运行 |
