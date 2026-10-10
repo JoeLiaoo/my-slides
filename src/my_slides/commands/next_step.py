@@ -7,6 +7,7 @@ import shlex
 
 from ..browser_runtime import browser_status
 from ..command_output import emit
+from ..dependencies import fingerprint_json
 from ..project import ensure_project, project_root, require_v2_project
 from ..sources import scan_sources
 from ..state import collect_units_status
@@ -55,9 +56,15 @@ def run(args: argparse.Namespace) -> int:
         if report_errors:
             return recommend(f"my-slides validate report --unit {unit.id}", "报告需要修复：" + "；".join(report_errors[:3]), unit=unit.id)
         if row["report_pending"]:
+            context = row.get("report_reconfirmation_context")
+            reason = (
+                f"报告内容未变，只需确认章节调整：{context}。必须由用户审阅后在自己的交互终端确认，Agent 不得执行此命令。"
+                if context else
+                "报告已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
+            )
             return recommend(
                 f"my-slides confirm report --unit {unit.id}",
-                "报告已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。",
+                reason,
                 unit=unit.id, actor="human",
             )
         if row["report_unattributed"]:
@@ -92,13 +99,27 @@ def run(args: argparse.Namespace) -> int:
             return recommend(f"my-slides approve spec --unit {unit.id}", "Spec 尚未获得当前版本的用户确认；先提交审批申请。", unit=unit.id)
 
     for unit in units:
-        row = rows[unit.id]
         if not unit_paths(base, unit.id).page.is_file():
             return recommend(f"my-slides prepare slides --unit {unit.id}", "单页 HTML 尚未创建；先生成交接材料并制作页面。", unit=unit.id)
+
+    deck_path = base / "slides" / "index.html"
+    deck_state_path = base / ".state" / "slides.json"
+    deck_state = {}
+    if deck_state_path.is_file():
+        try:
+            import json
+
+            deck_state = json.loads(deck_state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            deck_state = {}
+    expected_manifest = fingerprint_json([unit.to_dict() for unit in units])
+    if deck_path.is_file() and deck_state.get("unit_manifest_sha256") != expected_manifest:
+        return recommend("my-slides slides build --all", "单元顺序、章节或身份已变化，正式整套需要按当前清单重新生成。", unit="all")
+    for unit in units:
+        row = rows[unit.id]
         if not row["html_current"]:
             return recommend(f"my-slides slides build --unit {unit.id}", "此单元 HTML 尚未按当前 Spec 和主题构建。", unit=unit.id)
-
-    if not (base / "slides" / "index.html").is_file():
+    if not deck_path.is_file():
         return recommend("my-slides slides build --all", "全部单页均已构建，但正式整套尚未生成。", unit="all")
     if any(not rows[unit.id]["check_current"] for unit in units):
         browser = browser_status()

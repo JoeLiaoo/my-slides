@@ -373,6 +373,7 @@ def build_units_deck(
                     "format_version": "v2",
                     "html_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
                     "units": [unit.id for unit in all_manifest],
+                    "unit_manifest_sha256": fingerprint_json([unit.to_dict() for unit in all_manifest]),
                     "plan": plan,
                 },
                 ensure_ascii=False,

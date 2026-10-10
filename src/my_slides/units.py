@@ -251,6 +251,7 @@ def list_units_status(base: Path, chapters: list[str]) -> dict[str, Any]:
             "message": "当前为 v1 章节格式；旧版章节迁移已不支持，请重新 my-slides init 创建 v2 项目",
         }
     units, _ = load_units_manifest(base, chapters)
+    known_ids = {unit.id for unit in units}
     missing: list[dict[str, str]] = []
     rows: list[dict[str, Any]] = []
     for unit in units:
@@ -274,11 +275,36 @@ def list_units_status(base: Path, chapters: list[str]) -> dict[str, Any]:
             "role": unit.role,
             "artifacts": presence,
         })
+    orphaned: list[dict[str, str]] = []
+    artifact_dirs = (
+        (base / "reports" / "units", "report"),
+        (base / "specs" / "units", "spec"),
+        (base / "slides" / "pages", "page"),
+        (base / "slides" / "previews", "preview"),
+        (base / ".state" / "units", "state"),
+    )
+    for directory, kind in artifact_dirs:
+        if not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            if not path.is_file():
+                continue
+            name = path.name
+            if kind == "report" and name.endswith(".depends-on.json"):
+                unit_id = name.removesuffix(".depends-on.json")
+                artifact = "dependency"
+            else:
+                unit_id = path.stem
+                artifact = kind
+            if UNIT_ID_RE.fullmatch(unit_id) and unit_id not in known_ids:
+                orphaned.append({"id": unit_id, "artifact": artifact, "path": path.relative_to(base).as_posix()})
+    orphaned.sort(key=lambda item: item["path"])
     return {
         "format_version": "v2",
         "schema_version": SCHEMA_VERSION,
         "units": rows,
         "missing": missing,
+        "orphaned": orphaned,
         "selected_units": [unit.id for unit in units],
         "affected_units": [],
         "reused_units": [],

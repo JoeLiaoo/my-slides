@@ -282,11 +282,16 @@ def confirm_unit_approval(
     )
 
 
-def assemble_after_report_approvals(base: Path, units: list[Unit] | None = None) -> tuple[str, list[str]]:
+def assemble_after_report_approvals(
+    base: Path,
+    units: list[Unit] | None = None,
+    *,
+    chapters: list[str] | None = None,
+) -> tuple[str, list[str]]:
     """Assemble full report.md; on failure leave the previous file untouched."""
     ensure_v2_directories(base)
     if units is None:
-        units, errors = load_units_manifest(base, chapters=None)
+        units, errors = load_units_manifest(base, chapters=chapters)
         if errors:
             return "", errors
     unapproved = [

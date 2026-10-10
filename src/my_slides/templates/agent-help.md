@@ -17,6 +17,8 @@ My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claud
 
 每个单元 ID 对应一份报告、一份 Spec、一页 HTML。修改单个页面时用 `--unit <id>`；批量处理受影响单元用 `--changed`，全部单元用 `--all`。这些选择参数适用于逐单元的 prepare、validate、approve、slides build/check 命令；`confirm` 始终逐单元由用户执行。Agent 不得借助伪终端、`script`、`expect`、tmux `send-keys`、管道或读取 `.state/` 来代填确认。用 `my-slides next --json` 获取下一条建议及原因。交接材料写入固定的 `my-slides/work/<阶段>/<id>.md`，再次 prepare 会覆盖同一文件。
 
+单元清单变更使用 `my-slides units add/move/rename/remove`，不要手工改 `units.json`。删除默认只预览影响，确认后使用 `--yes` 移入 `.state/trash/`，并保留输出的恢复命令。删除曾有报告或 Spec 批准记录的单元前，Agent 必须先征得用户明确同意；有未解决依赖或链接时命令会阻止删除。可用 `my-slides units trash list` 查看回收区，用 `my-slides units restore <trash-id>` 恢复原位置。章节调整需用户重新确认报告；未变的 Spec 批准保留。单元清单或身份变化后重建整套 Slides 并重新检查。
+
 生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查。
 
 其他入口：`my-slides --help` 查看命令列表；`my-slides <命令> --help` 查看参数；`my-slides help --json` 获取机器可读的本指南；`my-slides --version` 查看版本。

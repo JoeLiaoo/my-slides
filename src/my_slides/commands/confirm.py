@@ -25,7 +25,9 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError(f"{unit.id}：没有有效的 {args.kind} 待审批申请，或申请后内容/依赖已变化；请重新提交审批")
     artifact = unit_paths(base, unit.id).report if args.kind == "report" else unit_paths(base, unit.id).spec
     digest = request["content_sha256"]
-    print(f"待审批：{args.kind} / {unit.id}\n文件：{artifact}\n内容 SHA-256：{digest}\n申请时间：{request['requested_at']}")
+    context = request.get("review_context") or state[args.kind].get("reconfirmation_context")
+    context_line = f"\n变更说明：{context}" if context else ""
+    print(f"待审批：{args.kind} / {unit.id}\n文件：{artifact}\n内容 SHA-256：{digest}\n申请时间：{request['requested_at']}{context_line}")
     reviewer = input("审批人姓名：").strip()
     if not reviewer:
         raise ValueError("审批人姓名不能为空；未记录批准")
