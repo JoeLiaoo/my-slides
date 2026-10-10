@@ -127,6 +127,8 @@ class ChatApprovalTests(unittest.TestCase):
             )), 0)
         second = self.review_json("spec", unit="demand")
         self.assertIn("第 2 页：修改", second["units"][0]["changes"]["summary"])
+        self.assertIn("其二", second["units"][0]["changes"]["diff"])
+        self.assertIn("调整后", second["units"][0]["changes"]["diff"])
         self.confirm_chat("spec", second["phrase"], reply="第二页可以，批准", unit="demand")
         spec.write_text(spec.read_text(encoding="utf-8").replace("Conclusion.", "Conclusion revised."), encoding="utf-8")
         demand = refresh_unit_currency(self.base, self.units[1], project_root=self.root)
@@ -150,6 +152,104 @@ class ChatApprovalTests(unittest.TestCase):
         step = json.loads(out.getvalue())["next"]
         self.assertEqual(step["actor"], "human")
         self.assertIn("review report --unit demand", step["command"])
+
+    def test_review_shows_pending_text_and_marks_truncated_report_diffs(self):
+        self.approve_chapter()
+        packet = self.review_json(unit="demand")
+        body = unit_paths(self.base, "demand").report.read_text(encoding="utf-8")
+        self.assertEqual(packet["units"][0]["content"], body)
+        self.assertIn("没有可对比", packet["units"][0]["changes"]["summary"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(review.run(argparse.Namespace(
+                project=str(self.root), kind="report", json=False, unit="demand", chapter=None,
+            )), 0)
+        human = out.getvalue()
+        self.assertIn("待审正文", human)
+        self.assertIn(body.strip(), human)
+
+        self.confirm_chat("report", packet["phrase"], reply="需求分析报告批准", unit="demand")
+        report = unit_paths(self.base, "demand").report
+        report.write_text(report.read_text(encoding="utf-8") + "".join(f"\nchanged line {index}" for index in range(80)), encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(approve.run(argparse.Namespace(
+                project=str(self.root), kind="report", units=["demand"], changed=False,
+                all_units=False, chapter=None, json=True,
+            )), 0)
+        again = self.review_json(unit="demand")
+        self.assertTrue(again["units"][0]["changes"]["truncated"])
+        self.assertIn("差异已截断，仅显示前 40 行", again["units"][0]["changes"]["diff"])
+        self.assertIn("changed line 0", again["units"][0]["content"])
+
+    def test_old_phrase_rejects_a_later_chapter_or_dependency_context(self):
+        from my_slides.project import read_config
+        from my_slides.unit_management import move_unit
+
+        self.approve_chapter()
+        phrase = self.review_json(unit="demand")["phrase"]
+        chapters = [str(item) for item in read_config(self.base / "project.yaml")["chapters"]]
+        move_unit(self.base, "demand", chapters, chapter="公司概况")
+        with self.assertRaisesRegex(ValueError, "短语"):
+            self.confirm_chat("report", phrase, unit="demand")
+
+        wiki = self.base / "wiki" / "evidence.md"
+        wiki.write_text("# Evidence\n\nVersion one.\n", encoding="utf-8")
+        unit_paths(self.base, "competition").report.write_text(
+            "# 竞争分析\n\nConclusion backed by [evidence](../../wiki/evidence.md).\n",
+            encoding="utf-8",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(approve.run(argparse.Namespace(
+                project=str(self.root), kind="report", units=["competition"], changed=False,
+                all_units=False, chapter=None, json=True,
+            )), 0)
+        first = self.review_json(unit="competition")["phrase"]
+        wiki.write_text("# Evidence\n\nVersion two.\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(approve.run(argparse.Namespace(
+                project=str(self.root), kind="report", units=["competition"], changed=False,
+                all_units=False, chapter=None, json=True,
+            )), 0)
+        second = self.review_json(unit="competition")["phrase"]
+        self.assertNotEqual(first, second)
+        with self.assertRaisesRegex(ValueError, "短语"):
+            self.confirm_chat("report", first, unit="competition")
+        self.assertEqual(self.confirm_chat("report", second, reply="依赖更新后批准", unit="competition"), 0)
+
+    def test_old_spec_phrase_rejects_a_newer_report_version(self):
+        self.approve_chapter()
+        report_packet = self.review_json(chapter="行业分析")
+        self.confirm_chat("report", report_packet["phrase"], chapter="行业分析")
+        self.approve_chapter("spec")
+        first = self.review_json("spec", unit="demand")["phrase"]
+        report = unit_paths(self.base, "demand").report
+        report.write_text(report.read_text(encoding="utf-8") + "报告补了一句。\n", encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(approve.run(argparse.Namespace(
+                project=str(self.root), kind="report", units=["demand"], changed=False,
+                all_units=False, chapter=None, json=True,
+            )), 0)
+        report_phrase = self.review_json(unit="demand")["phrase"]
+        self.confirm_chat("report", report_phrase, reply="报告新版本批准", unit="demand")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(approve.run(argparse.Namespace(
+                project=str(self.root), kind="spec", units=["demand"], changed=False,
+                all_units=False, chapter=None, json=True,
+            )), 0)
+        second = self.review_json("spec", unit="demand")["phrase"]
+        self.assertNotEqual(first, second)
+        with self.assertRaisesRegex(ValueError, "短语"):
+            self.confirm_chat("spec", first, unit="demand")
+
+    def test_init_force_keeps_approval_settings(self):
+        from my_slides.project import read_config
+
+        config = self.base / "project.yaml"
+        config.write_text(config.read_text(encoding="utf-8") + 'approval_mode: "terminal"\n', encoding="utf-8")
+        init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=True, json=False))
+        cfg = read_config(config)
+        self.assertEqual(cfg["approval_mode"], "terminal")
+        self.assertEqual(cfg["reviewer"], "张三")
 
 
 if __name__ == "__main__":

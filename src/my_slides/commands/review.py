@@ -16,7 +16,8 @@ def _human(packet: dict) -> str:
         pages = f"\n页数：{unit['pages']}" if unit.get("pages") else ""
         lines.append(f"\n{title}（{unit['id']}）\n文件：{unit['path']}{pages}\n变更：{unit['changes']['summary']}")
         if unit["changes"].get("diff"):
-            lines.append(unit["changes"]["diff"])
+            lines.append("具体差异：\n" + unit["changes"]["diff"])
+        lines.append("待审正文：\n" + str(unit.get("content") or "").rstrip())
     lines.append(f"\n确认短语：{packet['phrase']}")
     lines.append("请在对话中明确回复是否批准。只有用户明确批准后，才能执行 confirm --via chat，并把原话传入 --user-reply。")
     return "\n".join(lines)

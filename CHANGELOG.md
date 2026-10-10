@@ -14,7 +14,8 @@ No unreleased changes.
 
 ### Added
 
-- `review report|spec` shows the pending section or chapter, a page-level Spec diff when an approved copy exists, and the confirmation phrase.
+- `review report|spec` shows the pending section or chapter, the text under review, a concrete diff when an approved copy exists, and the confirmation phrase. Report diffs longer than 40 lines say they were truncated.
+- The confirmation phrase is bound to the section chapter, dependency fingerprint, and, for a Spec, the approved report version. A phrase from an earlier chapter or dependency context cannot confirm a later request.
 - `confirm --via chat --phrase ... --user-reply ...` records a conversation approval. `approve --chapter` and `confirm --chapter` submit and confirm every section in one chapter; each section keeps its own approval record.
 - `project.yaml` accepts `reviewer` and `approval_mode`.
 
