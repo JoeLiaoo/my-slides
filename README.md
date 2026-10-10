@@ -28,7 +28,7 @@ Spec 单元（specs/units/<id>.md）→ 提交申请 → 用户在终端逐单�
 
 ```text
 my-slides units add <id> --chapter <章节> [--after <id>]
-my-slides units move <id> --after <id> [--chapter <章节>]
+my-slides units move <id> [--after <id> | --before <id>] [--chapter <章节>]
 my-slides units rename <old-id> <new-id>
 my-slides units remove <id> [--json]          # 只预览影响
 my-slides units remove <id> --yes              # 移入可恢复回收区

@@ -527,7 +527,46 @@ def add_unit(base: Path, unit_id: str, chapter: str, chapters: list[str], *, aft
     return {"added": True, "unit": new_unit.to_dict(), "position": index, "files": [p.relative_to(base).as_posix() for p in targets[:3]]}
 
 
-def move_unit(base: Path, unit_id: str, chapters: list[str], *, after: str, chapter: str | None = None) -> dict[str, Any]:
+def _place_moved_unit(
+    remaining: list[Unit],
+    moved: Unit,
+    chapters: list[str],
+    *,
+    after: str | None,
+    before: str | None,
+) -> None:
+    if after is not None and before is not None:
+        raise UnitsError("--after 与 --before 只能二选一")
+    if after == moved.id or before == moved.id:
+        raise UnitsError("不能相对自身定位")
+    if after is not None:
+        after_index = next((i for i, unit in enumerate(remaining) if unit.id == after), None)
+        if after_index is None:
+            raise UnitsError(f"--after 指定的单元不存在：{after}")
+        if remaining[after_index].chapter != moved.chapter:
+            raise UnitsError("--after 单元必须属于目标章节")
+        remaining.insert(after_index + 1, moved)
+        return
+    if before is not None:
+        before_index = next((i for i, unit in enumerate(remaining) if unit.id == before), None)
+        if before_index is None:
+            raise UnitsError(f"--before 指定的单元不存在：{before}")
+        if remaining[before_index].chapter != moved.chapter:
+            raise UnitsError("--before 单元必须属于目标章节")
+        remaining.insert(before_index, moved)
+        return
+    remaining.insert(_insert_index(remaining, moved.chapter, chapters, None), moved)
+
+
+def move_unit(
+    base: Path,
+    unit_id: str,
+    chapters: list[str],
+    *,
+    after: str | None = None,
+    before: str | None = None,
+    chapter: str | None = None,
+) -> dict[str, Any]:
     units = _manifest(base, chapters)
     index = next((i for i, unit in enumerate(units) if unit.id == unit_id), None)
     if index is None:
@@ -538,15 +577,8 @@ def move_unit(base: Path, unit_id: str, chapters: list[str], *, after: str, chap
     if destination_chapter not in chapters:
         raise UnitsError(f"章节不存在于 project.yaml：{destination_chapter}")
     remaining = [unit for unit in units if unit.id != unit_id]
-    if after == unit_id:
-        raise UnitsError("单元不能移动到自身之后")
-    after_index = next((i for i, unit in enumerate(remaining) if unit.id == after), None)
-    if after_index is None:
-        raise UnitsError(f"--after 指定的单元不存在：{after}")
-    if remaining[after_index].chapter != destination_chapter:
-        raise UnitsError("--after 单元必须属于目标章节")
     moved = Unit(id=old.id, chapter=destination_chapter, role=old.role)
-    remaining.insert(after_index + 1, moved)
+    _place_moved_unit(remaining, moved, chapters, after=after, before=before)
     errors = validate_units(remaining, chapters)
     if errors:
         raise UnitsError("移动会使单元清单无效：" + "；".join(errors))
@@ -600,7 +632,7 @@ def move_unit(base: Path, unit_id: str, chapters: list[str], *, after: str, chap
         "moved": True,
         "unit": moved.to_dict(),
         "from": {"chapter": old.chapter, "position": index},
-        "to": {"chapter": destination_chapter, "position": after_index + 1},
+        "to": {"chapter": destination_chapter, "position": next(i for i, unit in enumerate(remaining) if unit.id == unit_id)},
         "cross_chapter": old.chapter != destination_chapter,
         "report_reconfirmation": (refreshed["report"].get("reconfirmation_context") if refreshed["report"].get("reconfirmation_required") else None),
         "spec_approval_preserved": bool(refreshed["spec"].get("current")),

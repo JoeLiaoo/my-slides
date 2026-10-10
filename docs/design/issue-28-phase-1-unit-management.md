@@ -8,7 +8,7 @@ This phase adds safe CLI operations for the ordered unit inventory in `my-slides
 
 - `my-slides units add <id> --chapter <chapter> [--after <id>] [--role content]`
 - `my-slides units remove <id> [--yes] [--json]`
-- `my-slides units move <id> --after <id> [--chapter <chapter>]`
+- `my-slides units move <id> [--after <id> | --before <id>] [--chapter <chapter>]`
 - `my-slides units rename <old-id> <new-id>`
 - `my-slides units restore <trash-id>`
 - `my-slides units trash list [--json]`
@@ -21,7 +21,7 @@ Approval history, diff/reject/withdraw/revoke, chapter-management commands, deli
 
 1. Every operation loads and validates the complete manifest against `project.yaml` before planning changes, then validates the proposed manifest before writing anything.
 2. Unit IDs stay unique and regex-safe; exactly one cover remains at array index zero; units remain grouped in configured chapter order.
-3. An omitted `--after` inserts a content unit after the last unit in its requested chapter, or before the first later configured chapter. `--after` is only valid for an existing unit in the requested chapter. Commands reject ambiguous or invalid insertion points rather than silently reordering unrelated chapters.
+3. An omitted `--after`/`--before` inserts or moves a content unit after the last unit in its requested chapter, or before the first later configured chapter when that chapter is empty. `--after` and `--before` name an existing unit in the requested chapter and are mutually exclusive. `--before` can place a unit first in a chapter. Commands reject ambiguous or invalid insertion points rather than silently reordering unrelated chapters.
 4. A new unit receives visible TODO skeletons for its report, one-page Spec, and HTML fragment. Skeletons are not treated as validated or approved content.
 5. Same-chapter reordering preserves report and Spec approvals, but invalidates the whole deck and its browser checks because slide order changed. A cross-chapter move requests report reconfirmation with the review context limited to `章节：甲 → 乙，内容未变`; Spec approval remains current while the approved report and dependency closure are unchanged. HTML is rebuilt and the deck is rechecked.
 6. Rename preserves report and Spec approvals when the operation only changes identity metadata, paths, and exact local links to the renamed unit. It records the identity migration in state. If a rewritten report or Spec has a substantive content change, that artifact's approval becomes stale. HTML and browser checks are invalidated in all cases.
@@ -54,7 +54,7 @@ Show a read-only plan by default, including every artifact path, approval state,
 
 ### Move
 
-Move the entry within its chapter or to a specified chapter while preserving manifest validity. Same-chapter moves preserve report/Spec approvals and invalidate the assembled deck and browser checks. Cross-chapter moves preserve the Spec approval when its bound report fingerprint is unchanged, and create a report reconfirmation request with context `章节：<旧章节> → <新章节>，内容未变`. HTML is rebuilt and checks rerun; dependent approvals are invalidated only if their dependency closure changes.
+Move the entry within its chapter or to a specified chapter while preserving manifest validity. `--after <id>` places it after that unit, `--before <id>` places it before that unit (including the first position of the chapter), and omitting both appends it to the target chapter so an empty chapter can receive a unit. Same-chapter moves preserve report/Spec approvals and invalidate the assembled deck and browser checks. Cross-chapter moves preserve the Spec approval when its bound report fingerprint is unchanged, and create a report reconfirmation request with context `章节：<旧章节> → <新章节>，内容未变`. HTML is rebuilt and checks rerun; dependent approvals are invalidated only if their dependency closure changes.
 
 ### Rename
 

@@ -72,7 +72,7 @@ def run(args: argparse.Namespace) -> int:
         emit(args, data, _remove_human(plan, executed=args.yes), error=bool(plan.get("blocked")))
         return 1 if plan.get("blocked") else 0
     if operation == "move":
-        data = move_unit(base, args.id, chapters, after=args.after, chapter=args.chapter)
+        data = move_unit(base, args.id, chapters, after=args.after, before=args.before, chapter=args.chapter)
         context = f"；报告需用户确认：{data['report_reconfirmation']}" if data.get("report_reconfirmation") else ""
         emit(args, data, f"已移动 {args.id}；请按需重新确认报告并重新组装报告，再重建整套 Slides 并重新检查{context}。")
         return 0

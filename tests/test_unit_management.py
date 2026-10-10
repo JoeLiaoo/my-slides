@@ -174,6 +174,22 @@ class UnitManagementTests(unittest.TestCase):
         rename_unit(self.base, "alpha", "renamed-alpha", self.chapters)
         self.assertFalse(refresh_unit_currency(self.base, renamed, project_root=self.root)["report"]["current"])
 
+    def test_move_appends_to_an_empty_chapter_and_before_places_first(self):
+        from my_slides.units import load_units_manifest
+
+        self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 0, "content")])
+        empty_chapter = self.chapters[2]
+        appended = move_unit(self.base, "alpha", self.chapters, chapter=empty_chapter)
+        units, errors = load_units_manifest(self.base, self.chapters)
+        self.assertEqual(errors, [])
+        self.assertEqual(appended["to"]["chapter"], empty_chapter)
+        self.assertEqual([unit.id for unit in units if unit.chapter == empty_chapter], ["alpha"])
+        move_unit(self.base, "beta", self.chapters, before="alpha", chapter=empty_chapter)
+        units, _errors = load_units_manifest(self.base, self.chapters)
+        self.assertEqual([unit.id for unit in units if unit.chapter == empty_chapter], ["beta", "alpha"])
+        with self.assertRaisesRegex(ValueError, "目标章节"):
+            move_unit(self.base, "beta", self.chapters, before="cover")
+
     def test_same_chapter_reorder_preserves_approvals_but_invalidates_checks(self):
         units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 0, "content")])
         self.approve(units[1])
