@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from my_slides import __version__
+from my_slides import __version__, format_version
 from my_slides.agent_workflow import install_agent_workflow
 from my_slides.commands.init import init_project
 from my_slides.commands.prepare import prepare
@@ -38,7 +38,7 @@ class VersionTests(unittest.TestCase):
                     env=env,
                 )
                 self.assertEqual(result.returncode, 0)
-                self.assertEqual(result.stdout.strip(), f"my-slides {__version__}")
+                self.assertEqual(result.stdout.strip(), format_version())
 
 
 class ProjectWorkflowTests(unittest.TestCase):

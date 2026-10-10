@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 
-from . import __version__
+from . import format_version
 from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, renderer, slides, sources, status, units, validate
 from .commands.init import init_project
 from .commands.prepare import prepare
@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="投资项目 Wiki、报告与 HTML Slides 本地工作流",
         epilog="首次使用请运行 my-slides help；具体参数请运行 my-slides <命令> --help。",
     )
-    parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("-V", "--version", action="version", version=format_version())
     sub = parser.add_subparsers(dest="command", required=True)
     guide = sub.add_parser("help", help="查看面向首次使用的 Agent 工作流指南（无需项目目录）")
     guide.add_argument("--json", action="store_true", help="以 JSON 输出指南")

@@ -85,7 +85,9 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 ### 版本
 
-用 `my-slides --version`（或 `-V`）查看本机安装的版本号。可编辑安装（`uv tool install --editable …`）在 `git pull` 后会随仓库 `pyproject.toml` 的 `[project].version` 更新。**合并进 `main` 的 PR 必须在同一 PR 内把 `[project].version` 的 patch +1**（见 [`AGENTS.md`](./AGENTS.md)）；CI 不会自动修改版本号。
+用 `my-slides --version`（或 `-V`）查看版本。开发 checkout 会同时显示短提交号；工作区有改动时会标记“有未提交修改”。正式安装包没有 Git 信息时仍只显示版本号。`my-slides help --json` 也会返回 `version`、`commit` 和 `dirty`。
+
+每个 PR 都要按影响选择版本级别，在 [`CHANGELOG.md`](./CHANGELOG.md) 添加对应版本条目。兼容新增、修复、文档和 CI 改动升 patch；不兼容的命令或状态变化升 minor 并把 patch 归零，更新日志必须有“不兼容变更”分类；major 版本需要维护者批准。PR CI 会阻止漏升、跳号、版本级别与不兼容标记不符或漏写更新日志。合并后由维护者手动创建并推送 `vX.Y.Z` annotated tag。规则和历史 tag 映射见 [`docs/versioning.md`](docs/versioning.md) 与 [`AGENTS.md`](./AGENTS.md)。
 
 ### 最小冒烟（命令骨架）
 
