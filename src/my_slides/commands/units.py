@@ -6,7 +6,7 @@ import argparse
 
 from ..command_output import emit
 from ..project import ensure_project, project_root, require_v2_project
-from ..unit_management import add_unit, list_trash, move_unit, remove_plan, remove_unit, rename_unit, restore_unit
+from ..unit_management import add_unit, list_trash, move_unit, remove_plan, remove_unit, rename_unit, restore_unit, retitle_unit
 from ..units import list_units_status
 
 
@@ -62,8 +62,9 @@ def run(args: argparse.Namespace) -> int:
         return 1 if data.get("missing") or data.get("orphaned") else 0
 
     if operation == "add":
-        data = add_unit(base, args.id, args.chapter, chapters, after=args.after, role=args.role)
-        emit(args, data, f"已新增单元 {args.id}（{args.chapter}）；请填写报告、Spec 和 HTML 骨架。")
+        data = add_unit(base, args.id, args.chapter, chapters, after=args.after, role=args.role, title=args.title)
+        label = f"{args.chapter} / {args.title}" if args.title else args.chapter
+        emit(args, data, f"已新增小章节 {args.id}（{label}）；请填写报告、Spec 和 HTML。一个小章节可以包含多页。")
         return 0
     if operation == "remove":
         plan = remove_unit(base, args.id, chapters, project_root=root) if args.yes else remove_plan(base, args.id, chapters, project_root=root)
@@ -79,6 +80,10 @@ def run(args: argparse.Namespace) -> int:
     if operation == "rename":
         data = rename_unit(base, args.old_id, args.new_id, chapters)
         emit(args, data, f"已将 {args.old_id} 重命名为 {args.new_id}；请重新组装报告，并重建整套 Slides、重新检查。")
+        return 0
+    if operation == "retitle":
+        data = retitle_unit(base, args.id, args.title, chapters)
+        emit(args, data, f"已将 {args.id} 的显示名改为「{data['unit'].get('title', '')}」。报告和 Spec 批准保持有效；请重建整套 Slides。")
         return 0
     if operation == "restore":
         data = restore_unit(base, args.trash_id, chapters)

@@ -100,7 +100,7 @@ def run(args: argparse.Namespace) -> int:
 
     for unit in units:
         if not unit_paths(base, unit.id).page.is_file():
-            return recommend(f"my-slides prepare slides --unit {unit.id}", "单页 HTML 尚未创建；先生成交接材料并制作页面。", unit=unit.id)
+            return recommend(f"my-slides prepare slides --unit {unit.id}", "小章节 HTML 尚未创建；先生成交接材料并按 Spec 页数制作页面。", unit=unit.id)
 
     deck_path = base / "slides" / "index.html"
     deck_state_path = base / ".state" / "slides.json"

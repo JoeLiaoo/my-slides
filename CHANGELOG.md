@@ -6,6 +6,20 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.3.0] - Pending
+
+### Breaking Changes
+
+- A unit is now a section that may contain multiple slides. Specs use consecutive `## Slide N —` pages (a cover stays one page; other sections allow up to 8). HTML page count must match the Spec, and each page may use only the charts and icons declared on that Spec page. Decks number slides across the whole presentation and record `data-unit-page`.
+
+### Added
+
+- `units add --title` and `units retitle` store a section display name such as 需求分析. Retitling does not revoke report or Spec approval.
+
+### Changed
+
+- Existing one-page Specs that identify themselves with `页面 ID` remain valid. `单元 ID` at the top of a Spec is the preferred form.
+
 ## [0.2.12] - Pending
 
 ### Added

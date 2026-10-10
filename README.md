@@ -4,7 +4,7 @@
 
 面向投资研究的本地 Agent 工具。用户在投资项目目录中使用 Codex、Claude Code 或 DeepSeek harness，通过统一 CLI 整理项目资料、维护 Wiki、撰写投资报告，并生成可离线浏览的 HTML 投资汇报 Slides。
 
-项目以 `my-slides/units.json` 中的单元组织：每个单元对应一份报告、一份 Spec、一页 HTML，支持按单元审阅与增量构建。
+项目以 `my-slides/units.json` 中的小章节（单元）组织：每个小章节属于一个大章节，对应一份报告、一份 Spec 和若干页 HTML。审批、修改和增量构建都以小章节为单位。
 
 ## 目标工作流
 
@@ -17,17 +17,18 @@
         ↓
 Spec 单元（specs/units/<id>.md）→ 提交申请 → 用户在终端逐单元确认
         ↓
-单页 HTML（slides/pages/<id>.html）→ 增量合并为整套离线演示文稿
+小章节 HTML（slides/pages/<id>.html，可含多页）→ 增量合并为整套离线演示文稿
 ```
 
-每个单元有稳定 ID，对应一份报告、一份 Spec、一页 HTML。改单元 A 时只处理 A 及真正依赖它的部分。
+每个小章节有稳定 ID。例如「行业分析」下面可以有「需求分析」「竞争分析」，各自写一页或多页。改某个小章节时只处理它以及真正依赖它的部分；只改某一页的版式、不改 Spec 时，不需要重新审批。
 
 ## 管理单元
 
-用 `my-slides units add <id> --chapter <章节>` 新增内容单元，或用 `units move`、`units rename` 调整清单；无需手工编辑 `units.json`。章节移动要求用户重新确认报告，报告内容没变时保留 Spec 批准。结构变化后运行 `my-slides next --json`，按建议重建整套 Slides 并重新检查。
+用 `my-slides units add <id> --chapter <大章节> --title <小章节名>` 新增小章节，或用 `units move`、`units rename`、`units retitle` 调整清单；无需手工编辑 `units.json`。`retitle` 只改显示名，已有批准仍然有效。跨大章节移动要求用户重新确认报告，报告内容没变时保留 Spec 批准。结构变化后运行 `my-slides next --json`，按建议重建整套 Slides 并重新检查。
 
 ```text
-my-slides units add <id> --chapter <章节> [--after <id>]
+my-slides units add <id> --chapter <章节> [--title <小章节名>] [--after <id>]
+my-slides units retitle <id> <小章节名>
 my-slides units move <id> [--after <id> | --before <id>] [--chapter <章节>]
 my-slides units rename <old-id> <new-id>
 my-slides units remove <id> [--json]          # 只预览影响
@@ -120,7 +121,7 @@ my-slides assemble
 my-slides prepare spec --unit <id> && …撰写… && my-slides validate spec --unit <id>
 my-slides approve spec --unit <id>    # 提交申请；用户另行 confirm spec
 my-slides confirm spec --unit <id>    # 用户本人执行
-my-slides prepare slides --unit <id> && …写单页 HTML…
+my-slides prepare slides --unit <id> && …按 Spec 页数写 HTML…
 my-slides slides build --all
 my-slides slides check --all
 ```

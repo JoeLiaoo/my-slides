@@ -29,11 +29,28 @@ def _spec(unit_id: str, role: str) -> str:
 
 
 def _page(unit_id: str, role: str) -> str:
-    return (
-        f'<section class="slide" id="{unit_id}" data-page-role="{role}" data-unit-id="{unit_id}">'
-        f"<h1>{unit_id}</h1>"
+    return _pages(unit_id, role, [unit_id])
+
+
+def _spec_pages(unit_id: str, role: str, titles: list[str]) -> str:
+    parts = [f"单元 ID：{unit_id}", f"页面角色：{role}", ""]
+    for number, title in enumerate(titles, start=1):
+        parts.append(
+            f"## Slide {number} — {title}\n"
+            "### 目的\nExplain.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
+            "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
+            "### 布局意图\nLayout.\n### 图标需求\n无\n"
+        )
+    return "\n".join(parts)
+
+
+def _pages(unit_id: str, role: str, titles: list[str]) -> str:
+    return "\n".join(
+        f'<section class="slide" data-page-role="{role}" data-unit-id="{unit_id}">'
+        f"<h1>{title}</h1>"
         f'<script type="application/json" class="slide-notes">'
-        f'{{"title":"{unit_id}","script":"Hi","notes":[]}}</script></section>'
+        f'{{"title":"{title}","script":"Hi","notes":[]}}</script></section>'
+        for title in titles
     )
 
 
@@ -205,29 +222,44 @@ class AssemblyTests(unittest.TestCase):
         self.assertEqual(pending, ["sources/metrics.md"])
         self.assertEqual(removed, [])
         self.assertEqual(mark_ingested(self.base, pending), 1)
-        units = [Unit(id=f"chapter-{number}", chapter=chapter,
-                      role="cover" if number == 1 else "content")
-                 for number, chapter in enumerate(chapters, 1)]
+        units: list[Unit] = []
+        for number, chapter in enumerate(chapters, 1):
+            units.append(Unit(
+                id=f"chapter-{number}",
+                chapter=chapter,
+                role="cover" if number == 1 else "content",
+                title=chapter,
+            ))
+            units.append(Unit(
+                id=f"chapter-{number}-detail",
+                chapter=chapter,
+                role="content",
+                title=f"{chapter}补充",
+            ))
         write_units_manifest(self.base, units)
         for unit in units:
             paths = unit_paths(self.base, unit.id)
+            page_titles = ["概览", "结构", "结论"] if unit.id == "chapter-2-detail" else ["概览"]
             paths.report.write_text(
-                f"# {unit.chapter}\n\nSynthetic investment analysis using [company evidence](../../wiki/company.md).\n",
+                f"# {unit.title}\n\nSynthetic investment analysis using [company evidence](../../wiki/company.md).\n",
                 encoding="utf-8",
             )
-            paths.spec.write_text(_spec(unit.id, unit.role), encoding="utf-8")
-            paths.page.write_text(_page(unit.id, unit.role), encoding="utf-8")
+            paths.spec.write_text(_spec_pages(unit.id, unit.role, page_titles), encoding="utf-8")
+            paths.page.write_text(_pages(unit.id, unit.role, page_titles), encoding="utf-8")
             approve_unit_report(self.base, unit, when="t0", project_root=self.root, **TEST_APPROVER)
         document, errors = assemble_after_report_approvals(self.base)
         self.assertEqual(errors, [], errors)
-        self.assertEqual(document.count("company evidence"), 6)
+        self.assertEqual(document.count("company evidence"), 12)
         for unit in units:
             approve_unit_spec(self.base, unit, when="t1", project_root=self.root, **TEST_APPROVER)
         output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
         self.assertEqual(errors, [], errors)
-        self.assertTrue(structural_check_deck(output, expected_units=[unit.id for unit in units])["valid"])
+        structural = structural_check_deck(output, expected_units=[unit.id for unit in units])
+        self.assertTrue(structural["valid"], structural["errors"])
+        detail = next(item for item in structural["sections"] if item["id"] == "chapter-2-detail")
+        self.assertEqual(detail["pages"], 3)
         state = collect_units_status(self.base, chapters=chapters, project_root=self.root)
-        self.assertEqual(len(state["units"]), 6)
+        self.assertEqual(len(state["units"]), 12)
         self.assertTrue(all(row["report_current"] and row["spec_current"] and row["html_current"]
                             for row in state["units"]))
 
