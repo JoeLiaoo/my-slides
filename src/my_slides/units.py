@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlparse
@@ -26,14 +26,21 @@ MARKDOWN_REF_DEF_RE = re.compile(
 MARKDOWN_FOOTNOTE_DEF_RE = re.compile(r"^\[\^[^\]]+\]:", flags=re.MULTILINE)
 
 
+MAX_UNIT_TITLE_LENGTH = 80
+
+
 @dataclass(frozen=True)
 class Unit:
     id: str
     chapter: str
     role: str
+    title: str = ""
 
     def to_dict(self) -> dict[str, str]:
-        return asdict(self)
+        data = {"id": self.id, "chapter": self.chapter, "role": self.role}
+        if self.title:
+            data["title"] = self.title
+        return data
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,16 @@ class UnitsError(ValueError):
 def slug(value: str) -> str:
     value = re.sub(r"[^\w\u3400-\u9fff.-]+", "-", value.strip().lower(), flags=re.UNICODE)
     return value.strip("-.") or "section"
+
+
+def normalize_unit_title(value: str) -> str:
+    """Accept a short display title for a section. Empty input is rejected."""
+    if not isinstance(value, str):
+        raise UnitsError("小章节标题必须是文本")
+    title = value.strip()
+    if not title or any(char in title for char in "\r\n") or len(title) > MAX_UNIT_TITLE_LENGTH:
+        raise UnitsError(f"小章节标题必须是不超过 {MAX_UNIT_TITLE_LENGTH} 个字符、且不含换行的非空文本")
+    return title
 
 
 def unit_id_prefix(value: str, *, fallback: str) -> str:
@@ -159,10 +176,16 @@ def _normalize_unit_entry(raw: Any, index: int) -> Unit:
         raise UnitsError(f"units[{index}].chapter 不能为空")
     if not isinstance(role, str) or role not in UNIT_ROLES:
         raise UnitsError(f"units[{index}].role 必须是 cover 或 content")
-    unknown = sorted(set(raw) - {"id", "chapter", "role"})
+    unknown = sorted(set(raw) - {"id", "chapter", "role", "title"})
     if unknown:
         raise UnitsError(f"units[{index}] 含未知字段：{', '.join(unknown)}")
-    return Unit(id=unit_id, chapter=chapter.strip(), role=role)
+    title = ""
+    if "title" in raw:
+        try:
+            title = normalize_unit_title(raw.get("title"))
+        except UnitsError as exc:
+            raise UnitsError(f"units[{index}].title 无效：{exc}") from exc
+    return Unit(id=unit_id, chapter=chapter.strip(), role=role, title=title)
 
 
 def validate_units(units: list[Unit], chapters: list[str] | None = None) -> list[str]:
@@ -272,6 +295,7 @@ def list_units_status(base: Path, chapters: list[str]) -> dict[str, Any]:
         rows.append({
             "id": unit.id,
             "chapter": unit.chapter,
+            "title": unit.title,
             "role": unit.role,
             "artifacts": presence,
         })

@@ -57,17 +57,63 @@ def approved_assets_from_spec(spec_text: str) -> tuple[set[str], set[str]]:
     return charts, icons
 
 
+_ASSET_MARKER_RE = re.compile(
+    r'<script\b(?=[^>]*\btype="application/json")'
+    r'(?=[^>]*\bclass="(?:[^"]*\s)?(?:mls-echarts-spec|mls-lucide-spec)(?:\s[^"]*)?")'
+    r"[^>]*>.*?</script>",
+    flags=re.DOTALL,
+)
+
+
+def _stamp_slide_root(source: str, unit_id: str, page_number: int) -> str:
+    source = re.sub(r'\sdata-unit-id=["\'][^"\']*["\']', "", source, count=1)
+    source = re.sub(r'\sdata-unit-page=["\'][^"\']*["\']', "", source, count=1)
+    return re.sub(
+        r"(<(?:section|div)\b[^>]*\bclass=[\"'][^\"']*\bslide\b[^\"']*[\"'])",
+        rf'\1 data-unit-id="{html.escape(unit_id, quote=True)}" data-unit-page="{page_number}"',
+        source,
+        count=1,
+        flags=re.I,
+    )
+
+
+def _render_slide_html(
+    slide: dict[str, Any],
+    assets: list[dict[str, Any]],
+    rendered: dict[str, str],
+    unit_id: str,
+    page_number: int,
+) -> str:
+    source = "".join(slide["html"])
+    asset_index = 0
+
+    def replace_asset(_match: re.Match[str]) -> str:
+        nonlocal asset_index
+        asset = assets[asset_index]
+        asset_index += 1
+        return wrap_rendered_asset(asset["kind"], rendered[asset["id"]])
+
+    if assets:
+        source = _ASSET_MARKER_RE.sub(replace_asset, source)
+        if asset_index != len(assets):
+            raise ValueError("渲染标记数量不一致")
+    return _stamp_slide_root(source, unit_id, page_number)
+
+
 def compute_unit_cache_key(
     base: Path,
     unit: Unit,
     *,
     brand_color: str,
 ) -> tuple[str | None, list[str], dict[str, Any] | None]:
-    """Compute the full page cache key for current inputs (brand/renderer included).
+    """Compute the section cache key for current inputs (brand/renderer included).
 
     Returns ``(cache_key, errors, context)`` where context carries parsed slide data
-    for compile_unit_page when key computation succeeds.
+    for compile_unit_page when key computation succeeds. A section may contain
+    several pages; page N may only use charts and icons declared on Spec page N.
     """
+    from .unit_workflow import split_spec_pages
+
     paths = unit_paths(base, unit.id)
     errors: list[str] = []
     if not paths.page.is_file():
@@ -76,7 +122,9 @@ def compute_unit_cache_key(
         return None, [f"{unit.id}：缺少 Spec"], None
 
     spec_text = paths.spec.read_text(encoding="utf-8")
-    approved_charts, approved_icons = approved_assets_from_spec(spec_text)
+    _preamble, spec_pages = split_spec_pages(spec_text)
+    if not spec_pages or [page["number"] for page in spec_pages] != list(range(1, len(spec_pages) + 1)):
+        return None, [f"{unit.id}：Spec 没有从 1 连续编号的分页，无法构建"], None
 
     parser = SlideFragmentParser()
     try:
@@ -87,48 +135,56 @@ def compute_unit_cache_key(
     errors.extend(f"{unit.id}：{issue}" for issue in parser.errors)
     if parser.active:
         errors.append(f"{unit.id}：slide 标签未闭合")
-    if len(parser.slides) != 1:
-        errors.append(f"{unit.id}：每个单元 HTML 必须恰好一页（当前 {len(parser.slides)}）")
-    if errors:
-        return None, errors, None
-
-    slide = parser.slides[0]
-    if (slide.get("role") or unit.role) and (slide.get("role") or unit.role) != unit.role:
-        role = slide.get("role") or unit.role
-        if role != unit.role:
-            errors.append(f"{unit.id}：data-page-role 与 units.json 不一致")
+    if not parser.slides:
+        errors.append(f"{unit.id}：HTML 至少需要一页")
+    elif len(parser.slides) != len(spec_pages):
+        errors.append(
+            f"{unit.id}：HTML 页数（{len(parser.slides)}）必须与 Spec 页数（{len(spec_pages)}）一致"
+        )
     css = "".join(parser.css)
     if re.search(r"@import|url\s*\(", css, flags=re.I):
         errors.append(f"{unit.id}：样式包含外部导入或 URL")
     errors.extend(validate_scoped_css(css, label=unit.id))
-    if not slide["has_notes"]:
-        errors.append(f"{unit.id}：需要 slide-notes JSON 对象")
-    else:
-        try:
-            note = json.loads("".join(slide["notes"]))
-            if not isinstance(note, dict):
-                errors.append(f"{unit.id}：slide-notes 必须是 JSON 对象")
-        except json.JSONDecodeError:
-            errors.append(f"{unit.id}：slide-notes JSON 无效")
+    if errors:
+        return None, errors, None
 
     assets_to_render: list[dict[str, Any]] = []
-    for asset in slide["assets"]:
-        try:
-            if asset["kind"] == "chart":
-                validate_chart_spec(asset["spec"])
-                canonical = json.dumps(asset["spec"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                if canonical not in approved_charts:
-                    raise ValueError("图表数据必须与本单元已批准 Spec 中的 echarts-spec 完全一致（禁止借用其他单元）")
-            else:
-                icon_name = asset["spec"].get("name", "")
-                if not isinstance(icon_name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", icon_name):
-                    raise ValueError("Lucide 图标名称必须使用 kebab-case")
-                if icon_name not in approved_icons:
-                    raise ValueError(f"图标 {icon_name} 未在本单元 Spec 的图标需求中声明")
-            asset["id"] = f"{unit.id}-asset-{len(assets_to_render)}"
-            assets_to_render.append(asset)
-        except ValueError as exc:
-            errors.append(f"{unit.id}：{exc}")
+    compiled_slides: list[dict[str, Any]] = []
+    for page_index, slide in enumerate(parser.slides):
+        page_number = page_index + 1
+        approved_charts, approved_icons = approved_assets_from_spec(spec_pages[page_index]["body"])
+        role = slide.get("role") or ""
+        if role and role != unit.role:
+            errors.append(f"{unit.id}：第 {page_number} 页 data-page-role 与 units.json 不一致")
+        if not slide["has_notes"]:
+            errors.append(f"{unit.id}：第 {page_number} 页需要 slide-notes JSON 对象")
+        else:
+            try:
+                note = json.loads("".join(slide["notes"]))
+                if not isinstance(note, dict):
+                    errors.append(f"{unit.id}：第 {page_number} 页 slide-notes 必须是 JSON 对象")
+            except json.JSONDecodeError:
+                errors.append(f"{unit.id}：第 {page_number} 页 slide-notes JSON 无效")
+        slide_assets: list[dict[str, Any]] = []
+        for asset in slide["assets"]:
+            try:
+                if asset["kind"] == "chart":
+                    validate_chart_spec(asset["spec"])
+                    canonical = json.dumps(asset["spec"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    if canonical not in approved_charts:
+                        raise ValueError("图表数据必须与本页已批准 Spec 中的 echarts-spec 完全一致（不能借用其他页或其他小章节）")
+                else:
+                    icon_name = asset["spec"].get("name", "")
+                    if not isinstance(icon_name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", icon_name):
+                        raise ValueError("Lucide 图标名称必须使用 kebab-case")
+                    if icon_name not in approved_icons:
+                        raise ValueError(f"图标 {icon_name} 未在本页 Spec 的图标需求中声明")
+                asset["id"] = f"{unit.id}-p{page_number}-asset-{len(slide_assets)}"
+                slide_assets.append(asset)
+                assets_to_render.append(asset)
+            except ValueError as exc:
+                errors.append(f"{unit.id}：第 {page_number} 页：{exc}")
+        compiled_slides.append({"slide": slide, "assets": slide_assets, "page": page_number})
     if errors:
         return None, errors, None
 
@@ -146,7 +202,7 @@ def compute_unit_cache_key(
     )
     return cache_key, [], {
         "paths": paths,
-        "slide": slide,
+        "compiled_slides": compiled_slides,
         "css": css,
         "assets_to_render": assets_to_render,
     }
@@ -169,7 +225,6 @@ def compile_unit_page(
         return None, errors
 
     paths = ctx["paths"]
-    slide = ctx["slide"]
     css = ctx["css"]
     assets_to_render = ctx["assets_to_render"]
     cached = _cache_path(base, cache_key)
@@ -178,52 +233,36 @@ def compile_unit_page(
     else:
         try:
             rendered = render_assets(assets_to_render, brand_color) if assets_to_render else {}
+            pages = [
+                {
+                    "page": item["page"],
+                    "html": _render_slide_html(item["slide"], item["assets"], rendered, unit.id, item["page"]),
+                }
+                for item in ctx["compiled_slides"]
+            ]
         except (OSError, ValueError) as exc:
             return None, [str(exc)]
-        source = "".join(slide["html"])
-        asset_index = 0
-        marker_pattern = re.compile(
-            r'<script\b(?=[^>]*\btype="application/json")'
-            r'(?=[^>]*\bclass="(?:[^"]*\s)?(?:mls-echarts-spec|mls-lucide-spec)(?:\s[^"]*)?")'
-            r"[^>]*>.*?</script>",
-            flags=re.DOTALL,
-        )
-
-        def replace_asset(_match: re.Match[str]) -> str:
-            nonlocal asset_index
-            asset = assets_to_render[asset_index]
-            asset_index += 1
-            return wrap_rendered_asset(asset["kind"], rendered[asset["id"]])
-
-        if assets_to_render:
-            source = marker_pattern.sub(replace_asset, source)
-            if asset_index != len(assets_to_render):
-                return None, [f"{unit.id}：渲染标记数量不一致"]
-        if "data-unit-id=" not in source:
-            source = re.sub(
-                r"(<(?:section|div)\b[^>]*\bclass=[\"'][^\"']*\bslide\b[^\"']*[\"'])",
-                rf'\1 data-unit-id="{html.escape(unit.id, quote=True)}"',
-                source,
-                count=1,
-                flags=re.I,
-            )
         scope_css = f'@scope ([data-unit-id="{unit.id}"]) {{\n{css}\n}}' if css else ""
+        joined = "\n".join(page["html"] for page in pages)
         payload = {
             "unit_id": unit.id,
             "role": unit.role,
-            "html": source,
+            "pages": pages,
+            "html": joined,
             "css": scope_css,
             "cache_key": cache_key,
         }
         _atomic_write(cached, json.dumps(payload, ensure_ascii=False))
 
+    page_html = _payload_pages(payload)
     if write_preview:
+        preview_html = "\n".join(page_html)
         preview = render_document(
-            [payload["html"]],
+            page_html,
             [payload.get("css") or ""],
-            title=unit.id,
+            title=unit.title or unit.id,
             brand_color=brand_color,
-            has_assets="mls-chart" in payload["html"] or "mls-icon" in payload["html"] or "<svg" in payload["html"],
+            has_assets="mls-chart" in preview_html or "mls-icon" in preview_html or "<svg" in preview_html,
             kind="preview",
         )
         _atomic_write(paths.preview, preview)
@@ -238,7 +277,15 @@ def compile_unit_page(
     }
     state["reasons"] = [r for r in state.get("reasons", []) if "HTML" not in r]
     write_unit_state(base, unit.id, state)
-    return payload["html"], []
+    return "\n".join(_payload_pages(payload)), []
+
+
+def _payload_pages(payload: dict[str, Any]) -> list[str]:
+    pages = payload.get("pages")
+    if isinstance(pages, list) and pages:
+        return [str(item["html"]) for item in pages if isinstance(item, dict) and item.get("html")]
+    html_value = payload.get("html")
+    return [html_value] if isinstance(html_value, str) and html_value else []
 
 
 def build_units_deck(
@@ -289,7 +336,9 @@ def build_units_deck(
     sections: list[str] = []
     css_blocks: list[str] = []
     has_assets = False
-    for index, unit in enumerate(all_manifest):
+    slide_index = 0
+    assembled_units = 0
+    for unit in all_manifest:
         state = refresh_unit_currency(base, unit, project_root=base.parent)
         if unit.id in page_payloads:
             payload = page_payloads[unit.id]
@@ -312,7 +361,6 @@ def build_units_deck(
             else:
                 payload = None
         if payload is None:
-            # Try compile on the fly for --all
             html_fragment, unit_errors = compile_unit_page(base, unit, brand_color=brand_color, write_preview=True)
             if unit_errors:
                 build_errors.extend(unit_errors)
@@ -323,27 +371,32 @@ def build_units_deck(
             cached = _cache_path(base, state["html"]["cache_key"])
             payload = json.loads(cached.read_text(encoding="utf-8"))
             plan["rebuild"].append(unit.id)
-        source = payload["html"]
-        # Strip prior indices/ids so rewrite injects exactly one of each (pages may
-        # already carry data-unit-id from compile_unit_page).
-        source = re.sub(r'\sdata-slide=["\'][^"\']*["\']', "", source, count=1)
-        source = re.sub(r'\sdata-unit-id=["\'][^"\']*["\']', "", source, count=1)
-        marker = f'data-slide="{index}" data-unit-id="{html.escape(unit.id, quote=True)}"'
+        unit_html = "\n".join(_payload_pages(payload))
+        for page_number, source in enumerate(_payload_pages(payload), start=1):
+            source = re.sub(r'\sdata-slide=["\'][^"\']*["\']', "", source, count=1)
+            source = re.sub(r'\sdata-unit-id=["\'][^"\']*["\']', "", source, count=1)
+            source = re.sub(r'\sdata-unit-page=["\'][^"\']*["\']', "", source, count=1)
+            marker = (
+                f'data-slide="{slide_index}" data-unit-id="{html.escape(unit.id, quote=True)}" '
+                f'data-unit-page="{page_number}"'
+            )
 
-        def rewrite_root(match: re.Match[str], *, _index: int = index, _marker: str = marker) -> str:
-            classes = [token for token in match.group(1).split() if token != "active"]
-            if not _index:
-                classes.append("active")
-            return f'class="{" ".join(classes)}" {_marker}'
+            def rewrite_root(match: re.Match[str], *, _index: int = slide_index, _marker: str = marker) -> str:
+                classes = [token for token in match.group(1).split() if token != "active"]
+                if not _index:
+                    classes.append("active")
+                return f'class="{" ".join(classes)}" {_marker}'
 
-        source = re.sub(r'\bclass=["\']([^"\']*\bslide\b[^"\']*)["\']', rewrite_root, source, count=1)
-        sections.append(source)
+            source = re.sub(r'\bclass=["\']([^"\']*\bslide\b[^"\']*)["\']', rewrite_root, source, count=1)
+            sections.append(source)
+            slide_index += 1
+        assembled_units += 1
         if payload.get("css"):
             css_blocks.append(payload["css"])
-        if "mls-echarts" in payload["html"] or "<svg" in payload["html"]:
+        if "mls-echarts" in unit_html or "<svg" in unit_html:
             has_assets = True
 
-    if build_errors or len(sections) != len(all_manifest):
+    if build_errors or assembled_units != len(all_manifest):
         # Keep prior formal delivery; previews for rebuilt units already saved.
         return None, build_errors or ["尚有单元未就绪，已保存预览但未覆盖正式 index.html"], plan
 

@@ -290,6 +290,7 @@ def collect_units_status(
         row = {
             "id": unit.id,
             "chapter": unit.chapter,
+            "title": unit.title,
             "role": unit.role,
             "report_current": state["report"]["current"],
             "report_pending": state["report"]["pending_current"],

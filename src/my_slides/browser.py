@@ -54,7 +54,26 @@ _SETTLE_ANIMATIONS = """async () => {
 }"""
 
 
-def structural_check_deck(path: Path, *, expected_units: list[str] | None = None) -> dict[str, Any]:
+def grouped_slide_units(slides: list[dict[str, str]]) -> list[tuple[str, int]]:
+    """Collapse consecutive pages of the same section into ``(unit_id, page_count)``."""
+    groups: list[tuple[str, int]] = []
+    for slide in slides:
+        unit_id = slide.get("unit_id") or ""
+        if not unit_id:
+            continue
+        if groups and groups[-1][0] == unit_id:
+            groups[-1] = (unit_id, groups[-1][1] + 1)
+        else:
+            groups.append((unit_id, 1))
+    return groups
+
+
+def structural_check_deck(
+    path: Path,
+    *,
+    expected_units: list[str] | None = None,
+    expected_page_counts: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Layer-3 lightweight checks that do not need a browser."""
     errors: list[str] = []
     if not path.is_file():
@@ -65,19 +84,32 @@ def structural_check_deck(path: Path, *, expected_units: list[str] | None = None
     # 只认带 slide 类的页面元素。样式里的 data-unit-id 不是页面。
     slides = _deck_slides(text)
     unit_ids = [slide["unit_id"] for slide in slides if slide["unit_id"]]
+    groups = grouped_slide_units(slides)
     if expected_units is not None:
-        if unit_ids != expected_units:
+        actual_units = [unit_id for unit_id, _count in groups]
+        if actual_units != expected_units:
             errors.append(
                 "整套单元集合或顺序与 units.json 不一致："
-                f"期望 {expected_units}，实际 {unit_ids}"
+                f"期望 {expected_units}，实际 {actual_units}"
             )
+        elif expected_page_counts is not None:
+            for unit_id, count in groups:
+                expected = expected_page_counts.get(unit_id)
+                if expected is not None and count != expected:
+                    errors.append(f"{unit_id}：整套中的页数（{count}）与 Spec 页数（{expected}）不一致")
     covers = sum(1 for slide in slides if slide["role"] == "cover")
     if covers > 1:
         errors.append("整套必须恰好一个 cover 页面")
     if "http://" in text or re.search(r'https://(?!github\.com/)', text):
         # Soft hint — deep offline blocking is done in browser layer.
         pass
-    return {"valid": not errors, "errors": errors, "measured": False, "unit_ids": unit_ids}
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "measured": False,
+        "unit_ids": unit_ids,
+        "sections": [{"id": unit_id, "pages": count} for unit_id, count in groups],
+    }
 
 
 def check_deck(
@@ -125,7 +157,10 @@ def check_deck(
         )
         targets: list[int]
         if unit_ids:
-            by_unit = {item["unitId"]: item["index"] for item in catalog if item["unitId"]}
+            by_unit: dict[str, list[int]] = {}
+            for item in catalog:
+                if item["unitId"]:
+                    by_unit.setdefault(item["unitId"], []).append(item["index"])
             missing = [unit_id for unit_id in unit_ids if unit_id not in by_unit]
             if missing:
                 errors.append("HTML 中缺少单元页面：" + "、".join(missing))
@@ -139,8 +174,8 @@ def check_deck(
                     "measured_units": [],
                     "cached": False,
                 }
-            targets = [by_unit[unit_id] for unit_id in unit_ids]
-            measured_units = list(unit_ids)
+            targets = [index for unit_id in unit_ids for index in by_unit[unit_id]]
+            measured_units = [unit_id for unit_id in unit_ids for _index in by_unit[unit_id]]
         elif slide_indexes is not None:
             targets = list(slide_indexes)
             measured_units = [catalog[i]["unitId"] for i in targets if 0 <= i < len(catalog)]
@@ -358,10 +393,24 @@ def check_units_on_deck(
     browser: bool = False,
 ) -> dict[str, Any]:
     """Combine structural deck checks with optional browser measurement for units."""
-    from .units import load_units_manifest
+    from .unit_workflow import split_spec_pages
+    from .units import load_units_manifest, unit_paths
 
     units, _ = load_units_manifest(base, chapters=None)
-    structural = structural_check_deck(path, expected_units=[unit.id for unit in units])
+    expected_page_counts: dict[str, int] = {}
+    for unit in units:
+        spec_path = unit_paths(base, unit.id).spec
+        if not spec_path.is_file():
+            continue
+        _preamble, pages = split_spec_pages(spec_path.read_text(encoding="utf-8"))
+        numbers = [page["number"] for page in pages]
+        if pages and numbers == list(range(1, len(pages) + 1)):
+            expected_page_counts[unit.id] = len(pages)
+    structural = structural_check_deck(
+        path,
+        expected_units=[unit.id for unit in units],
+        expected_page_counts=expected_page_counts,
+    )
     errors = list(structural["errors"])
     browser_result = None
     if browser:

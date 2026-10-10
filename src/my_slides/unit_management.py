@@ -20,6 +20,7 @@ from .units import (
     encode_link_path,
     iter_local_markdown_targets,
     load_units_manifest,
+    normalize_unit_title,
     MARKDOWN_LINK_RE,
     MARKDOWN_REF_DEF_RE,
     resolve_local_markdown_path,
@@ -475,7 +476,16 @@ def _insert_index(units: list[Unit], chapter: str, chapters: list[str], after: s
     return min(later) if later else len(units)
 
 
-def add_unit(base: Path, unit_id: str, chapter: str, chapters: list[str], *, after: str | None = None, role: str = "content") -> dict[str, Any]:
+def add_unit(
+    base: Path,
+    unit_id: str,
+    chapter: str,
+    chapters: list[str],
+    *,
+    after: str | None = None,
+    role: str = "content",
+    title: str | None = None,
+) -> dict[str, Any]:
     units = _manifest(base, chapters)
     if any(unit.id == unit_id for unit in units):
         raise UnitsError(f"单元 ID 已存在：{unit_id}")
@@ -484,7 +494,8 @@ def add_unit(base: Path, unit_id: str, chapter: str, chapters: list[str], *, aft
     if role != "content":
         raise UnitsError("units add 只能新增 content 单元；cover 是唯一且固定在首位")
     index = _insert_index(units, chapter, chapters, after)
-    new_unit = Unit(id=unit_id, chapter=chapter, role=role)
+    section_title = normalize_unit_title(title) if title else ""
+    new_unit = Unit(id=unit_id, chapter=chapter, role=role, title=section_title)
     proposed = list(units)
     proposed.insert(index, new_unit)
     errors = validate_units(proposed, chapters)
@@ -510,9 +521,14 @@ def add_unit(base: Path, unit_id: str, chapter: str, chapters: list[str], *, aft
     try:
         for path in targets[:3]:
             path.parent.mkdir(parents=True, exist_ok=True)
-        paths.report.write_text(f"# {unit_id}\n\n<!-- TODO: 撰写 {chapter} 的报告内容。 -->\n", encoding="utf-8")
+        heading = section_title or unit_id
+        paths.report.write_text(f"# {heading}\n\n<!-- TODO: 撰写 {chapter} / {heading} 的报告内容。 -->\n", encoding="utf-8")
         created.append(paths.report)
-        paths.spec.write_text(f"# {unit_id}\n\n页面 ID：{unit_id}\n页面角色：content\n\n<!-- TODO: 编写一页 Spec。 -->\n", encoding="utf-8")
+        paths.spec.write_text(
+            f"# {heading}\n\n单元 ID：{unit_id}\n页面角色：content\n\n"
+            "## Slide 1 — 标题\n\n<!-- TODO: 为这个小章节的每一页填写 Spec；需要更多页时继续增加 ## Slide 2 — 标题。 -->\n",
+            encoding="utf-8",
+        )
         created.append(paths.spec)
         paths.page.write_text(f'<section class="slide" data-unit-id="{unit_id}" data-page-role="content">\n  <!-- TODO: 实现页面。 -->\n</section>\n', encoding="utf-8")
         created.append(paths.page)
@@ -525,6 +541,41 @@ def add_unit(base: Path, unit_id: str, chapter: str, chapters: list[str], *, aft
             path.unlink(missing_ok=True)
         raise
     return {"added": True, "unit": new_unit.to_dict(), "position": index, "files": [p.relative_to(base).as_posix() for p in targets[:3]]}
+
+
+def retitle_unit(base: Path, unit_id: str, title: str, chapters: list[str]) -> dict[str, Any]:
+    """Change only the section display title. Approvals stay bound to unchanged content."""
+    units = _manifest(base, chapters)
+    index = next((i for i, unit in enumerate(units) if unit.id == unit_id), None)
+    if index is None:
+        raise UnitsError(f"未知单元：{unit_id}")
+    section_title = normalize_unit_title(title)
+    old = units[index]
+    updated = Unit(id=old.id, chapter=old.chapter, role=old.role, title=section_title)
+    if updated == old:
+        return {"retitled": False, "unchanged": True, "unit": updated.to_dict(), "approvals_preserved": True}
+    proposed = list(units)
+    proposed[index] = updated
+    errors = validate_units(proposed, chapters)
+    if errors:
+        raise UnitsError("修改标题会使单元清单无效：" + "；".join(errors))
+    manifest_path = base / "units.json"
+    manifest_backup = manifest_path.read_bytes()
+    state_backups = _snapshot_unit_states(base, proposed)
+    try:
+        _write_manifest_atomic(base, proposed, chapters)
+        _invalidate_deck_checks(base, proposed)
+    except Exception:
+        manifest_path.write_bytes(manifest_backup)
+        _restore_unit_states(state_backups)
+        raise
+    return {
+        "retitled": True,
+        "unchanged": False,
+        "unit": updated.to_dict(),
+        "approvals_preserved": True,
+        "deck_requires_rebuild": True,
+    }
 
 
 def _place_moved_unit(
@@ -577,7 +628,7 @@ def move_unit(
     if destination_chapter not in chapters:
         raise UnitsError(f"章节不存在于 project.yaml：{destination_chapter}")
     remaining = [unit for unit in units if unit.id != unit_id]
-    moved = Unit(id=old.id, chapter=destination_chapter, role=old.role)
+    moved = Unit(id=old.id, chapter=destination_chapter, role=old.role, title=old.title)
     _place_moved_unit(remaining, moved, chapters, after=after, before=before)
     errors = validate_units(remaining, chapters)
     if errors:
@@ -645,6 +696,7 @@ def _rewrite_identity_text(text: str, old: str, new: str, *, kind: str) -> str:
         text = re.sub(r"^#\s+" + re.escape(old) + r"\s*$", f"# {new}", text, count=1, flags=re.MULTILINE)
         text = re.sub(r"^(##\s+Slide\s+\d+\s+[—-]\s*)" + re.escape(old) + r"\s*$", rf"\g<1>{new}", text, flags=re.MULTILINE)
         text = re.sub(r"^(页面 ID\s*[：:]\s*)" + re.escape(old) + r"(\s*)$", rf"\g<1>{new}\2", text, flags=re.MULTILINE)
+        text = re.sub(r"^(单元 ID\s*[：:]\s*)" + re.escape(old) + r"(\s*)$", rf"\g<1>{new}\2", text, flags=re.MULTILINE)
     elif kind == "report":
         text = re.sub(r"^#\s+" + re.escape(old) + r"\s*$", f"# {new}", text, count=1, flags=re.MULTILINE)
     elif kind == "page":
@@ -692,7 +744,7 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
             "重命名会使工作区外的 Markdown 链接失效；请先更新这些只读资料中的链接："
             + "、".join(refs["external_markdown_references"])
         )
-    new = Unit(id=new_id, chapter=old.chapter, role=old.role)
+    new = Unit(id=new_id, chapter=old.chapter, role=old.role, title=old.title)
     proposed = list(units)
     proposed[index] = new
     errors = validate_units(proposed, chapters)

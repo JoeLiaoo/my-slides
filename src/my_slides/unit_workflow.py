@@ -70,36 +70,77 @@ def validate_unit_report(base: Path, unit: Unit) -> list[str]:
     return errors
 
 
+MAX_CONTENT_PAGES = 8
+SLIDE_HEADING_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-]\s*(.*?)\s*$", re.MULTILINE)
+SPEC_ID_RE = re.compile(r"^(?:单元 ID|页面 ID)\s*[：:]\s*(\S+)\s*$", re.MULTILINE)
+SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", re.MULTILINE | re.IGNORECASE)
+REQUIRED_SPEC_HEADINGS = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
+
+
+def split_spec_pages(text: str) -> tuple[str, list[dict[str, Any]]]:
+    """Split a Spec into the preamble and ordered ``## Slide N —`` pages."""
+    matches = list(SLIDE_HEADING_RE.finditer(text))
+    if not matches:
+        return text, []
+    pages: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        pages.append({
+            "number": int(match.group(1)),
+            "title": match.group(2).strip(),
+            "body": text[match.start():end],
+        })
+    return text[:matches[0].start()], pages
+
+
 def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
     path = unit_paths(base, unit.id).spec
     errors: list[str] = []
     if not path.is_file():
         return [f"缺少 Spec 单元：specs/units/{unit.id}.md"]
     text = path.read_text(encoding="utf-8").strip()
-    matches = list(re.finditer(r"^##\s+Slide\s+(\d+)\s+[—-].*$", text, flags=re.MULTILINE))
-    if not matches:
+    preamble, pages = split_spec_pages(text)
+    if not pages:
         errors.append(f"{unit.id}：未找到分页标题（格式：## Slide 1 — 标题）")
         return errors
-    if len(matches) != 1:
-        errors.append(f"{unit.id}：每个 Spec 单元只能定义一页（找到 {len(matches)} 个 Slide 标题）")
-    required = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
-    page = text[matches[0].start():]
-    page_id = re.search(r"^页面 ID\s*[：:]\s*(\S+)\s*$", page, flags=re.MULTILINE)
-    if not page_id:
-        errors.append(f"{unit.id}：缺少页面 ID")
-    elif page_id.group(1) != unit.id:
-        errors.append(f"{unit.id}：页面 ID 必须与单元 ID 一致（当前为 {page_id.group(1)}）")
-    role = re.search(r"^页面角色\s*[：:]\s*(cover|content)\s*$", page, flags=re.MULTILINE | re.IGNORECASE)
-    if not role:
+    numbers = [page["number"] for page in pages]
+    if numbers != list(range(1, len(pages) + 1)):
+        errors.append(f"{unit.id}：Slide 编号必须从 1 连续递增（当前为 {numbers}）")
+    if unit.role == "cover" and len(pages) != 1:
+        errors.append(f"{unit.id}：封面小章节只能有一页（当前 {len(pages)} 页）")
+    if len(pages) > MAX_CONTENT_PAGES:
+        errors.append(
+            f"{unit.id}：一个小章节最多 {MAX_CONTENT_PAGES} 页（当前 {len(pages)} 页）；请拆成多个小章节"
+        )
+    declared_ids = SPEC_ID_RE.findall(preamble)
+    for page in pages:
+        declared_ids.extend(SPEC_ID_RE.findall(page["body"]))
+    if not declared_ids:
+        errors.append(f"{unit.id}：缺少单元 ID（写法：单元 ID：{unit.id}，旧文件中的页面 ID 仍然有效）")
+    elif any(item != unit.id for item in declared_ids):
+        errors.append(f"{unit.id}：单元 ID / 页面 ID 必须与单元 ID 一致（当前为 {'、'.join(declared_ids)}）")
+    preamble_roles = [role.lower() for role in SPEC_ROLE_RE.findall(preamble)]
+    page_roles_found = False
+    if any(role != unit.role for role in preamble_roles):
+        errors.append(f"{unit.id}：页面角色与 units.json 中的 {unit.role} 不一致")
+    for page in pages:
+        roles = [role.lower() for role in SPEC_ROLE_RE.findall(page["body"])]
+        if roles:
+            page_roles_found = True
+        if any(role != unit.role for role in roles):
+            errors.append(f"{unit.id}：第 {page['number']} 页的页面角色与 units.json 中的 {unit.role} 不一致")
+        for heading in REQUIRED_SPEC_HEADINGS:
+            if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page["body"], flags=re.MULTILINE):
+                errors.append(f"{unit.id}：第 {page['number']} 页缺少 ### {heading}")
+        mapping = re.search(
+            r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)",
+            page["body"],
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        if mapping and not mapping.group(1).strip():
+            errors.append(f"{unit.id}：第 {page['number']} 页的报告段落映射不能为空")
+    if not preamble_roles and not page_roles_found:
         errors.append(f"{unit.id}：页面角色必须填写 cover 或 content")
-    elif role.group(1).lower() != unit.role:
-        errors.append(f"{unit.id}：页面角色 {role.group(1)} 与 units.json 中的 {unit.role} 不一致")
-    for heading in required:
-        if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page, flags=re.MULTILINE):
-            errors.append(f"{unit.id}：缺少 ### {heading}")
-    mapping = re.search(r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)", page, flags=re.MULTILINE | re.DOTALL)
-    if mapping and not mapping.group(1).strip():
-        errors.append(f"{unit.id}：报告段落映射不能为空")
     errors.extend(f"{unit.id}：{msg}" for msg in validate_local_markdown_links(text, path))
     return errors
 
@@ -138,8 +179,10 @@ def prepare_unit_handoff(
         paths = unit_paths(base, unit.id)
         lines.extend(
             [
-                f"## {unit.id}",
-                f"- 章节：{unit.chapter}",
+                f"## {unit.title or unit.id}",
+                f"- 单元 ID：{unit.id}",
+                f"- 大章节：{unit.chapter}",
+                f"- 小章节：{unit.title or '（未命名）'}",
                 f"- 角色：{unit.role}",
                 f"- 报告：{paths.report.relative_to(base).as_posix()}",
                 f"- Spec：{paths.spec.relative_to(base).as_posix()}",
@@ -150,9 +193,17 @@ def prepare_unit_handoff(
         if kind == "report":
             lines.append("请撰写完整论证、证据与限定条件，并用普通 Markdown 链接引用 Wiki/资料。")
         elif kind == "spec":
-            lines.append("请写恰好一页 Spec，页面 ID 必须等于单元 ID；图表数据放在 echarts-spec 代码块。")
+            lines.append(
+                "请按小章节写 Spec：文件顶部写一次“单元 ID”和“页面角色”；"
+                f"用连续的 ## Slide N — 标题描述每一页（封面只能一页，内容最多 {MAX_CONTENT_PAGES} 页）。"
+                "每一页都要有目的、核心结论等小节；图表数据放在该页自己的 echarts-spec 代码块。"
+            )
         else:
-            lines.append("请生成单页 HTML 片段，根元素设置 data-unit-id 与 data-page-role。")
+            lines.append(
+                "请生成这个小章节的 HTML：Spec 有几页就写几个 <section class=\"slide\">，"
+                "每页设置 data-unit-id、data-page-role，并包含一个 slide-notes。"
+                "某一页的图表和图标只能使用该页 Spec 中声明的内容。"
+            )
         lines.append("")
         output.write_text("\n".join(lines), encoding="utf-8")
         outputs.append(output)
