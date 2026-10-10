@@ -72,7 +72,7 @@ class ApprovalCliTests(unittest.TestCase):
         waiting = self.next_action()
         self.assertEqual(waiting["actor"], "human")
         self.assertEqual(waiting["unit"], "cover")
-        self.assertIn("confirm report --unit cover", waiting["command"])
+        self.assertIn("review report --unit cover", waiting["command"])
         phrase = f"APPROVE REPORT cover {request['content_sha256'][:12]}"
         self.assertEqual(self.confirm(["Human Reviewer", phrase]), 0)
         approved = read_unit_state(self.base, "cover")["report"]
@@ -107,7 +107,7 @@ class ApprovalCliTests(unittest.TestCase):
         self.assertIn("approve spec --unit cover", self.next_action()["command"])
         request = self.request("spec")
         self.assertEqual(self.next_action()["actor"], "human")
-        self.assertIn("confirm spec --unit cover", self.next_action()["command"])
+        self.assertIn("review spec --unit cover", self.next_action()["command"])
         self.confirm(["Reviewer", f"APPROVE SPEC cover {request['content_sha256'][:12]}"], kind="spec")
         self.assertTrue(read_unit_state(self.base, "cover")["spec"]["current"])
         self.assertIn("prepare slides --unit cover", self.next_action()["command"])

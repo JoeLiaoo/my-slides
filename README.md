@@ -13,9 +13,9 @@
         ↓
 项目 Wiki 与来源追溯
         ↓
-报告单元（reports/units/<id>.md）→ 提交申请 → 用户在终端逐单元确认
+报告小章节（reports/units/<id>.md）→ 提交申请 → 在对话中按小章节或整章确认
         ↓
-Spec 单元（specs/units/<id>.md）→ 提交申请 → 用户在终端逐单元确认
+Spec 小章节（specs/units/<id>.md）→ 提交申请 → 在对话中按小章节或整章确认
         ↓
 小章节 HTML（slides/pages/<id>.html，可含多页）→ 增量合并为整套离线演示文稿
 ```
@@ -115,16 +115,20 @@ my-slides init --project <项目根>
 my-slides prepare wiki && …整理 wiki… && my-slides validate wiki
 my-slides sources mark-ingested
 my-slides prepare report --unit <id> && …撰写… && my-slides validate report --unit <id>
-my-slides approve report --unit <id>  # 提交申请；用户另行 confirm report
-my-slides confirm report --unit <id>  # 用户本人执行
+my-slides approve report --unit <id>          # 或 --chapter <大章节>
+my-slides review report --unit <id>           # 贴到对话里，等用户明确批准
+my-slides confirm report --unit <id> --via chat --phrase "..." --user-reply "..."
 my-slides assemble
 my-slides prepare spec --unit <id> && …撰写… && my-slides validate spec --unit <id>
-my-slides approve spec --unit <id>    # 提交申请；用户另行 confirm spec
-my-slides confirm spec --unit <id>    # 用户本人执行
+my-slides approve spec --unit <id>
+my-slides review spec --unit <id>
+my-slides confirm spec --unit <id> --via chat --phrase "..." --user-reply "..."
 my-slides prepare slides --unit <id> && …按 Spec 页数写 HTML…
 my-slides slides build --all
 my-slides slides check --all
 ```
+
+在 `project.yaml` 里设置 `reviewer: "姓名"`。默认 `approval_mode` 是 `chat`：Agent 先运行 `review`，把内容贴到对话里，等你明确批准后再运行 `confirm --via chat`。审批记录会保存通道和你的原话。对话审批依赖 Agent 遵守规则，程序无法分辨「你说了批准」和「Agent 声称你说了批准」。需要终端确认时，写成 `approval_mode: terminal`。建议不要把 `my-slides confirm` 放进编辑器的自动运行白名单，这样每次确认仍会在对话里多一步由你点选。
 
 ## 测试
 

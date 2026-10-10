@@ -6,6 +6,18 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.0] - Pending
+
+### Breaking Changes
+
+- The default approval channel is now the agent conversation. `next` asks for `review` instead of a terminal `confirm`. Set `approval_mode: terminal` in `project.yaml` to keep the interactive-terminal gate.
+
+### Added
+
+- `review report|spec` shows the pending section or chapter, a page-level Spec diff when an approved copy exists, and the confirmation phrase.
+- `confirm --via chat --phrase ... --user-reply ...` records a conversation approval. `approve --chapter` and `confirm --chapter` submit and confirm every section in one chapter; each section keeps its own approval record.
+- `project.yaml` accepts `reviewer` and `approval_mode`.
+
 ## [0.3.0] - Pending
 
 ### Breaking Changes

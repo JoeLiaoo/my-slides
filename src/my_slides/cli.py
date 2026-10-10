@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import format_version
-from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, renderer, slides, sources, status, units, validate
+from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, renderer, review, slides, sources, status, units, validate
 from .commands.init import init_project
 from .commands.prepare import prepare
 
@@ -71,11 +71,23 @@ def build_parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve", help="提交报告或 Spec 单元供用户审批，不会直接批准")
     approve.add_argument("kind", choices=("report", "spec"))
     approve.add_argument("--project")
+    approve.add_argument("--chapter", help="一次提交该大章节下的全部小章节")
     approve.add_argument("--json", action="store_true")
     add_unit_selectors(approve)
-    confirm = sub.add_parser("confirm", help="用户在交互终端确认一个待审批单元")
+    review = sub.add_parser("review", help="展示待审批内容、差异和确认短语，供对话审阅")
+    review.add_argument("kind", choices=("report", "spec"))
+    review.add_argument("--unit", metavar="ID")
+    review.add_argument("--chapter")
+    review.add_argument("--project")
+    review.add_argument("--json", action="store_true")
+    confirm = sub.add_parser("confirm", help="确认一个待审批小章节，或在对话中确认一整章")
     confirm.add_argument("kind", choices=("report", "spec"))
-    confirm.add_argument("--unit", required=True, metavar="ID", help="要确认的单元 ID；每次只能确认一个")
+    confirm.add_argument("--unit", metavar="ID", help="要确认的小章节；与 --chapter 二选一")
+    confirm.add_argument("--chapter", help="确认该大章节下全部已提交的小章节；必须配合 --via chat")
+    confirm.add_argument("--via", choices=("chat",), help="对话确认。需要 --phrase 和 --user-reply")
+    confirm.add_argument("--phrase", help="review 给出的 APPROVE 短语")
+    confirm.add_argument("--user-reply", dest="user_reply", help="用户在对话中的原话")
+    confirm.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
     confirm.add_argument("--project")
     assemble = sub.add_parser("assemble", help="v2：将报告单元组装为 reports/report.md")
     assemble.add_argument("--project")
@@ -180,6 +192,7 @@ def main() -> None:
         "prepare": prepare,
         "validate": validate.run,
         "approve": approve.run,
+        "review": review.run,
         "confirm": confirm.run,
         "assemble": assemble.run,
         "slides": slides.run,
