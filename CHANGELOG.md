@@ -15,7 +15,7 @@ No unreleased changes.
 
 ### Changed
 
-- Record release versions with annotated Git tags after merge; document the historical tag mapping and manual tagging procedure.
+- After tests pass on `main`, CI creates annotated `vX.Y.Z` tags for versions that do not have one yet. Pull requests that only change `.github/`, `tests/`, or `scripts/` may skip the version bump. A follow-up check fails a merge that lands without a version advance outside that set.
 
 ## [0.2.10]
 

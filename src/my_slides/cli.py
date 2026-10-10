@@ -12,13 +12,30 @@ from .commands.init import init_project
 from .commands.prepare import prepare
 
 
+class _PrintVersion(argparse.Action):
+    """Read Git metadata only when the user asks for the version."""
+
+    def __init__(self, option_strings: list[str], dest: str, nargs: int | str | None = 0, **kwargs: object) -> None:
+        super().__init__(option_strings, dest, nargs=nargs, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        print(format_version(parser.prog))
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="my-slides",
         description="投资项目 Wiki、报告与 HTML Slides 本地工作流",
         epilog="首次使用请运行 my-slides help；具体参数请运行 my-slides <命令> --help。",
     )
-    parser.add_argument("-V", "--version", action="version", version=format_version())
+    parser.add_argument("-V", "--version", action=_PrintVersion)
     sub = parser.add_subparsers(dest="command", required=True)
     guide = sub.add_parser("help", help="查看面向首次使用的 Agent 工作流指南（无需项目目录）")
     guide.add_argument("--json", action="store_true", help="以 JSON 输出指南")

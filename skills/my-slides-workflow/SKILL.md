@@ -17,7 +17,7 @@ Projects without `units.json` need `my-slides init` before other commands.
 
 ## Repository version bump (when changing this package)
 
-For a PR into the **my-slides** repo `main`, select a version step that matches impact, add a matching `CHANGELOG.md` entry, and let PR CI validate both. Compatible additions, fixes, docs, tests, and CI use patch +1; incompatible changes on 0.x use minor +1 and reset patch to 0, with a Breaking Changes section in the changelog. A major bump requires the maintainer's `version:major` PR label. Development `--version` output includes the short commit and dirty state; installed packages without Git metadata show only the version. After merge, a maintainer manually creates and pushes an annotated `vX.Y.Z` tag. See repo-root `AGENTS.md` and `docs/versioning.md`.
+For a PR into the **my-slides** repo `main`, select a version step that matches impact, add a matching `CHANGELOG.md` entry, and let PR CI validate both. Compatible additions, fixes, and docs use patch +1; incompatible changes on 0.x use minor +1 and reset patch to 0, with a Breaking Changes section in the changelog. A major bump requires the maintainer's `version:major` PR label. PRs that only change `.github/`, `tests/`, or `scripts/` may skip the bump. Development `--version` output includes the short commit and dirty state; installed packages without Git metadata show only the version. After tests pass on `main`, CI creates and pushes the annotated `vX.Y.Z` tag. See repo-root `AGENTS.md` and `docs/versioning.md`.
 
 ## Working rules
 
