@@ -27,15 +27,15 @@ For a PR into the **my-slides** repo `main`, select a version step that matches 
 - Use `my-slides units add/move/rename/remove` for inventory changes; never edit `units.json` manually. `units move` accepts `--after` or `--before`; omit both to append to the target chapter, including a chapter that currently has no units. A chapter-only move requires report reconfirmation, while an unchanged report keeps its Spec approval. Same-chapter order changes and renames require rebuilding the full deck and rerunning checks.
 - `my-slides units remove <id>` is a read-only impact preview. Review its files, approvals, dependencies, and Markdown references before using `--yes`. Removal is recoverable, so an Agent may run `--yes`, but if the preview shows any prior report or Spec approval, first ask the user for explicit consent. Never remove a blocked unit. Include the printed `my-slides units restore <trash-id>` command in the result; use `units trash list` to find other recoverable entries. Trash is not part of source scans or delivery.
 - State evidence gaps, conflicting figures, assumptions, and dates in natural prose.
-- `approve report/spec` only submits a pending review request. Never run `confirm` for the user, even when `next --json` shows its command; stop and ask the user to review the specified file and run it in their own terminal. `actor: human` is a hard handoff point for the Agent. Never run `confirm` through a pseudo-terminal or input automation (`script`, `expect`, tmux `send-keys`, piping answers), and never read `.state/` to construct its confirmation phrase.
+- `approve report/spec` only submits a pending review request. When `next` returns `actor: human`, run the suggested `review` command, paste its output into the conversation, and stop. On the user's next message, run `confirm --via chat` only if that message explicitly approves the named section or chapter. Pass that message unchanged as `--user-reply`. Do not treat "continue", "looks fine", or "next" as approval, and do not widen the scope. Never invent a phrase: copy it from the latest `review`. Never run `confirm` through a pseudo-terminal or input automation (`script`, `expect`, tmux `send-keys`, piping answers). If `project.yaml` sets `approval_mode: terminal`, do not run `confirm` at all; ask the user to run it in their own terminal.
 - After the Wiki is ready, propose a 大章节 → 小章节 outline in the conversation (for example 行业分析 / 需求分析, 竞争分析). Create each section with `units add <id> --chapter <大章节> --title <小章节名>` only after the user accepts the outline. `units retitle` changes the display name and keeps existing approvals.
 - Generate HTML only from approved Specs. One unit is one section and may contain multiple slides: the HTML page count must equal the Spec's `## Slide N` count (cover is one page; a content section has at most 8). Keep custom styles scoped; include one `slide-notes` JSON block on every slide. A slide may use only the `echarts-spec` and Lucide icons declared on that same Spec page. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`. Changing only slide layout does not require a new approval; changing Spec content requires re-approval of that section only.
 
 ## Workflow
 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
-2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` to request review → user reviews and personally runs `confirm report --unit <id>` → `assemble`.
-3. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec --unit <id>` to request review → user reviews and personally runs `confirm spec --unit <id>`.
+2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` (or `--chapter`) → `review report` → paste it and wait → after an explicit user approval, `confirm report --via chat` → `assemble`.
+3. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec` → `review spec` → paste it and wait → after an explicit user approval, `confirm spec --via chat`.
 4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`.
 
 ## Useful commands
@@ -51,11 +51,14 @@ my-slides units list
 my-slides prepare report --unit <id>
 my-slides validate report --unit <id>
 my-slides approve report --unit <id>
-my-slides confirm report --unit <id>  # user executes, never Agent
+my-slides approve report --chapter <大章节>
+my-slides review report --unit <id>
+my-slides confirm report --unit <id> --via chat --phrase "APPROVE REPORT <id> <sha12>" --user-reply "<用户原话>"
 my-slides assemble
 my-slides prepare spec --unit <id>
 my-slides approve spec --unit <id>
-my-slides confirm spec --unit <id>    # user executes, never Agent
+my-slides review spec --chapter <大章节>
+my-slides confirm spec --chapter <大章节> --via chat --phrase "APPROVE SPEC <大章节> <sha12>" --user-reply "<用户原话>"
 my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
 my-slides slides check --unit <id>

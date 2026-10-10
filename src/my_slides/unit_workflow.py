@@ -32,19 +32,25 @@ def resolve_unit_selection(
     unit_ids: list[str] | None,
     changed: bool,
     all_units: bool,
+    chapter: str | None = None,
 ) -> list[Unit]:
-    flags = sum(bool(x) for x in (unit_ids, changed, all_units))
+    flags = sum(bool(x) for x in (unit_ids, changed, all_units, chapter))
     if flags > 1:
-        raise ValueError("--unit、--changed、--all 只能三选一")
+        raise ValueError("--unit、--changed、--all、--chapter 只能选一个")
     units, errors = load_units_manifest(base, cfg.get("chapters"))
     if errors:
         raise UnitsError("；".join(errors))
     if not units:
         raise UnitsError("units.json 中没有单元")
     by_id = {unit.id: unit for unit in units}
+    if chapter:
+        chosen = [unit for unit in units if unit.chapter == chapter]
+        if not chosen:
+            raise UnitsError(f"章节中没有小章节：{chapter}")
+        return chosen
     if all_units or (not unit_ids and not changed):
         if not all_units and not unit_ids and not changed:
-            raise ValueError("v2 项目请指定 --unit <id>、--changed 或 --all")
+            raise ValueError("v2 项目请指定 --unit <id>、--changed、--all 或 --chapter")
         return list(units)
     if changed:
         status = collect_units_status(base, chapters=cfg.get("chapters"), project_root=base.parent)
@@ -218,6 +224,8 @@ def approve_unit_report(
     project_root: Path | None = None,
     approved_by: str | None = None,
     approved_account: str | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
 ) -> dict[str, Any]:
     errors = validate_unit_report(base, unit)
     if errors:
@@ -225,6 +233,7 @@ def approve_unit_report(
     state = mark_report_approved(
         base, unit, project_root=project_root or base.parent, when=when,
         approved_by=approved_by, approved_account=approved_account,
+        channel=channel, user_reply=user_reply,
     )
     # Keep assembled report in sync after successful unit approve batches (caller may assemble).
     return state
@@ -238,6 +247,8 @@ def approve_unit_spec(
     project_root: Path | None = None,
     approved_by: str | None = None,
     approved_account: str | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
 ) -> dict[str, Any]:
     errors = validate_unit_spec(base, unit)
     if errors:
@@ -259,6 +270,8 @@ def approve_unit_spec(
         "approved_account": approved_account,
         "pending_approval": None,
         "pending_current": False,
+        "approval_channel": channel,
+        "user_reply": user_reply,
         "current": bool(approved_by and approved_account),
     }
     # HTML must be rebuilt against the new Spec — never auto-revive.
@@ -313,8 +326,10 @@ def confirm_unit_approval(
     approved_by: str,
     approved_account: str,
     project_root: Path | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
 ) -> dict[str, Any]:
-    """Apply a current review request after the CLI's interactive confirmation."""
+    """Apply a current review request after terminal or chat confirmation."""
     if kind not in {"report", "spec"}:
         raise ValueError(f"未知审批类型：{kind}")
     if not approved_by.strip() or not approved_account.strip():
@@ -323,14 +338,24 @@ def confirm_unit_approval(
     if not state[kind]["pending_current"]:
         raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容/依赖已变化；请重新运行 approve {kind} --unit {unit.id}")
     if kind == "report":
-        return approve_unit_report(
+        state = approve_unit_report(
             base, unit, when=when, project_root=project_root,
             approved_by=approved_by.strip(), approved_account=approved_account.strip(),
+            channel=channel, user_reply=user_reply,
         )
-    return approve_unit_spec(
-        base, unit, when=when, project_root=project_root,
-        approved_by=approved_by.strip(), approved_account=approved_account.strip(),
-    )
+    else:
+        state = approve_unit_spec(
+            base, unit, when=when, project_root=project_root,
+            approved_by=approved_by.strip(), approved_account=approved_account.strip(),
+            channel=channel, user_reply=user_reply,
+        )
+    from .approval_review import archive_approved_copy
+
+    path = unit_paths(base, unit.id).report if kind == "report" else unit_paths(base, unit.id).spec
+    approved_sha = state[kind].get("approved_sha256")
+    if isinstance(approved_sha, str) and approved_sha and path.is_file():
+        archive_approved_copy(base, kind, unit.id, approved_sha, path.read_text(encoding="utf-8"))
+    return state
 
 
 def assemble_after_report_approvals(

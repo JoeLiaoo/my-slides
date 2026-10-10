@@ -42,6 +42,8 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "pending_current": False,
             "reconfirmation_required": False,
             "reconfirmation_context": None,
+            "approval_channel": None,
+            "user_reply": None,
             "current": False,
         },
         "spec": {
@@ -54,6 +56,8 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "approved_account": None,
             "pending_approval": None,
             "pending_current": False,
+            "approval_channel": None,
+            "user_reply": None,
             "current": False,
         },
         "html": {
@@ -298,6 +302,8 @@ def collect_units_status(
             "report_approved_by": state["report"].get("approved_by"),
             "report_approved_account": state["report"].get("approved_account"),
             "report_approved_at": state["report"].get("approved_at"),
+            "report_approval_channel": state["report"].get("approval_channel"),
+            "report_user_reply": state["report"].get("user_reply"),
             "report_unattributed": bool(state["report"].get("approved_sha256"))
             and (not state["report"].get("approved_by") or not state["report"].get("approved_account")),
             "spec_current": state["spec"]["current"],
@@ -305,6 +311,8 @@ def collect_units_status(
             "spec_approved_by": state["spec"].get("approved_by"),
             "spec_approved_account": state["spec"].get("approved_account"),
             "spec_approved_at": state["spec"].get("approved_at"),
+            "spec_approval_channel": state["spec"].get("approval_channel"),
+            "spec_user_reply": state["spec"].get("user_reply"),
             "spec_unattributed": bool(state["spec"].get("approved_sha256"))
             and (not state["spec"].get("approved_by") or not state["spec"].get("approved_account")),
             "html_current": state["html"]["current"],
@@ -343,6 +351,8 @@ def mark_report_approved(
     when: str,
     approved_by: str | None = None,
     approved_account: str | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
 ) -> dict[str, Any]:
     state = refresh_unit_currency(base, unit, project_root=project_root)
     paths = unit_paths(base, unit.id)
@@ -365,6 +375,8 @@ def mark_report_approved(
         "pending_current": False,
         "reconfirmation_required": False,
         "reconfirmation_context": None,
+        "approval_channel": channel,
+        "user_reply": user_reply,
         "current": bool(approved_by and approved_account),
     }
     # A context-only reconfirmation keeps a Spec bound to the identical report.

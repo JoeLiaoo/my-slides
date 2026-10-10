@@ -60,6 +60,8 @@ def run(args: argparse.Namespace) -> int:
                     "name": row[f"{kind}_approved_by"],
                     "account": row[f"{kind}_approved_account"],
                     "at": row[f"{kind}_approved_at"],
+                    "channel": row.get(f"{kind}_approval_channel"),
+                    "user_reply": row.get(f"{kind}_user_reply"),
                 }
                 for row in selected_rows
                 if row[f"{kind}_current"] and row[f"{kind}_approved_by"]

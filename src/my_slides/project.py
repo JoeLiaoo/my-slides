@@ -126,12 +126,28 @@ def read_config(path: Path) -> dict[str, Any]:
     return config
 
 
-def write_config(path: Path, root: Path, source_dirs: list[str], chapters: list[str], brand_color: str = "#A6192E") -> None:
+def write_config(
+    path: Path,
+    root: Path,
+    source_dirs: list[str],
+    chapters: list[str],
+    brand_color: str = "#A6192E",
+    *,
+    approval_mode: str | None = None,
+    reviewer: str | None = None,
+) -> None:
     clean = lambda value: value.replace('"', "")
     lines = [f'project: "{clean(root.name)}"', f'brand_color: "{brand_color}"', "source_dirs:"]
     lines.extend(f'  - "{clean(d)}"' for d in source_dirs)
     lines.append("chapters:")
     lines.extend(f'  - "{clean(chapter)}"' for chapter in chapters)
+    if approval_mode:
+        mode = str(approval_mode).strip()
+        if mode not in {"chat", "terminal"}:
+            raise ValueError("project.yaml 的 approval_mode 必须是 chat 或 terminal")
+        lines.append(f'approval_mode: "{mode}"')
+    if reviewer and str(reviewer).strip():
+        lines.append(f'reviewer: "{clean(str(reviewer).strip())}"')
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import shlex
 
+from ..approval_review import approval_mode
 from ..browser_runtime import browser_status
 from ..command_output import emit
 from ..dependencies import fingerprint_json
@@ -46,6 +47,7 @@ def run(args: argparse.Namespace) -> int:
     if not units:
         raise ValueError("units.json 中没有单元；请先补充单元清单")
     status = collect_units_status(base, chapters=cfg.get("chapters", []), project_root=root)
+    chat_approval = approval_mode(cfg) == "chat"
     rows = {row["id"]: row for row in status["units"]}
     for unit in units:
         row = rows[unit.id]
@@ -57,16 +59,21 @@ def run(args: argparse.Namespace) -> int:
             return recommend(f"my-slides validate report --unit {unit.id}", "报告需要修复：" + "；".join(report_errors[:3]), unit=unit.id)
         if row["report_pending"]:
             context = row.get("report_reconfirmation_context")
-            reason = (
-                f"报告内容未变，只需确认章节调整：{context}。必须由用户审阅后在自己的交互终端确认，Agent 不得执行此命令。"
-                if context else
-                "报告已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
-            )
-            return recommend(
-                f"my-slides confirm report --unit {unit.id}",
-                reason,
-                unit=unit.id, actor="human",
-            )
+            if chat_approval:
+                reason = (
+                    f"报告内容未变，只需确认章节调整：{context}。把 review 的内容贴到对话中，等用户明确回复批准。"
+                    if context else
+                    "报告已提交审批。把 review 的内容贴到对话中，等用户明确回复批准。"
+                )
+                command = f"my-slides review report --unit {unit.id}"
+            else:
+                reason = (
+                    f"报告内容未变，只需确认章节调整：{context}。必须由用户在自己的交互终端确认，Agent 不得执行此命令。"
+                    if context else
+                    "报告已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
+                )
+                command = f"my-slides confirm report --unit {unit.id}"
+            return recommend(command, reason, unit=unit.id, actor="human")
         if row["report_unattributed"]:
             return recommend(f"my-slides approve report --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["report_current"]:
@@ -88,11 +95,13 @@ def run(args: argparse.Namespace) -> int:
         if spec_errors:
             return recommend(f"my-slides validate spec --unit {unit.id}", "Spec 需要修复：" + "；".join(spec_errors[:3]), unit=unit.id)
         if row["spec_pending"]:
-            return recommend(
-                f"my-slides confirm spec --unit {unit.id}",
-                "Spec 已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。",
-                unit=unit.id, actor="human",
-            )
+            if chat_approval:
+                command = f"my-slides review spec --unit {unit.id}"
+                reason = "Spec 已提交审批。把 review 的内容贴到对话中，等用户明确回复批准。"
+            else:
+                command = f"my-slides confirm spec --unit {unit.id}"
+                reason = "Spec 已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
+            return recommend(command, reason, unit=unit.id, actor="human")
         if row["spec_unattributed"]:
             return recommend(f"my-slides approve spec --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["spec_current"]:

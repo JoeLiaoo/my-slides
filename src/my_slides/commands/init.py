@@ -41,7 +41,11 @@ def init_project(args: argparse.Namespace) -> int:
                 f"# {title}\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n",
                 encoding="utf-8",
             )
-    write_config(cfg_path, root, source_dirs, chapters, brand_color)
+    write_config(
+        cfg_path, root, source_dirs, chapters, brand_color,
+        approval_mode=existing.get("approval_mode"),
+        reviewer=existing.get("reviewer"),
+    )
     ensure_v2_directories(base)
     # 已有合法清单时保留单元 ID、数量和顺序；只有缺失或损坏才写入种子单元。
     preserved: list[Unit] | None = None
