@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
     reject.add_argument("--chapter", help="驳回该大章节下全部已提交的小章节；必须配合 --via chat")
     reject.add_argument("--reason", required=True, help="驳回原因")
     reject.add_argument("--via", choices=("chat",), help="对话驳回。需要 --phrase 和 --user-reply")
-    reject.add_argument("--phrase", help="review 给出的 APPROVE 短语")
+    reject.add_argument("--phrase", help="review 给出的 REJECT 短语")
     reject.add_argument("--user-reply", dest="user_reply", help="用户在对话中的原话")
     reject.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
     reject.add_argument("--json", action="store_true")

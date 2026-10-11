@@ -74,7 +74,11 @@ def run(args: argparse.Namespace) -> int:
                 )
                 command = f"my-slides confirm report --unit {unit.id}"
             return recommend(command, reason, unit=unit.id, actor="human")
-        if row.get("report_latest_decision") == "rejected":
+        if (
+            row.get("report_latest_decision") == "rejected"
+            and not row["report_current"]
+            and not row["report_pending"]
+        ):
             rejection = row.get("report_latest_rejection") or {}
             reason_text = (rejection.get("reason") or "").strip() or "（未提供原因）"
             return recommend(
@@ -110,7 +114,11 @@ def run(args: argparse.Namespace) -> int:
                 command = f"my-slides confirm spec --unit {unit.id}"
                 reason = "Spec 已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
             return recommend(command, reason, unit=unit.id, actor="human")
-        if row.get("spec_latest_decision") == "rejected":
+        if (
+            row.get("spec_latest_decision") == "rejected"
+            and not row["spec_current"]
+            and not row["spec_pending"]
+        ):
             rejection = row.get("spec_latest_rejection") or {}
             reason_text = (rejection.get("reason") or "").strip() or "（未提供原因）"
             return recommend(

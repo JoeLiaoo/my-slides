@@ -31,6 +31,18 @@ def confirmation_phrase(kind: str, target: str, digest: str) -> str:
     return f"APPROVE {kind.upper()} {target} {digest[:12]}"
 
 
+def reject_phrase(kind: str, target: str, digest: str) -> str:
+    """Distinct phrase for declining a pending approval request.
+
+    Shares the ``<KIND> <target> <digest[:12]>`` shape with
+    ``confirmation_phrase`` / ``revoke_phrase`` so it is obvious the three
+    phrases bind the same context, but uses ``REJECT`` so a captured
+    ``APPROVE`` phrase can never be reused to decline a request and the
+    terminal-mode ``REJECT`` text matches the chat-mode phrase.
+    """
+    return f"REJECT {kind.upper()} {target} {digest[:12]}"
+
+
 def revoke_phrase(kind: str, target: str, digest: str) -> str:
     """Distinct phrase for revoking an existing approval.
 
@@ -241,11 +253,13 @@ def review_packet(
         })
     digest = bindings_digest(entries, chapter_scope=not unit_id)
     phrase = confirmation_phrase(kind, target, digest)
+    decline = reject_phrase(kind, target, digest)
     return {
         "kind": kind,
         "target": target,
         "scope": "unit" if unit_id else "chapter",
         "phrase": phrase,
+        "reject_phrase": decline,
         "digest": digest,
         "units": rows,
         "reviewed_at": now(),
@@ -333,7 +347,7 @@ def reject_chat(
             raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容已变化；请重新运行 review")
         entries.append(approval_binding(unit, kind, state))
     digest = bindings_digest(entries, chapter_scope=not unit_id)
-    expected = confirmation_phrase(kind, target, digest)
+    expected = reject_phrase(kind, target, digest)
     if phrase.strip() != expected:
         raise ValueError("确认短语与当前待审批内容或上下文不一致；请重新运行 review")
     import getpass
@@ -384,7 +398,8 @@ def revoke_chat(
     entries: list[dict[str, str]] = []
     for unit in units:
         state = refresh_unit_currency(base, unit, project_root=project_root)
-        if not state[kind]["current"]:
+        approved_sha = state[kind].get("approved_sha256")
+        if not approved_sha:
             label = target if target else unit.id
             raise ValueError(f"{label}：{kind} 还没有用户批准的当前版本；无需撤回")
         entries.append(revoke_binding(unit, kind, state))
