@@ -147,6 +147,30 @@ class ApprovalDecisionsTests(unittest.TestCase):
         self.assertTrue(packet["reject_phrase"].startswith("REJECT REPORT cover "))
         self.assertNotEqual(packet["phrase"], packet["reject_phrase"])
 
+    def test_review_human_output_shows_both_phrases(self):
+        self.request("cover")
+        from my_slides.commands import review
+        # Capture the JSON packet so we can compare the human text to it.
+        json_out = io.StringIO()
+        with contextlib.redirect_stdout(json_out):
+            self.assertEqual(review.run(argparse.Namespace(
+                project=str(self.root), kind="report", json=True, unit="cover", chapter=None,
+            )), 0)
+        packet = json.loads(json_out.getvalue())
+        # Now run again in human mode and capture stdout.
+        human_out = io.StringIO()
+        with contextlib.redirect_stdout(human_out):
+            self.assertEqual(review.run(argparse.Namespace(
+                project=str(self.root), kind="report", json=False, unit="cover", chapter=None,
+            )), 0)
+        human = human_out.getvalue()
+        self.assertIn(f"确认短语：{packet['phrase']}", human)
+        self.assertIn(f"驳回短语：{packet['reject_phrase']}", human)
+        # The closing instruction must mention both flows so the agent can
+        # act on a chat reject from the pasted text alone.
+        self.assertIn("confirm --via chat", human)
+        self.assertIn("reject --via chat", human)
+
     def test_chat_reject_rejects_approve_phrase(self):
         self.request("cover")
         approve_phrase = self.review_phrase(unit="cover", which="approve")

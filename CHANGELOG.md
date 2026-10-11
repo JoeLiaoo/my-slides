@@ -12,6 +12,7 @@ No unreleased changes.
 
 - `next` no longer recommends re-approving a unit whose latest decision was rejected when the on-disk content already matches the previously approved version. The status/next gates now match: a rejection is only actionable while the unit is neither approved nor pending; restoring the approved content (or re-submitting) clears the actionable rejection without losing the decision history.
 - Chat-mode `reject --via chat` now requires a dedicated `REJECT <KIND> <target> <digest[:12]>` phrase bound to the pending version, mirroring the `REVOKE` phrase used by `revoke`. `review` exposes both the `APPROVE` and `REJECT` phrases bound to the same pending version so the agent can paste either into the conversation; reusing an `APPROVE` phrase to decline (or vice versa) is rejected.
+- The human-readable text output of `review` now prints the `驳回短语` line right after the `确认短语`, so chat-mode rejection is usable when an agent pastes the plain (non-JSON) review output into the conversation.
 
 ### Changed
 

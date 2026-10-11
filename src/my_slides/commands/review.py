@@ -19,7 +19,11 @@ def _human(packet: dict) -> str:
             lines.append("具体差异：\n" + unit["changes"]["diff"])
         lines.append("待审正文：\n" + str(unit.get("content") or "").rstrip())
     lines.append(f"\n确认短语：{packet['phrase']}")
-    lines.append("请在对话中明确回复是否批准。只有用户明确批准后，才能执行 confirm --via chat，并把原话传入 --user-reply。")
+    lines.append(f"驳回短语：{packet['reject_phrase']}")
+    lines.append(
+        "用户批准后执行 confirm --via chat --phrase <确认短语> --user-reply \"<原话>\"；"
+        "驳回则执行 reject --via chat --phrase <驳回短语> --reason \"...\" --user-reply \"<原话>\"。"
+    )
     return "\n".join(lines)
 
 
