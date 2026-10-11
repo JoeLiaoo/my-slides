@@ -57,7 +57,7 @@ class ApprovalDecisionsTests(unittest.TestCase):
             ))
         self.assertEqual(code, 0, out.getvalue())
 
-    def review_phrase(self, kind="report", unit=None, chapter=None):
+    def review_phrase(self, kind="report", unit=None, chapter=None, *, which="approve"):
         from my_slides.commands import review
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -65,7 +65,9 @@ class ApprovalDecisionsTests(unittest.TestCase):
                 project=str(self.root), kind=kind, json=True, unit=unit, chapter=chapter,
             ))
         self.assertEqual(code, 0, out.getvalue())
-        return json.loads(out.getvalue())["phrase"]
+        packet = json.loads(out.getvalue())
+        key = "phrase" if which == "approve" else "reject_phrase"
+        return packet[key]
 
     def confirm_chat(self, kind, phrase, reply="批准"):
         args = argparse.Namespace(
@@ -108,7 +110,7 @@ class ApprovalDecisionsTests(unittest.TestCase):
 
     def test_chat_reject_records_decision_and_suggests_re_approve(self):
         self.request("cover")
-        phrase = self.review_phrase(unit="cover")
+        phrase = self.review_phrase(unit="cover", which="reject")
         result = self.reject_chat("report", phrase, reason="结论与证据不一致", reply="先不批准")
         self.assertEqual(result["decision"], "rejected")
         self.assertEqual(result["channel"], "chat")
@@ -131,6 +133,38 @@ class ApprovalDecisionsTests(unittest.TestCase):
         self.assertIn("approve report --unit cover", step["command"])
         self.assertEqual(step["actor"], "agent")
         self.assertIn("结论与证据不一致", step["reason"])
+
+    def test_review_exposes_both_approve_and_reject_phrases(self):
+        self.request("cover")
+        from my_slides.commands import review
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(review.run(argparse.Namespace(
+                project=str(self.root), kind="report", json=True, unit="cover", chapter=None,
+            )), 0)
+        packet = json.loads(out.getvalue())
+        self.assertTrue(packet["phrase"].startswith("APPROVE REPORT cover "))
+        self.assertTrue(packet["reject_phrase"].startswith("REJECT REPORT cover "))
+        self.assertNotEqual(packet["phrase"], packet["reject_phrase"])
+
+    def test_chat_reject_rejects_approve_phrase(self):
+        self.request("cover")
+        approve_phrase = self.review_phrase(unit="cover", which="approve")
+        with self.assertRaisesRegex(ValueError, "短语"):
+            self.reject_chat("report", approve_phrase, reason="用了错的短语", reply="驳回")
+        # State stays pending; no rejection was recorded.
+        state = read_unit_state(self.base, "cover")["report"]
+        self.assertIsNotNone(state["pending_approval"])
+        self.assertNotEqual(state.get("latest_decision"), "rejected")
+
+    def test_chat_confirm_rejects_reject_phrase(self):
+        self.request("cover")
+        reject_phrase = self.review_phrase(unit="cover", which="reject")
+        with self.assertRaisesRegex(ValueError, "短语"):
+            self.confirm_chat("report", reject_phrase, reply="批准")
+        state = read_unit_state(self.base, "cover")["report"]
+        self.assertIsNotNone(state["pending_approval"])
+        self.assertFalse(state["current"])
 
     def test_reject_without_reason_errors(self):
         with self.assertRaisesRegex(ValueError, "驳回原因"):
@@ -226,12 +260,12 @@ class ApprovalDecisionsTests(unittest.TestCase):
 
     def test_re_approve_after_rejection_clears_rejection_state_but_keeps_history(self):
         self.request("cover")
-        phrase = self.review_phrase(unit="cover")
+        phrase = self.review_phrase(unit="cover", which="reject")
         self.reject_chat("report", phrase, reason="首次结论需要修订", reply="先不批")
         # After rejection, approve again and confirm. (Phrase stays the same
         # because the report content is unchanged.)
         self.request("cover")
-        self.confirm_chat("report", phrase, reply="修订后批准")
+        self.confirm_chat("report", self.review_phrase(unit="cover"), reply="修订后批准")
         state = read_unit_state(self.base, "cover")["report"]
         self.assertTrue(state["current"])
         self.assertEqual(state["latest_decision"], "approved")
@@ -306,6 +340,39 @@ class ApprovalDecisionsTests(unittest.TestCase):
         spec_archive = self.base / ".state" / "approved" / "spec" / "cover"
         self.assertTrue(any(spec_archive.glob("*.md")))
 
+    # -- reject -> restore -> next does not loop on the rejected reason -----
+
+    def test_next_after_restore_matches_approved_does_not_recommend_re_approve(self):
+        # Approve report v1.
+        self.request("cover")
+        approve_phrase = self.review_phrase(unit="cover")
+        self.confirm_chat("report", approve_phrase, reply="首次批准")
+        # Edit to v2 and submit a pending request.
+        report_file = unit_paths(self.base, "cover").report
+        report_file.write_text(report_file.read_text(encoding="utf-8") + "\nv2 补充。\n", encoding="utf-8")
+        self.request("cover")
+        # Reject v2 via chat with the REJECT phrase.
+        reject_phrase = self.review_phrase(unit="cover", which="reject")
+        self.reject_chat("report", reject_phrase, reason="需要重新核实数据", reply="驳回")
+        # Restore the file content to v1 (matches approved_sha256).
+        report_file.write_text(unit_paths(self.base, "cover").report.read_text(encoding="utf-8").split("\nv2 补充。\n")[0], encoding="utf-8")
+        state = refresh_unit_currency(self.base, self.units[0], project_root=self.root)
+        self.assertTrue(state["report"]["current"])
+        self.assertEqual(state["report"]["latest_decision"], "rejected")
+        # status sees the unit as approved and the rejection is no longer
+        # considered actionable (report_current=true).
+        report_status = self.status_json()["approvals"]["report"]
+        self.assertIn("cover", report_status["approved_units"])
+        self.assertNotIn("cover", report_status["rejected_units"])
+        # next must NOT recommend ``approve report --unit cover`` again.
+        step = self.next_json()
+        self.assertNotIn("approve report --unit cover", step["command"] or "")
+        # The rejection record is preserved in history.
+        state = read_unit_state(self.base, "cover")["report"]
+        self.assertEqual(state["latest_rejection"]["reason"], "需要重新核实数据")
+        history = [item["decision"] for item in state["decision_history"]]
+        self.assertIn("rejected", history)
+
     def test_revoke_requires_existing_approval(self):
         args = argparse.Namespace(
             project=str(self.root), kind="report", via="chat",
@@ -352,11 +419,50 @@ class ApprovalDecisionsTests(unittest.TestCase):
             revoke.run(args)
         self.assertTrue(read_unit_state(self.base, "cover")["report"]["current"])
 
+    def test_revoke_chat_works_after_content_diverges_from_approved(self):
+        # Approve v1 so approved_sha256 is set.
+        self.request("cover")
+        approve_phrase = self.review_phrase(unit="cover")
+        self.confirm_chat("report", approve_phrase, reply="首次批准")
+        # Diverging the file from the approved version (without approving a new
+        # one) makes ``report_current`` false while ``approved_sha256`` stays set.
+        report_file = unit_paths(self.base, "cover").report
+        report_file.write_text(report_file.read_text(encoding="utf-8") + "\n手动调整，未提交审批。\n", encoding="utf-8")
+        state = refresh_unit_currency(self.base, self.units[0], project_root=self.root)
+        self.assertIsNotNone(state["report"]["approved_sha256"])
+        self.assertFalse(state["report"]["current"])
+        # First chat revoke run should print the REVOKE phrase (no recording).
+        preview_args = argparse.Namespace(
+            project=str(self.root), kind="report", via="chat",
+            phrase="", user_reply="", reviewer=None,
+            unit="cover", chapter=None, reason="过期批准需撤回", json=True,
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(revoke.run(preview_args), 0)
+        preview = json.loads(out.getvalue())
+        self.assertEqual(preview["decision"], "revoke-preview")
+        self.assertTrue(preview["phrase"].startswith("REVOKE REPORT cover "))
+        # Second chat revoke run with the phrase must succeed even though
+        # ``report_current`` is False — the user is withdrawing a stale one.
+        final_args = argparse.Namespace(
+            project=str(self.root), kind="report", via="chat",
+            phrase=preview["phrase"], user_reply="撤回过期批准", reviewer=None,
+            unit="cover", chapter=None, reason="过期批准需撤回", json=True,
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(revoke.run(final_args), 0)
+        state = read_unit_state(self.base, "cover")["report"]
+        self.assertIsNone(state["approved_sha256"])
+        self.assertEqual(state["latest_decision"], "rejected")
+        self.assertEqual(state["latest_rejection"]["reason"], "过期批准需撤回")
+
     # -- re-submission after rejection ---------------------------------------
 
     def test_re_submit_after_rejection_recommends_review_and_marks_pending(self):
         self.request("cover")
-        phrase = self.review_phrase(unit="cover")
+        phrase = self.review_phrase(unit="cover", which="reject")
         self.reject_chat("report", phrase, reason="结论需要修订", reply="先不批")
         # After the rejection, re-submit by running approve again.
         self.request("cover")
@@ -395,7 +501,7 @@ class ApprovalDecisionsTests(unittest.TestCase):
         report_file = unit_paths(self.base, "cover").report
         report_file.write_text(report_file.read_text(encoding="utf-8") + "\n补充一段。\n", encoding="utf-8")
         self.request("cover")
-        new_phrase = self.review_phrase(unit="cover")
+        new_phrase = self.review_phrase(unit="cover", which="reject")
         self.assertNotEqual(new_phrase, report_phrase)
         self.reject_chat("report", new_phrase, reason="补充资料未准备", reply="重写")
         # The previously approved versions survive.

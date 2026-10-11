@@ -94,7 +94,7 @@ my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
 
 `my-slides next --json` 返回下一步命令、目标单元、原因和执行者（`agent` 或 `human`）。Agent 遇到 `actor: human` 必须停下，请用户自行审阅并执行 `confirm`。`approve` 只记录文件内容与依赖的待审版本；`confirm` 不提供 `--json` 或批量确认，要求在交互终端输入审阅者姓名与针对当前 SHA-256 的确认文字。状态文件记录姓名、本机账户与批准时间。申请后若文件或依赖变化，确认会拒绝，必须重新提交。完成报告确认后运行 `assemble`。
 
-用户也能驳回待审申请或撤回已批准内容。`reject report|spec --unit <id> --reason "..."` 清除待审申请并记录驳回原因、时间和通道，仅针对本次待审版本；已批准的报告、Spec 不会因此作废。沿用 `confirm` 的同一种门（`--via chat` 要求 `--phrase` 和 `--user-reply`；`approval_mode: terminal` 要求交互终端）。`withdraw report|spec --unit <id>` 供 Agent 取消自己的待审申请，不需要用户门。`revoke report|spec --unit <id> [--reason ...]` 撤回已批准的内容；`--via chat` 时先跑一次拿到已批准版本信息与 `REVOKE` 短语，再带 `--phrase` 与 `--user-reply` 执行；终端模式沿用确认门。报告撤回会同时作废下游的 Spec 批准和该单元的 HTML/检查，`.state/approved/` 下的已批准副本仍可追溯。`status --json` 列出 `rejected_units` 与驳回理由；`next --json` 在重新提交审批后推荐 `review`，只有未补交待审申请时才提示按驳回意见修改并重新提交。
+用户也能驳回待审申请或撤回已批准内容。`reject report|spec --unit <id> --reason "..."` 清除待审申请并记录驳回原因、时间和通道，仅针对本次待审版本；已批准的报告、Spec 不会因此作废。沿用 `confirm` 的同一种门（`--via chat` 要求 `--phrase` 和 `--user-reply`；`approval_mode: terminal` 要求交互终端）。`review` 在待审包里同时给出 `APPROVE` 与 `REJECT` 短语；对话驳回只接受 `REJECT` 短语，避免误用批准短语。`withdraw report|spec --unit <id>` 供 Agent 取消自己的待审申请，不需要用户门。`revoke report|spec --unit <id> [--reason ...]` 撤回已批准的内容；`--via chat` 时先跑一次拿到已批准版本信息与 `REVOKE` 短语，再带 `--phrase` 与 `--user-reply` 执行；终端模式沿用确认门。报告撤回会同时作废下游的 Spec 批准和该单元的 HTML/检查，`.state/approved/` 下的已批准副本仍可追溯。`status --json` 列出 `rejected_units` 与驳回理由；`next --json` 在重新提交审批后推荐 `review`，只有未补交待审申请时才提示按驳回意见修改并重新提交。
 
 交接材料使用固定路径 `my-slides/work/wiki.md`、`my-slides/work/wiki-question.md` 和 `my-slides/work/<report|spec|slides>/<id>.md`；再次 `prepare` 会更新同一路径。`status --json` 的 `approvals.<kind>.current` 按选定单元计算，仅在其批准版本仍有效且有审阅者姓名和本机账户时为真；另列出待确认、需重审、已驳回及旧版无审阅者记录的单元。旧批准必须重新确认才能继续组装报告或构建 Slides。`slides.current` 表示构建有效，`slides.checked_current` 表示浏览器检查有效。
 
@@ -120,6 +120,7 @@ my-slides prepare report --unit <id> && …撰写… && my-slides validate repor
 my-slides approve report --unit <id>          # 或 --chapter <大章节>
 my-slides review report --unit <id>           # 贴到对话里，等用户明确批准
 my-slides confirm report --unit <id> --via chat --phrase "..." --user-reply "..."
+my-slides reject report --unit <id> --reason "..." --via chat --phrase "..." --user-reply "..."
 my-slides assemble
 my-slides prepare spec --unit <id> && …撰写… && my-slides validate spec --unit <id>
 my-slides approve spec --unit <id>
