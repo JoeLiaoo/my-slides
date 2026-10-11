@@ -31,6 +31,16 @@ def confirmation_phrase(kind: str, target: str, digest: str) -> str:
     return f"APPROVE {kind.upper()} {target} {digest[:12]}"
 
 
+def revoke_phrase(kind: str, target: str, digest: str) -> str:
+    """Distinct phrase for revoking an existing approval.
+
+    Shares the ``<KIND> <target> <digest[:12]>`` shape with ``confirmation_phrase``
+    so it is obvious they bind different things, but uses ``REVOKE`` so a
+    captured ``APPROVE`` phrase can never be reused to undo an approval.
+    """
+    return f"REVOKE {kind.upper()} {target} {digest[:12]}"
+
+
 def approval_binding(unit: Unit, kind: str, state: dict[str, Any]) -> dict[str, str]:
     """Fields a confirmation phrase must match, beyond the body hash.
 
@@ -53,6 +63,28 @@ def approval_binding(unit: Unit, kind: str, state: dict[str, Any]) -> dict[str, 
             pending.get("report_input_fingerprint") or state["spec"].get("report_input_fingerprint") or ""
         )
         binding["report_sha256"] = str(pending.get("report_sha256") or state["spec"].get("report_sha256") or "")
+    return binding
+
+
+def revoke_binding(unit: Unit, kind: str, state: dict[str, Any]) -> dict[str, str]:
+    """Fields a revoke phrase must match: the CURRENT approved version.
+
+    Uses ``approved_sha256`` (not the on-disk content hash) so the phrase
+    remains valid until the user replaces the approval. For a Spec, the
+    bound report version is also included so an approval made against a
+    different report cannot be revoked later.
+    """
+    bucket = state[kind]
+    binding: dict[str, str] = {
+        "chapter": unit.chapter,
+        "id": unit.id,
+        "approved_sha256": str(bucket.get("approved_sha256") or ""),
+        "approved_at": str(bucket.get("approved_at") or ""),
+        "approved_by": str(bucket.get("approved_by") or ""),
+    }
+    if kind == "spec":
+        binding["report_sha256"] = str(state["spec"].get("report_sha256") or "")
+        binding["report_input_fingerprint"] = str(state["spec"].get("report_input_fingerprint") or "")
     return binding
 
 
@@ -265,3 +297,117 @@ def confirm_chat(
         )
         confirmed.append({"id": unit.id, "approved_by": state[kind]["approved_by"], "channel": "chat"})
     return confirmed
+
+
+def reject_chat(
+    base: Path,
+    cfg: dict[str, Any],
+    kind: str,
+    *,
+    unit_id: str | None,
+    chapter: str | None,
+    phrase: str,
+    user_reply: str,
+    reviewer: str | None,
+    reason: str,
+    when: str,
+    project_root: Path,
+) -> list[dict[str, Any]]:
+    """Conversation rejection: same gate as ``confirm_chat``, but record rejection."""
+    if approval_mode(cfg) != "chat":
+        raise ValueError("当前项目的 approval_mode 是 terminal；请在交互终端运行 reject，不能使用 --via chat")
+    reply = user_reply.strip()
+    if not reply:
+        raise ValueError("需要传入用户在对话中的原话（--user-reply）")
+    name = (reviewer or "").strip() or configured_reviewer(cfg)
+    if not name:
+        raise ValueError("请在 project.yaml 设置 reviewer，或传入 --reviewer")
+    cleaned_reason = (reason or "").strip()
+    if not cleaned_reason:
+        raise ValueError("驳回原因不能为空（请用 --reason 提供）")
+    units, target = select_review_units(base, cfg, unit_id=unit_id, chapter=chapter)
+    entries: list[dict[str, str]] = []
+    for unit in units:
+        state = refresh_unit_currency(base, unit, project_root=project_root)
+        if not state[kind]["pending_current"]:
+            raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容已变化；请重新运行 review")
+        entries.append(approval_binding(unit, kind, state))
+    digest = bindings_digest(entries, chapter_scope=not unit_id)
+    expected = confirmation_phrase(kind, target, digest)
+    if phrase.strip() != expected:
+        raise ValueError("确认短语与当前待审批内容或上下文不一致；请重新运行 review")
+    import getpass
+
+    from .unit_workflow import reject_unit_approval
+
+    account = getpass.getuser()
+    rejected: list[dict[str, Any]] = []
+    for unit in units:
+        state = reject_unit_approval(
+            base, unit, kind, when=when, reason=cleaned_reason,
+            rejected_by=name, rejected_account=account,
+            project_root=project_root, channel="chat", user_reply=reply,
+        )
+        rejected.append({
+            "id": unit.id,
+            "rejected_by": state[kind]["latest_rejection"]["rejected_by"],
+            "channel": "chat",
+            "reason": state[kind]["latest_rejection"]["reason"],
+        })
+    return rejected
+
+
+def revoke_chat(
+    base: Path,
+    cfg: dict[str, Any],
+    kind: str,
+    *,
+    unit_id: str | None,
+    chapter: str | None,
+    phrase: str,
+    user_reply: str,
+    reviewer: str | None,
+    reason: str,
+    when: str,
+    project_root: Path,
+) -> list[dict[str, Any]]:
+    """Conversation revocation of an existing approval. Mirrors ``confirm_chat``."""
+    if approval_mode(cfg) != "chat":
+        raise ValueError("当前项目的 approval_mode 是 terminal；请在交互终端运行 revoke，不能使用 --via chat")
+    reply = user_reply.strip()
+    if not reply:
+        raise ValueError("需要传入用户在对话中的原话（--user-reply）")
+    name = (reviewer or "").strip() or configured_reviewer(cfg)
+    if not name:
+        raise ValueError("请在 project.yaml 设置 reviewer，或传入 --reviewer")
+    units, target = select_review_units(base, cfg, unit_id=unit_id, chapter=chapter)
+    entries: list[dict[str, str]] = []
+    for unit in units:
+        state = refresh_unit_currency(base, unit, project_root=project_root)
+        if not state[kind]["current"]:
+            label = target if target else unit.id
+            raise ValueError(f"{label}：{kind} 还没有用户批准的当前版本；无需撤回")
+        entries.append(revoke_binding(unit, kind, state))
+    digest = bindings_digest(entries, chapter_scope=not unit_id)
+    expected = revoke_phrase(kind, target, digest)
+    if phrase.strip() != expected:
+        raise ValueError("确认短语与当前批准版本或上下文不一致；请重新运行 review")
+    import getpass
+
+    from .unit_workflow import revoke_unit_approval
+
+    account = getpass.getuser()
+    revoked: list[dict[str, Any]] = []
+    for unit in units:
+        state = revoke_unit_approval(
+            base, unit, kind, when=when, reason=(reason or "").strip() or None,
+            revoked_by=name, revoked_account=account,
+            project_root=project_root, channel="chat", user_reply=reply,
+        )
+        revoked.append({
+            "id": unit.id,
+            "revoked_by": state[kind]["latest_rejection"]["rejected_by"],
+            "channel": "chat",
+            "reason": state[kind]["latest_rejection"]["reason"],
+        })
+    return revoked

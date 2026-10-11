@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import format_version
-from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, renderer, review, slides, sources, status, units, validate
+from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
 from .commands.init import init_project
 from .commands.prepare import prepare
 
@@ -89,6 +89,33 @@ def build_parser() -> argparse.ArgumentParser:
     confirm.add_argument("--user-reply", dest="user_reply", help="用户在对话中的原话")
     confirm.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
     confirm.add_argument("--project")
+    reject = sub.add_parser("reject", help="驳回一个待审批小章节，或在对话中驳回一整章")
+    reject.add_argument("kind", choices=("report", "spec"))
+    reject.add_argument("--unit", metavar="ID", help="要驳回的小章节；与 --chapter 二选一")
+    reject.add_argument("--chapter", help="驳回该大章节下全部已提交的小章节；必须配合 --via chat")
+    reject.add_argument("--reason", required=True, help="驳回原因")
+    reject.add_argument("--via", choices=("chat",), help="对话驳回。需要 --phrase 和 --user-reply")
+    reject.add_argument("--phrase", help="review 给出的 APPROVE 短语")
+    reject.add_argument("--user-reply", dest="user_reply", help="用户在对话中的原话")
+    reject.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
+    reject.add_argument("--json", action="store_true")
+    reject.add_argument("--project")
+    withdraw = sub.add_parser("withdraw", help="Agent 撤回自己提交的待审批申请")
+    withdraw.add_argument("kind", choices=("report", "spec"))
+    withdraw.add_argument("--unit", metavar="ID", required=True, help="要撤回的小章节")
+    withdraw.add_argument("--project")
+    withdraw.add_argument("--json", action="store_true")
+    revoke = sub.add_parser("revoke", help="用户撤回一个已有的报告或 Spec 批准")
+    revoke.add_argument("kind", choices=("report", "spec"))
+    revoke.add_argument("--unit", metavar="ID", help="要撤回批准的小章节；与 --chapter 二选一")
+    revoke.add_argument("--chapter", help="撤回该大章节下全部已批准的报告；必须配合 --via chat")
+    revoke.add_argument("--reason", help="撤回原因；建议在 chat 模式下提供原文")
+    revoke.add_argument("--via", choices=("chat",), help="对话撤回。第一次执行会展示已批准版本与 REVOKE 短语；用户同意后带 --phrase 和 --user-reply 再执行一次")
+    revoke.add_argument("--phrase", help="revoke 上一步返回的 REVOKE 短语")
+    revoke.add_argument("--user-reply", dest="user_reply", help="用户在对话中的原话")
+    revoke.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
+    revoke.add_argument("--json", action="store_true")
+    revoke.add_argument("--project")
     assemble = sub.add_parser("assemble", help="v2：将报告单元组装为 reports/report.md")
     assemble.add_argument("--project")
     assemble.add_argument("--json", action="store_true")
@@ -194,6 +221,9 @@ def main() -> None:
         "approve": approve.run,
         "review": review.run,
         "confirm": confirm.run,
+        "reject": reject.run,
+        "withdraw": withdraw.run,
+        "revoke": revoke.run,
         "assemble": assemble.run,
         "slides": slides.run,
         "units": units.run,

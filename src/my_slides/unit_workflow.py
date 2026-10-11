@@ -260,6 +260,16 @@ def approve_unit_spec(
     spec_sha = fingerprint_file(paths.spec)
     report_sha = state["report"]["approved_sha256"]
     report_input = state["report"]["approved_input_fingerprint"]
+    prior_history = list(state["spec"].get("decision_history") or [])
+    prior_history.append({
+        "decision": "approved",
+        "approved_by": approved_by,
+        "approved_account": approved_account,
+        "approved_at": when,
+        "channel": channel,
+        "user_reply": user_reply,
+        "approved_sha256": spec_sha,
+    })
     state["spec"] = {
         "content_sha256": spec_sha,
         "report_sha256": report_sha,
@@ -272,6 +282,9 @@ def approve_unit_spec(
         "pending_current": False,
         "approval_channel": channel,
         "user_reply": user_reply,
+        "latest_decision": "approved",
+        "latest_rejection": state["spec"].get("latest_rejection"),
+        "decision_history": prior_history,
         "current": bool(approved_by and approved_account),
     }
     # HTML must be rebuilt against the new Spec — never auto-revive.
@@ -313,6 +326,10 @@ def request_unit_approval(
         request["report_input_fingerprint"] = state["report"]["approved_input_fingerprint"]
     state[kind]["pending_approval"] = request
     state[kind]["pending_current"] = True
+    # Reset latest_decision so a re-submission after rejection no longer looks
+    # rejected while the new request is still pending. The original rejection
+    # stays in ``decision_history`` and ``latest_rejection`` for traceability.
+    state[kind]["latest_decision"] = None
     write_unit_state(base, unit.id, state)
     return request
 
@@ -356,6 +373,87 @@ def confirm_unit_approval(
     if isinstance(approved_sha, str) and approved_sha and path.is_file():
         archive_approved_copy(base, kind, unit.id, approved_sha, path.read_text(encoding="utf-8"))
     return state
+
+
+def reject_unit_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    when: str,
+    reason: str,
+    rejected_by: str,
+    rejected_account: str,
+    project_root: Path | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
+) -> dict[str, Any]:
+    """Record a user rejection for a pending request."""
+    from .state import record_rejection
+
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    if not rejected_by.strip() or not rejected_account.strip():
+        raise ValueError("驳回人和本机账户不能为空")
+    if not (reason or "").strip():
+        raise ValueError("驳回原因不能为空")
+    state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
+    if not state[kind]["pending_current"]:
+        raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容/依赖已变化；请重新运行 approve {kind} --unit {unit.id}")
+    return record_rejection(
+        base, unit, kind,
+        project_root=project_root or base.parent, when=when, reason=reason.strip(),
+        rejected_by=rejected_by.strip(), rejected_account=rejected_account.strip(),
+        channel=channel, user_reply=user_reply,
+        clear_pending=True,
+    )
+
+
+def withdraw_unit_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    when: str,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Cancel a pending approval request the agent itself submitted."""
+    from .state import withdraw_approval
+
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    return withdraw_approval(
+        base, unit, kind, project_root=project_root or base.parent, when=when,
+    )
+
+
+def revoke_unit_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    when: str,
+    revoked_by: str,
+    revoked_account: str,
+    project_root: Path | None = None,
+    channel: str | None = None,
+    user_reply: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Drop a current approval; preserve approved copies and invalidate dependents."""
+    from .state import revoke_approval
+
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    if not revoked_by.strip() or not revoked_account.strip():
+        raise ValueError("撤回人和本机账户不能为空")
+    return revoke_approval(
+        base, unit, kind,
+        project_root=project_root or base.parent, when=when,
+        reason=reason, revoked_by=revoked_by.strip(),
+        revoked_account=revoked_account.strip(),
+        channel=channel, user_reply=user_reply,
+    )
 
 
 def assemble_after_report_approvals(
