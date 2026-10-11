@@ -44,9 +44,16 @@ def run(args: argparse.Namespace) -> int:
             row["id"] for row in selected_rows
             if row[f"{kind}_unattributed"]
         ]
+        rejected = [
+            row["id"] for row in selected_rows
+            if row.get(f"{kind}_latest_decision") == "rejected"
+            and not row[f"{kind}_current"]
+            and not row[f"{kind}_pending"]
+        ]
         needs_review = [
             row["id"] for row in selected_rows
             if not row[f"{kind}_current"] and not row[f"{kind}_pending"]
+            and row.get(f"{kind}_latest_decision") != "rejected"
         ]
         approval_status[kind] = {
             "supported": True,
@@ -54,6 +61,12 @@ def run(args: argparse.Namespace) -> int:
             "approved_units": approved,
             "pending_units": pending_approval,
             "unattributed_units": unattributed,
+            "rejected_units": rejected,
+            "rejections": {
+                row["id"]: row.get(f"{kind}_latest_rejection")
+                    for row in selected_rows
+                    if row.get(f"{kind}_latest_decision") == "rejected"
+                },
             "needs_review_units": needs_review,
             "approved_by": {
                 row["id"]: {
@@ -83,7 +96,8 @@ def run(args: argparse.Namespace) -> int:
         f"可复用：{len(unit_status['reused_units'])}\n"
         f"阻塞：{len(unit_status['blocked_units'])}\n"
         f"待人工确认：报告 {len(approval_status['report']['pending_units'])}，Spec {len(approval_status['spec']['pending_units'])}\n"
-        "提示：用 --json 查看各单元批准/构建/检查状态"
+        f"已驳回：报告 {len(approval_status['report']['rejected_units'])}，Spec {len(approval_status['spec']['rejected_units'])}\n"
+        "提示：用 --json 查看各单元批准/驳回/构建/检查状态"
     )
     data = {
         "project": str(root),

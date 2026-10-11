@@ -74,6 +74,14 @@ def run(args: argparse.Namespace) -> int:
                 )
                 command = f"my-slides confirm report --unit {unit.id}"
             return recommend(command, reason, unit=unit.id, actor="human")
+        if row.get("report_latest_decision") == "rejected":
+            rejection = row.get("report_latest_rejection") or {}
+            reason_text = (rejection.get("reason") or "").strip() or "（未提供原因）"
+            return recommend(
+                f"my-slides approve report --unit {unit.id}",
+                f"用户驳回了报告：{reason_text}；Agent 请按驳回原因修改 reports/units/{unit.id}.md 后重新提交审批。",
+                unit=unit.id,
+            )
         if row["report_unattributed"]:
             return recommend(f"my-slides approve report --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["report_current"]:
@@ -102,6 +110,14 @@ def run(args: argparse.Namespace) -> int:
                 command = f"my-slides confirm spec --unit {unit.id}"
                 reason = "Spec 已提交审批；必须由用户审阅文件后在自己的交互终端确认，Agent 不得执行此命令。"
             return recommend(command, reason, unit=unit.id, actor="human")
+        if row.get("spec_latest_decision") == "rejected":
+            rejection = row.get("spec_latest_rejection") or {}
+            reason_text = (rejection.get("reason") or "").strip() or "（未提供原因）"
+            return recommend(
+                f"my-slides approve spec --unit {unit.id}",
+                f"用户驳回了 Spec：{reason_text}；Agent 请按驳回原因修改 specs/units/{unit.id}.md 后重新提交审批。",
+                unit=unit.id,
+            )
         if row["spec_unattributed"]:
             return recommend(f"my-slides approve spec --unit {unit.id}", "旧审批记录没有审阅者信息；请重新提交供用户确认。", unit=unit.id)
         if not row["spec_current"]:

@@ -44,6 +44,9 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "reconfirmation_context": None,
             "approval_channel": None,
             "user_reply": None,
+            "latest_decision": None,
+            "latest_rejection": None,
+            "decision_history": [],
             "current": False,
         },
         "spec": {
@@ -58,6 +61,9 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "pending_current": False,
             "approval_channel": None,
             "user_reply": None,
+            "latest_decision": None,
+            "latest_rejection": None,
+            "decision_history": [],
             "current": False,
         },
         "html": {
@@ -93,6 +99,14 @@ def read_unit_state(base: Path, unit_id: str) -> dict[str, Any]:
         merged["reasons"] = [str(item) for item in data["reasons"]]
     if isinstance(data.get("identity_migrations"), list):
         merged["identity_migrations"] = data["identity_migrations"]
+    for key in ("report", "spec"):
+        bucket = merged[key]
+        if not isinstance(bucket.get("decision_history"), list):
+            bucket["decision_history"] = []
+        if bucket.get("latest_decision") not in {None, "approved", "rejected"}:
+            bucket["latest_decision"] = None
+        if bucket.get("latest_rejection") is not None and not isinstance(bucket["latest_rejection"], dict):
+            bucket["latest_rejection"] = None
     return merged
 
 
@@ -306,6 +320,8 @@ def collect_units_status(
             "report_user_reply": state["report"].get("user_reply"),
             "report_unattributed": bool(state["report"].get("approved_sha256"))
             and (not state["report"].get("approved_by") or not state["report"].get("approved_account")),
+            "report_latest_decision": state["report"].get("latest_decision"),
+            "report_latest_rejection": state["report"].get("latest_rejection"),
             "spec_current": state["spec"]["current"],
             "spec_pending": state["spec"]["pending_current"],
             "spec_approved_by": state["spec"].get("approved_by"),
@@ -315,6 +331,8 @@ def collect_units_status(
             "spec_user_reply": state["spec"].get("user_reply"),
             "spec_unattributed": bool(state["spec"].get("approved_sha256"))
             and (not state["spec"].get("approved_by") or not state["spec"].get("approved_account")),
+            "spec_latest_decision": state["spec"].get("latest_decision"),
+            "spec_latest_rejection": state["spec"].get("latest_rejection"),
             "html_current": state["html"]["current"],
             "check_current": state["check"]["current"],
             "reasons": state["reasons"],
@@ -363,6 +381,17 @@ def mark_report_approved(
     prior_sha = state["report"].get("approved_sha256")
     prior_input = state["report"].get("approved_input_fingerprint")
     report_changed = prior_sha != sha or prior_input != input_fp
+    prior_history = list(state["report"].get("decision_history") or [])
+    approval_entry = {
+        "decision": "approved",
+        "approved_by": approved_by,
+        "approved_account": approved_account,
+        "approved_at": when,
+        "channel": channel,
+        "user_reply": user_reply,
+        "approved_sha256": sha,
+    }
+    prior_history.append(approval_entry)
     state["report"] = {
         "content_sha256": sha,
         "input_fingerprint": input_fp,
@@ -377,6 +406,9 @@ def mark_report_approved(
         "reconfirmation_context": None,
         "approval_channel": channel,
         "user_reply": user_reply,
+        "latest_decision": "approved",
+        "latest_rejection": state["report"].get("latest_rejection"),
+        "decision_history": prior_history,
         "current": bool(approved_by and approved_account),
     }
     # A context-only reconfirmation keeps a Spec bound to the identical report.
@@ -415,6 +447,181 @@ def invalidate_for_changed_file(
     return impact
 
 
+def record_rejection(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    project_root: Path | None = None,
+    when: str,
+    reason: str,
+    rejected_by: str,
+    rejected_account: str,
+    channel: str,
+    user_reply: str | None = None,
+    clear_pending: bool = True,
+) -> dict[str, Any]:
+    """Record a user rejection of a pending request.
+
+    Keeps the rejection in history; clears only the pending request. The
+    rejection does **not** invalidate an existing approval: only the pending
+    new version is declined, so already approved ``approved_sha256`` and
+    Spec approvals remain in place. ``refresh_unit_currency`` then decides
+    whether the current approval is still valid against the on-disk files.
+
+    Returns the refreshed unit state. ``clear_pending=False`` is used by
+    ``revoke`` when there is no pending request to drop.
+    """
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    state = refresh_unit_currency(base, unit, project_root=project_root)
+    bucket = state[kind]
+    if not reason or not str(reason).strip():
+        raise ValueError("驳回原因不能为空")
+    rejection_entry = {
+        "reason": str(reason).strip(),
+        "rejected_by": rejected_by,
+        "rejected_account": rejected_account,
+        "rejected_at": when,
+        "channel": channel,
+        "user_reply": user_reply,
+    }
+    history = list(bucket.get("decision_history") or [])
+    history.append({"decision": "rejected", **rejection_entry})
+    bucket["latest_decision"] = "rejected"
+    bucket["latest_rejection"] = rejection_entry
+    bucket["decision_history"] = history
+    if clear_pending:
+        bucket["pending_approval"] = None
+        bucket["pending_current"] = False
+    reasons = list(state.get("reasons") or [])
+    message = f"用户驳回了{ '报告' if kind == 'report' else 'Spec' }：{rejection_entry['reason']}"
+    if message not in reasons:
+        reasons.append(message)
+    state["reasons"] = reasons
+    write_unit_state(base, unit.id, state)
+    return state
+
+
+def revoke_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    project_root: Path | None = None,
+    when: str,
+    reason: str | None = None,
+    revoked_by: str,
+    revoked_account: str,
+    channel: str,
+    user_reply: str | None = None,
+) -> dict[str, Any]:
+    """Drop a current approval and invalidate dependent artifacts.
+
+    Approved copies in ``.state/approved/`` are preserved so previous versions
+    stay in history. A report revoke also invalidates the bound Spec and the
+    HTML/check chain for the same unit.
+    """
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    state = refresh_unit_currency(base, unit, project_root=project_root)
+    bucket = state[kind]
+    if not bucket.get("approved_sha256"):
+        raise UnitsError(f"{unit.id}：{kind} 还没有有效的批准；无需撤回")
+    approved_sha = bucket.get("approved_sha256")
+    approved_at = bucket.get("approved_at")
+    history = list(bucket.get("decision_history") or [])
+    history.append({
+        "decision": "revoked",
+        "reason": (reason or "").strip() or None,
+        "revoked_by": revoked_by,
+        "revoked_account": revoked_account,
+        "revoked_at": when,
+        "channel": channel,
+        "user_reply": user_reply,
+        "previously_approved_sha256": approved_sha,
+        "previously_approved_at": approved_at,
+    })
+    bucket["approved_sha256"] = None
+    bucket["approved_input_fingerprint"] = None
+    bucket["approved_at"] = None
+    bucket["approved_by"] = None
+    bucket["approved_account"] = None
+    bucket["approval_channel"] = None
+    bucket["user_reply"] = None
+    bucket["current"] = False
+    bucket["reconfirmation_required"] = False
+    bucket["reconfirmation_context"] = None
+    bucket["pending_approval"] = None
+    bucket["pending_current"] = False
+    bucket["latest_decision"] = "rejected"
+    bucket["latest_rejection"] = {
+        "reason": (reason or "").strip() or "用户撤回了批准",
+        "rejected_by": revoked_by,
+        "rejected_account": revoked_account,
+        "rejected_at": when,
+        "channel": channel,
+        "user_reply": user_reply,
+    }
+    bucket["decision_history"] = history
+    state["html"]["current"] = False
+    state["check"]["current"] = False
+    if kind == "report":
+        # Report revoke cascades down: the bound Spec approval is no longer
+        # backed by an approved report, so its approved_sha256 is dropped.
+        state["spec"]["current"] = False
+        state["spec"]["approved_sha256"] = None
+        state["spec"]["report_sha256"] = None
+        state["spec"]["report_input_fingerprint"] = None
+        state["spec"]["approved_at"] = None
+        state["spec"]["approved_by"] = None
+        state["spec"]["approved_account"] = None
+        state["spec"]["approval_channel"] = None
+        state["spec"]["user_reply"] = None
+        state["spec"]["pending_approval"] = None
+        state["spec"]["pending_current"] = False
+        state["spec"]["reconfirmation_required"] = False
+        state["spec"]["reconfirmation_context"] = None
+    reasons = list(state.get("reasons") or [])
+    note = f"用户撤回了{ '报告' if kind == 'report' else 'Spec' }批准"
+    if reason:
+        note += f"：{str(reason).strip()}"
+    if note not in reasons:
+        reasons.append(note)
+    state["reasons"] = reasons
+    write_unit_state(base, unit.id, state)
+    return state
+
+
+def withdraw_approval(
+    base: Path,
+    unit: Unit,
+    kind: str,
+    *,
+    project_root: Path | None = None,
+    when: str,
+) -> dict[str, Any]:
+    """Agent cancels its own pending approval request; no user gate required."""
+    if kind not in {"report", "spec"}:
+        raise ValueError(f"未知审批类型：{kind}")
+    state = refresh_unit_currency(base, unit, project_root=project_root)
+    bucket = state[kind]
+    if not bucket.get("pending_approval"):
+        raise UnitsError(f"{unit.id}：{kind} 没有待审申请；无需撤回")
+    history = list(bucket.get("decision_history") or [])
+    history.append({
+        "decision": "withdrawn",
+        "withdrawn_at": when,
+        "previously_requested_at": bucket["pending_approval"].get("requested_at"),
+    })
+    bucket["pending_approval"] = None
+    bucket["pending_current"] = False
+    bucket["decision_history"] = history
+    # A withdrawal is not a user decision; it never becomes latest_decision.
+    write_unit_state(base, unit.id, state)
+    return state
+
+
 # Re-export fingerprint helpers for tests / callers.
 __all__ = [
     "check_input_fingerprint",
@@ -427,7 +634,10 @@ __all__ = [
     "invalidate_for_changed_file",
     "mark_report_approved",
     "read_unit_state",
+    "record_rejection",
     "refresh_unit_currency",
+    "revoke_approval",
     "unit_state_path",
+    "withdraw_approval",
     "write_unit_state",
 ]

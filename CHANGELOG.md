@@ -6,6 +6,20 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.1] - Pending
+
+### Added
+
+- `reject report|spec --unit <id> --reason "..."` clears a pending approval request and records the user's rejection with the reason, time, channel, and account. In chat approval mode it requires `--via chat` with a matching `--phrase` and `--user-reply`, mirroring `confirm`. In terminal approval mode it requires an interactive TTY the same way `confirm` does. The rejection only declines the current pending version; an existing approval stays in place until the user revokes it.
+- `withdraw report|spec --unit <id>` lets the agent cancel its own pending approval request with no user gate. It errors when no request is pending and never records a user decision.
+- `revoke report|spec --unit <id> [--reason ...]` lets the user drop an existing approval. In chat mode it uses a dedicated `REVOKE <KIND> <target> <sha12>`-style phrase bound to the current approved version (unit id, chapter, approved_sha256, and the Spec's bound report_sha256). Running it once without `--phrase` prints (or returns in `--json`) the approved version summary plus the phrase the user must agree to, and records nothing; running it again with `--phrase` and `--user-reply` after the user agrees performs the revocation. Terminal mode requires an interactive TTY. Revoking a report also invalidates the bound Spec approval and the unit's HTML/check state; revoking a Spec invalidates HTML/checks. Approved copies in `.state/approved/` are kept.
+
+- `status` lists `rejected_units` and `rejections` (including reason, account, and channel) per unit. `next` recommends `review` when a unit is pending again after rejection; the rejection-only recommendation appears when no new request has been submitted. Re-submitting after a rejection resets `latest_decision` so `next` does not loop on the same recommendation. Rejection and approval entries are preserved in `decision_history` for traceability.
+
+### Changed
+
+- State files gain `latest_decision`, `latest_rejection`, and `decision_history` per kind. Existing state files without these fields load as before; `refresh_unit_currency` keeps producing the same current flags until a new decision is recorded. `record_rejection` no longer touches existing approved_sha256, the bound Spec approval, or HTML/check state — the rejection is a decision about the pending version only, and `refresh_unit_currency` continues to drive downstream currency.
+
 ## [0.4.0] - Pending
 
 ### Breaking Changes
