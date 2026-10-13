@@ -6,6 +6,16 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.4] - Pending
+
+### Added
+
+- Skill 拆分为入口 + 按需参考两部分：`skills/my-slides-workflow/SKILL.md` 只保留工作流总览；详细说明落在 `references/{wiki,report,spec,slides,charts,visual-rules,example-index}.md`。包安装版镜像在 `src/my_slides/templates/`，由 `scripts/sync-skill-template.py` 同步维护；CI 与包构建都依赖这个同步脚本。
+- 每个 Spec 页面的 `布局意图` 现在展开成六个子标题（读者问题 / 唯一结论 / 关系类型 / 主视觉 / 阅读顺序 / 选这个形式的原因），`my-slides validate spec` 在审批前对任一空子标题报错；保持现有 `### 布局意图` 标题，旧 Spec 的其它章节不动。
+- 新增视觉规则与反例参考 `references/visual-rules.md`：每页一个结论、三档字号、数字 + 单位 + 日期 + 来源就近、关系类型 ↔ 主视觉映射、读视口与文本角色设定字号 / 长度阈值（不按「整页最多 N 字」一刀切）、最小失败 / 修正示例 A/B/C。
+- 示例库 `skills/my-slides-workflow/examples/` 含 6 个虚构案例：投资摘要、市场 / 需求趋势、竞争比较、技术机制、商业化与单位经济、财务情景与风险；每个目录都是可独立复现的最小集（README + data.json + wiki + report-excerpt + spec + page.html + check-notes），不依赖真实项目。
+- `references/example-index.md` 按「purpose / inputs / bounds / density / layout」列出沟通问题 → 示例路径映射。`my-slides prepare slides` 读取索引（`examples/index/problems.yaml`）把 1–2 条最相关的路径与一句话摘要写到交接材料；没有命中时退到默认推荐。
+
 ## [0.4.3] - Pending
 
 ### Added
