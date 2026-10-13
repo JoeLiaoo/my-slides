@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import format_version
-from .commands import agent, approve, assemble, browser, confirm, doctor, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
+from .commands import agent, approve, assemble, browser, chapters, confirm, doctor, export, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
 from .commands.init import init_project
 from .commands.prepare import prepare
 
@@ -187,6 +187,36 @@ def build_parser() -> argparse.ArgumentParser:
     trash_list = trash_sub.add_parser("list", help="列出可恢复的删除记录")
     trash_list.add_argument("--project")
     trash_list.add_argument("--json", action="store_true")
+    chapters = sub.add_parser("chapters", help="管理项目报告大章节（同步 project.yaml、units.json 与 wiki/index.md）")
+    chapters_sub = chapters.add_subparsers(dest="chapters_command", required=True)
+    chapters_list = chapters_sub.add_parser("list", help="列出大章节与所含小章节")
+    chapters_list.add_argument("--project")
+    chapters_list.add_argument("--json", action="store_true")
+    chapters_add = chapters_sub.add_parser("add", help="新增大章节")
+    chapters_add.add_argument("name")
+    chapters_add.add_argument("--after", help="插入到该章节之后")
+    chapters_add.add_argument("--project")
+    chapters_add.add_argument("--json", action="store_true")
+    chapters_rename = chapters_sub.add_parser("rename", help="重命名大章节并同步三处存储")
+    chapters_rename.add_argument("old")
+    chapters_rename.add_argument("new")
+    chapters_rename.add_argument("--project")
+    chapters_rename.add_argument("--json", action="store_true")
+    chapters_remove = chapters_sub.add_parser("remove", help="删除大章节（仍有小章节时拒绝）")
+    chapters_remove.add_argument("name")
+    chapters_remove.add_argument("--project")
+    chapters_remove.add_argument("--json", action="store_true")
+    chapters_move = chapters_sub.add_parser("move", help="调整大章节顺序")
+    chapters_move.add_argument("name")
+    placement = chapters_move.add_mutually_exclusive_group()
+    placement.add_argument("--after", metavar="CHAPTER", help="放到该章节之后")
+    placement.add_argument("--before", metavar="CHAPTER", help="放到该章节之前")
+    chapters_move.add_argument("--project")
+    chapters_move.add_argument("--json", action="store_true")
+    export_cmd = sub.add_parser("export", help="校验整套 Slides 后导出离线 HTML，并在 .state/deliveries.json 记录")
+    export_cmd.add_argument("--project")
+    export_cmd.add_argument("--output", help="导出目录；省略时写到项目根")
+    export_cmd.add_argument("--json", action="store_true")
     doctor = sub.add_parser("doctor", help="检查项目工作区基础结构")
     doctor.add_argument("--project")
     doctor.add_argument("--json", action="store_true")
@@ -227,6 +257,8 @@ def main() -> None:
         "assemble": assemble.run,
         "slides": slides.run,
         "units": units.run,
+        "chapters": chapters.run,
+        "export": export.run,
         "doctor": doctor.run,
         "status": status.run,
         "next": next_step.run,

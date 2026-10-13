@@ -37,6 +37,22 @@ my-slides units trash list [--json]
 my-slides units restore <trash-id>
 ```
 
+## 调整大章节
+
+`my-slides chapters list/add/rename/remove/move` 一次更新 `project.yaml`、`units.json` 与 `wiki/index.md` 三处存储。改名只改 `chapter` 字段，报告与 Spec 批准绑定的内容哈希与依赖指纹不变，无需重新批准。删除大章节时仍有小章节引用会拒绝；移动后运行 `next --json` 按建议重新组装报告并重建整套 Slides。
+
+```text
+my-slides chapters list
+my-slides chapters add <章节名> [--after <已有章节>]
+my-slides chapters rename <原名> <新名>
+my-slides chapters remove <章节名>           # 仍有小章节时拒绝
+my-slides chapters move <章节名> [--after <章节> | --before <章节>]
+```
+
+## 交付成品
+
+整套 Slides 全部批准、构建和检查都是最新版本后，用 `my-slides export [--output DIR]` 导出一份 `<项目名>-v<序号>-<日期>.html`，并在 `.state/deliveries.json` 记录交付时间、版本号与包含的单元 SHA-256。`status --json` 会显示最近一次交付与自该交付以来发生变化的单元（按报告、Spec、HTML 哈希分别列出原因）。
+
 `my-slides units remove <id>` 默认只显示影响预览，包括文件、批准和依赖/链接。预览确认无阻碍后添加 `--yes`，单元会移入 `my-slides/.state/trash/`，不会永久删除。若单元曾获报告或 Spec 批准，Agent 必须先取得用户明确同意再执行。命令会打印恢复命令；也可运行 `my-slides units trash list` 查看记录，并用 `my-slides units restore <trash-id>` 按原章节和位置恢复。清理回收区将在后续版本提供。
 
 ## 先装这些
