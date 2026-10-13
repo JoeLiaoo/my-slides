@@ -1,0 +1,47 @@
+<style>
+  .batching-demo { padding: clamp(18px, 4vw, 68px); gap: 18px; justify-content: center; color: var(--mls-text); background: #faf9f6; }
+  .batching-demo h1 { font-size: clamp(26px, 3vw, 46px); margin: 0; }
+  .batching-demo .lead { font-size: clamp(16px, 1.5vw, 22px); margin: 0; }
+  .batching-demo figure { margin: 0; width: 100%; }
+  .batching-demo svg { width: 100%; height: auto; max-height: 45vh; }
+  .batching-demo .takeaway { display: flex; gap: 18px; font-size: clamp(15px, 1.25vw, 20px); }
+  .batching-demo .takeaway p { flex: 1; margin: 0; }
+  .batching-demo .boundary { font-size: 12px; color: var(--mls-muted); margin: 0; }
+  .batching-demo .mobile-steps { display: none; }
+  @media (max-width: 600px) {
+    .batching-demo { justify-content: flex-start; padding: 24px 20px 76px; gap: 12px; }
+    .batching-demo figure { display: none; }
+    .batching-demo .mobile-steps { display: block; margin: 0; padding-left: 24px; font-size: 17px; line-height: 1.45; }
+    .batching-demo .takeaway { display: block; font-size: 14px; }
+    .batching-demo .takeaway p + p { margin-top: 5px; }
+    .batching-demo .boundary { font-size: 11px; }
+  }
+</style>
+<section class="slide batching-demo" data-unit-id="batching-static" data-page-role="content">
+  <h1>请求先组合，再集中执行</h1>
+  <p class="lead">动态批处理的五步机制</p>
+  <figure>
+    <svg viewBox="0 0 960 280" role="img" aria-labelledby="batch-title batch-desc" xmlns="http://www.w3.org/2000/svg">
+      <title id="batch-title">推理请求动态批处理</title>
+      <desc id="batch-desc">请求到达，短暂排队，组合批次，设备执行，分别返回。排队可能增加等待，批次执行可能提高设备利用率。</desc>
+      <rect x="5" y="57" width="156" height="115" rx="14" fill="#f1f3f5" stroke="#52525b" stroke-width="2" />
+      <rect x="201" y="57" width="156" height="115" rx="14" fill="#f1f3f5" stroke="#52525b" stroke-width="2" />
+      <rect x="397" y="57" width="156" height="115" rx="14" fill="#f8e9ec" stroke="#a6192e" stroke-width="2" />
+      <rect x="593" y="57" width="156" height="115" rx="14" fill="#e8f0fa" stroke="#2563a6" stroke-width="2" />
+      <rect x="789" y="57" width="156" height="115" rx="14" fill="#f1f3f5" stroke="#52525b" stroke-width="2" />
+      <path d="M166 114 H187 M362 114 H383 M558 114 H579 M754 114 H775" stroke="#52525b" stroke-width="3" fill="none" />
+      <polygon points="187,114 178,108 178,120" fill="#52525b" /><polygon points="383,114 374,108 374,120" fill="#52525b" /><polygon points="579,114 570,108 570,120" fill="#52525b" /><polygon points="775,114 766,108 766,120" fill="#52525b" />
+      <text x="83" y="106" text-anchor="middle" font-size="23" fill="#27272a">请求</text><text x="83" y="138" text-anchor="middle" font-size="23" fill="#27272a">到达</text>
+      <text x="279" y="106" text-anchor="middle" font-size="23" fill="#27272a">短暂</text><text x="279" y="138" text-anchor="middle" font-size="23" fill="#27272a">排队</text>
+      <text x="475" y="106" text-anchor="middle" font-size="23" fill="#27272a">组合</text><text x="475" y="138" text-anchor="middle" font-size="23" fill="#27272a">批次</text>
+      <text x="671" y="106" text-anchor="middle" font-size="23" fill="#27272a">设备</text><text x="671" y="138" text-anchor="middle" font-size="23" fill="#27272a">执行</text>
+      <text x="867" y="106" text-anchor="middle" font-size="23" fill="#27272a">分别</text><text x="867" y="138" text-anchor="middle" font-size="23" fill="#27272a">返回</text>
+      <text x="279" y="220" text-anchor="middle" font-size="20" fill="#52525b">代价：部分请求多等</text>
+      <text x="671" y="220" text-anchor="middle" font-size="20" fill="#2563a6">收益：设备利用率可能提高</text>
+    </svg>
+  </figure>
+  <ol class="mobile-steps"><li>请求到达</li><li>短暂排队</li><li>组合批次</li><li>设备执行</li><li>分别返回</li></ol>
+  <div class="takeaway"><p>收益：设备利用率可能提高</p><p>代价：部分请求可能多等</p></div>
+  <p class="boundary">机制示意；无实测吞吐或时延。省略连续批处理、缓存和优先级。</p>
+  <script type="application/json" class="slide-notes">{"claim":"批处理可能提升利用率，也可能增加部分请求等待","source":"wiki.md（虚构）","limitations":"流程图不代表真实比例、时延或吞吐"}</script>
+</section>

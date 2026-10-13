@@ -6,6 +6,13 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.7] - Pending
+
+### Added
+
+- 技术机制示例增加推理批处理的静态 SVG 试点、窄屏文字顺序、同结论的文字对照和可复核的评估计划；图明确标注概念边界，尚无读者理解实测。
+- 生成指引增加定制图的复杂度预算与停止条件；试点尚未支持 figure-spec 或交互 runtime。
+
 ## [0.4.6] - Pending
 
 ### Added

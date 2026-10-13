@@ -1,0 +1,1 @@
+{"version":1,"fictional":true,"steps":["请求到达","短暂排队","组合批次","设备执行","分别返回"],"benefit":"提高设备利用率（概念）","tradeoff":"部分请求增加等待（概念）","measurements":null}
