@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 import shutil
@@ -102,6 +103,31 @@ def validate_chart_spec(spec: dict[str, Any]) -> None:
     effective_height = height if isinstance(height, int) and not isinstance(height, bool) else 560
     if effective_width < 320 or effective_width > 1800 or effective_height < 240 or effective_height > 1000:
         raise ValueError("图表宽高超出允许范围（宽 320–1800，高 240–1000）")
+    categories = spec.get("categories")
+    if kind not in {"scatter", "time-scatter"} and isinstance(categories, list):
+        if len(categories) != len(set(map(str, categories))):
+            raise ValueError("categories 不能重复；请合并或明确区分口径")
+    if spec.get("categoryKind") is not None:
+        if spec["categoryKind"] != "time" or kind not in {"line", "multi-line"}:
+            raise ValueError("categoryKind 目前仅支持 line / multi-line 的 time")
+        try:
+            dates = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in categories]
+            if any(a >= b for a, b in zip(dates, dates[1:])):
+                raise ValueError("时间类别必须严格递增")
+        except (TypeError, AttributeError, ValueError) as exc:
+            raise ValueError("时间类别必须是严格递增的 ISO 日期") from exc
+    if "axisMin" in spec:
+        axis_min = spec["axisMin"]
+        if isinstance(axis_min, bool) or not isinstance(axis_min, (float, int)) or not math.isfinite(axis_min):
+            raise ValueError("axisMin 必须是有限数值")
+        if kind in {"bar", "stacked-bar", "waterfall"} and axis_min != 0:
+            raise ValueError("柱状、堆叠与瀑布图必须从零基线开始")
+        if kind in {"bar", "waterfall"} and any(value < 0 for value in spec.get("values", [])):
+            raise ValueError("包含负值的柱状/瀑布图不能设置 axisMin: 0；请省略以保留负值及零线")
+        if kind == "stacked-bar" and any(value < 0 for item in spec.get("series", []) for value in item.get("values", [])):
+            raise ValueError("包含负值的堆叠图不能设置 axisMin: 0；请省略以保留负值及零线")
+    if "showLabels" in spec and not isinstance(spec["showLabels"], bool):
+        raise ValueError("showLabels 必须是布尔值；省略则按图表类型默认显示")
     if kind in {"bar", "dot", "line", "waterfall"}:
         categories = spec.get("categories")
         if not isinstance(categories, list) or not categories or any(not isinstance(v, str) or not v.strip() for v in categories):
@@ -122,6 +148,16 @@ def validate_chart_spec(spec: dict[str, Any]) -> None:
                 raise ValueError(f"series {item['name']} 与 categories 长度不一致")
             if item.get("unit", unit) != unit:
                 raise ValueError(f"series {item['name']} 单位与图表单位不一致")
+        names = [item["name"] for item in series]
+        if len(names) != len(set(names)):
+            raise ValueError("series 名称不能重复")
+        if "compositionPercent" in spec:
+            if kind != "stacked-bar" or spec["compositionPercent"] is not True or unit not in {"%", "percent"}:
+                raise ValueError("compositionPercent 仅适用于单位为 % 的堆叠条")
+            for index in range(len(categories)):
+                parts = [item["values"][index] for item in series]
+                if any(value < 0 for value in parts) or not math.isclose(sum(parts), 100, abs_tol=0.1):
+                    raise ValueError(f"构成比例 {categories[index]} 的分项必须非负且合计 100%")
     if kind in {"scatter", "time-scatter"}:
         points = spec.get("points")
         if not isinstance(points, list) or not points:
@@ -148,6 +184,16 @@ def validate_chart_spec(spec: dict[str, Any]) -> None:
         totals = spec.get("totals", [])
         if not isinstance(totals, list) or any(not isinstance(i, int) or i < 0 or i >= len(spec["values"]) for i in totals):
             raise ValueError("waterfall totals 必须为有效的数据索引")
+        if len(totals) != len(set(totals)):
+            raise ValueError("waterfall totals 索引不能重复")
+        running = 0
+        for index, value in enumerate(spec["values"]):
+            if index in totals:
+                if index and not math.isclose(value, running, rel_tol=1e-8, abs_tol=1e-8):
+                    raise ValueError(f"waterfall 总计 {index} 与此前分项之和不一致")
+                running = value
+            else:
+                running += value
 
 
 def sanitize_svg(svg: str, name: str) -> str:
@@ -182,7 +228,9 @@ def render_assets(assets: list[dict[str, Any]], brand_color: str = "#A6192E") ->
     script = Path(__file__).parent / "renderer" / "render.mjs"
     env = os.environ.copy()
     env["MY_SLIDES_RENDERER_HOME"] = str(renderer_home())
-    result = subprocess.run([status["node"], str(script)], input=json.dumps({"assets": assets, "brandColor": brand_color}, ensure_ascii=False),
+    from .theme import semantic_tokens
+    result = subprocess.run([status["node"], str(script)], input=json.dumps({"assets": assets, "brandColor": brand_color,
+                                                                          "tokens": semantic_tokens(brand_color)}, ensure_ascii=False),
                             capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
     if result.returncode:
         raise ValueError("本地 SVG 渲染失败：" + (result.stderr or result.stdout).strip())

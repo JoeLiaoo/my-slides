@@ -5,6 +5,7 @@ const input = JSON.parse(readFileSync(0, 'utf8'));
 const runtime = process.env.MY_SLIDES_RENDERER_HOME;
 if (!runtime) throw new Error('MY_SLIDES_RENDERER_HOME is not set');
 const brandColor = /^#[0-9a-fA-F]{6}$/.test(input.brandColor || '') ? input.brandColor : '#A6192E';
+const tokens = input.tokens || { text: '#27272a', muted: '#52525b', divider: '#e4e4e7', series: [brandColor, '#2563A6', '#4F7A64', '#D18A3A', '#8064A2'] };
 const require = createRequire(`${runtime}/package.json`);
 const echarts = require('echarts');
 
@@ -21,7 +22,7 @@ function buildOption(spec, themeColor) {
     animation: false,
     backgroundColor: 'transparent',
     aria: { enabled: true, decal: { show: false } },
-    textStyle: { fontFamily: 'Arial, Microsoft YaHei, sans-serif', color: '#27272a' },
+    textStyle: { fontFamily: 'Arial, Microsoft YaHei, sans-serif', color: tokens.text },
     title: spec.title ? { text: spec.title, left: 'center', textStyle: { fontSize: 18, fontWeight: 600 } } : undefined,
     tooltip: { trigger: type === 'scatter' || type === 'time-scatter' ? 'item' : 'axis' },
     grid: { left: 68, right: 36, top: spec.title ? 66 : 36, bottom: 62, containLabel: true },
@@ -30,8 +31,9 @@ function buildOption(spec, themeColor) {
     yAxis: undefined,
     series: [],
   };
-  const categoryAxis = { type: 'category', data: categories, axisLabel: { interval: 0, hideOverlap: true }, axisLine: { lineStyle: { color: '#a1a1aa' } } };
-  const valueAxis = { type: 'value', name: unit, nameLocation: 'end', splitLine: { lineStyle: { color: '#e4e4e7' } } };
+  const categoryAxis = { type: 'category', data: categories, axisLabel: { interval: 0, hideOverlap: true }, axisLine: { lineStyle: { color: tokens.muted } } };
+  const hasNegative = (values || []).some(v => v < 0) || (series || []).some(s => s.values.some(v => v < 0));
+  const valueAxis = { type: 'value', name: unit, nameLocation: 'end', min: spec.axisMin ?? (['bar', 'stacked-bar', 'waterfall'].includes(type) && !hasNegative ? 0 : undefined), splitLine: { lineStyle: { color: tokens.divider } } };
 
   if (['bar', 'dot', 'line'].includes(type)) {
     if (!Array.isArray(categories) || categories.length === 0) throw new Error('categories must be a non-empty array');
@@ -39,13 +41,13 @@ function buildOption(spec, themeColor) {
     if (categories.length !== values.length) throw new Error('categories and values must have the same length');
     if (type === 'bar') {
       base.xAxis = categoryAxis; base.yAxis = valueAxis;
-      base.series = [{ type: 'bar', data: values, barMaxWidth: 42, itemStyle: { color: themeColor, borderRadius: [3, 3, 0, 0] }, label: { show: true, position: 'top' } }];
+      base.series = [{ type: 'bar', data: values, barMaxWidth: 42, itemStyle: { color: themeColor, borderRadius: [3, 3, 0, 0] }, label: { show: spec.showLabels ?? true, position: 'top' } }];
     } else if (type === 'line') {
       base.xAxis = categoryAxis; base.yAxis = valueAxis;
-      base.series = [{ type: 'line', data: values, smooth: false, showSymbol: true, symbolSize: 8, lineStyle: { color: themeColor, width: 3 }, itemStyle: { color: themeColor } }];
+      base.series = [{ type: 'line', data: values, smooth: false, showSymbol: true, symbolSize: 8, lineStyle: { color: themeColor, width: 3 }, itemStyle: { color: themeColor }, label: { show: spec.showLabels ?? false } }];
     } else {
       base.xAxis = valueAxis; base.yAxis = { ...categoryAxis, inverse: true };
-      base.series = [{ type: 'scatter', data: values.map((value, i) => [value, categories[i]]), symbolSize: 13, itemStyle: { color: themeColor }, label: { show: true, position: 'right', formatter: p => String(p.value[0]), rich: { c: { color: '#52525b' } } } }];
+      base.series = [{ type: 'scatter', data: values.map((value, i) => [value, categories[i]]), symbolSize: 13, itemStyle: { color: themeColor }, label: { show: spec.showLabels ?? true, position: 'right', formatter: p => String(p.value[0]), rich: { c: { color: tokens.muted } } } }];
     }
   } else if (['multi-line', 'stacked-bar'].includes(type)) {
     if (!Array.isArray(categories) || categories.length === 0 || !Array.isArray(series) || series.length === 0) throw new Error('categories and series must be non-empty arrays');
@@ -55,7 +57,7 @@ function buildOption(spec, themeColor) {
       if (item.unit !== undefined && item.unit !== unit) throw new Error(`unit mismatch in series ${item.name}`);
     }
     base.xAxis = categoryAxis; base.yAxis = valueAxis;
-    base.series = series.map((item, i) => ({ name: item.name, type: type === 'multi-line' ? 'line' : 'bar', data: item.values, ...(type === 'multi-line' ? { showSymbol: true, symbolSize: 6, lineStyle: { width: 2 } } : { stack: 'total', barMaxWidth: 44 }), itemStyle: { color: [themeColor, '#2563A6', '#4F7A64', '#D18A3A', '#8064A2'][i % 5] } }));
+    base.series = series.map((item, i) => ({ name: item.name, type: type === 'multi-line' ? 'line' : 'bar', data: item.values, ...(type === 'multi-line' ? { showSymbol: true, symbol: ['circle','rect','triangle','diamond','pin'][i % 5], symbolSize: 8, lineStyle: { width: 2, type: i % 2 ? 'dashed' : 'solid' } } : { stack: 'total', barMaxWidth: 44 }), itemStyle: { color: tokens.series[i % tokens.series.length] }, label: { show: spec.showLabels ?? false } }));
   } else if (type === 'scatter' || type === 'time-scatter') {
     if (!Array.isArray(spec.points) || spec.points.length === 0) throw new Error('points must be a non-empty array');
     for (const point of spec.points) {
@@ -63,7 +65,7 @@ function buildOption(spec, themeColor) {
       if (type === 'scatter' && (typeof point.x !== 'number' || !Number.isFinite(point.x))) throw new Error('scatter x coordinates must be finite numbers');
       if (type === 'time-scatter' && (!point.date || Number.isNaN(Date.parse(point.date)))) throw new Error('time-scatter points require a valid date');
     }
-    base.xAxis = { type: type === 'time-scatter' ? 'time' : 'value', name: xUnit, splitLine: { lineStyle: { color: '#e4e4e7' } } };
+    base.xAxis = { type: type === 'time-scatter' ? 'time' : 'value', name: xUnit, splitLine: { lineStyle: { color: tokens.divider } } };
     base.yAxis = { ...valueAxis, name: yUnit };
     base.series = [{ type: 'scatter', data: spec.points.map(p => type === 'time-scatter' ? [p.date, p.y, p.name || ''] : [p.x, p.y, p.name || '']), symbolSize: 12, itemStyle: { color: themeColor, opacity: 0.84 }, label: { show: Boolean(spec.labelPoints), formatter: p => p.value[2] || '' } }];
   } else if (type === 'waterfall') {
@@ -84,7 +86,7 @@ function buildOption(spec, themeColor) {
     base.xAxis = categoryAxis; base.yAxis = valueAxis;
     base.series = [
       { type: 'bar', stack: 'waterfall', itemStyle: { color: 'transparent' }, emphasis: { itemStyle: { color: 'transparent' } }, data: helper },
-      { name: '增加', type: 'bar', stack: 'waterfall', data: increase, itemStyle: { color: '#4F7A64' } },
+      { name: '增加', type: 'bar', stack: 'waterfall', data: increase, itemStyle: { color: tokens.series[2] } },
       { name: '减少', type: 'bar', stack: 'waterfall', data: decrease, itemStyle: { color: themeColor } },
     ];
   } else {
@@ -100,7 +102,10 @@ function renderChart(spec, themeColor) {
   const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width, height });
   try {
     chart.setOption(buildOption(spec, themeColor), { notMerge: true });
-    return chart.renderToSVGString();
+    const svg = chart.renderToSVGString();
+    const summary = spec.summary || `${spec.title || spec.type}：${spec.unit ? `单位 ${spec.unit}；` : ''}${(spec.categories || []).join('、')}`;
+    const safe = String(summary).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    return svg.replace(/<svg\b/, `<svg role="img" aria-label="${safe}"`).replace(/(<svg\b[^>]*>)/, `$1<title>${safe}</title>`);
   } finally { chart.dispose(); }
 }
 
