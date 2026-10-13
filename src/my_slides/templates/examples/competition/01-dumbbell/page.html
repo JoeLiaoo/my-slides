@@ -1,0 +1,37 @@
+<section class="slide" data-unit-id="competition-dumbbell" data-page-role="content" data-unit-page="5">
+  <header class="slide-title">
+    <h1>Aurora 是 5 家中同期增量最大者</h1>
+    <p class="slide-subtitle">2022 → 2024 市占率变化（pp）</p>
+  </header>
+  <div class="chart-area">
+    <div id="dumbbell"></div>
+  </div>
+  <footer class="slide-foot">
+    <span>数据口径：金额市占率；样本：5 家代表性企业；来源：行业研究简报 2024-11（虚构）</span>
+  </footer>
+  <script type="application/json" class="slide-notes">
+    {
+      "metric": "市占率（金额，%）",
+      "highlight_company": "Aurora",
+      "main_call": "Aurora 同期市占率 +3.7pp，是 5 家中增量最大者。",
+      "as_of": "2024-12-31"
+    }
+  </script>
+  <script type="application/json" class="mls-echarts-spec">
+    {
+      "type": "dumbbell",
+      "metric": "市占率（金额，%）",
+      "points": [
+        {"name": "Aurora", "values": [7.5, 11.2], "delta": 3.7, "highlight": true},
+        {"name": "Beacon", "values": [12.0, 13.5], "delta": 1.5},
+        {"name": "Coastal", "values": [9.0, 9.8], "delta": 0.8},
+        {"name": "Drift", "values": [6.0, 5.5], "delta": -0.5},
+        {"name": "Echo", "values": [5.0, 4.0], "delta": -1.0}
+      ],
+      "title": "2022 vs 2024 市占率（金额，%）"
+    }
+  </script>
+  <script type="application/json" class="mls-lucide-spec">
+    {"icons": [{"name": "minus", "size": 14}, {"name": "plus", "size": 14}]}
+  </script>
+</section>

@@ -1,0 +1,19 @@
+{
+  "industry": "物流 SaaS（中国市场，虚构）",
+  "unit_id": "competition-dumbbell",
+  "chapter": "竞争分析",
+  "role": "content",
+  "as_of": "2024-12-31",
+  "metric": "市占率（金额，%）",
+  "companies": [
+    {"name": "Aurora", "year_2022": 7.5, "year_2024": 11.2},
+    {"name": "Beacon", "year_2022": 12.0, "year_2024": 13.5},
+    {"name": "Coastal", "year_2022": 9.0, "year_2024": 9.8},
+    {"name": "Drift", "year_2022": 6.0, "year_2024": 5.5},
+    {"name": "Echo", "year_2022": 5.0, "year_2024": 4.0}
+  ],
+  "sources": [
+    "wiki/competition/logistics-saas.md（虚构）",
+    "行业研究简报 2024-11（虚构）"
+  ]
+}

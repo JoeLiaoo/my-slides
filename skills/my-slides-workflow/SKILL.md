@@ -1,6 +1,6 @@
 ---
 name: my-slides-workflow
-description: Use the local my-slides CLI to maintain an investment project's Markdown Wiki, prepare and validate an investment report and Presentation Spec, and build offline HTML slides.
+description: Use the local my-slides CLI to maintain an investment project's Markdown Wiki, prepare and validate an investment report and Presentation Spec, build offline HTML slides, and pick reference examples and visual rules by communication problem.
 ---
 
 # My Slides investment workflow
@@ -14,6 +14,24 @@ Projects without `units.json` need `my-slides init` before other commands.
 `slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
 
 `prepare` updates fixed files in `my-slides/work/` (`wiki.md`, `wiki-question.md`, or `<kind>/<unit-id>.md`). Reuse the returned path; repeated preparation does not create new timestamped handoffs.
+
+`prepare slides` also surfaces the 1–2 most relevant reference example paths for the current Spec; read the index below to see how queries are matched. It does not dump the full example library into context.
+
+## On-demand references
+
+This skill entry stays short. Read the references below only when the step you're about to do actually needs them. The packaged install mirrors this layout under `my-slides/templates/references/` for wheel users; resolve the path with the same relative layout.
+
+| When you are about to … | Open |
+| --- | --- |
+| Read or update the project Wiki | `references/wiki.md` |
+| Write a report section | `references/report.md` |
+| Write or validate a Spec page (布局意图, layout intent) | `references/spec.md` |
+| Convert an approved Spec into HTML | `references/slides.md` |
+| Choose a chart type or sanity-check data | `references/charts.md` |
+| Pick a layout / find a reference example | `references/example-index.md` |
+| Catch visual anti-patterns before delivering | `references/visual-rules.md` |
+
+The reference set is fixed and shared between the in-repo `skills/my-slides-workflow/` and the packaged `src/my_slides/templates/` mirror. `scripts/sync-skill-templates.py` is the single point that keeps both copies in step; CI and the package build rely on it. Do not hand-edit `templates/` only — that path falls out of sync and breaks the wheel install.
 
 ## Repository version bump (when changing this package)
 
@@ -33,13 +51,14 @@ For a PR into the **my-slides** repo `main`, select a version step that matches 
 - The user can also reject or revoke. `reject report|spec --unit <id> --reason "..."` clears the pending request and records the reason; it only declines the current pending version and never invalidates an already approved report or Spec. `withdraw report|spec --unit <id>` is for the agent to drop one of its own requests and never counts as a user decision. `revoke report|spec --unit <id> [--reason ...]` drops an existing approval; in chat mode, run it once without `--phrase` to obtain the `REVOKE` phrase bound to the approved version, then re-run with `--phrase` and `--user-reply` after the user agrees. Revoking a report also invalidates the unit's Spec approval and HTML/check chain. All three follow the same gate as `confirm`/`review` for chat phrase binding, and `reject`/`revoke` additionally require `--via chat` (or an interactive terminal in `approval_mode: terminal`). When `next` reports a rejection as the latest state, fix the cited section and re-`approve` it; do not widen the user's reason. `review` exposes both the `APPROVE` and `REJECT` phrases bound to the same pending version, and `reject --via chat` accepts only the `REJECT` phrase; never reuse an `APPROVE` phrase to decline.
 - After the Wiki is ready, propose a 大章节 → 小章节 outline in the conversation (for example 行业分析 / 需求分析, 竞争分析). Create each section with `units add <id> --chapter <大章节> --title <小章节名>` only after the user accepts the outline. `units retitle` changes the display name and keeps existing approvals.
 - Generate HTML only from approved Specs. One unit is one section and may contain multiple slides: the HTML page count must equal the Spec's `## Slide N` count (cover is one page; a content section has at most 8). Keep custom styles scoped; include one `slide-notes` JSON block on every slide. A slide may use only the `echarts-spec` and Lucide icons declared on that same Spec page. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`. Changing only slide layout does not require a new approval; changing Spec content requires re-approval of that section only.
+- Every Spec page must fill the 布局意图 sub-points (读者问题 / 唯一结论 / 关系类型 / 主视觉 / 阅读顺序 / 选这个形式的原因); an empty critical section is a validation error before approval. Read `references/spec.md` for the structure and worked examples.
 
 ## Workflow
 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` (or `--chapter`) → `review report` → paste it and wait → after an explicit user approval, `confirm report --via chat` → `assemble`.
 3. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec` → `review spec` → paste it and wait → after an explicit user approval, `confirm spec --via chat`.
-4. `prepare slides --unit <id>` → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`.
+4. `prepare slides --unit <id>` (it now appends the 1–2 most relevant reference example snippets to the handoff) → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`. Re-check visual rules in `references/visual-rules.md` before reporting done.
 
 ## Useful commands
 

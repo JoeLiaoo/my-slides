@@ -81,6 +81,63 @@ SLIDE_HEADING_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-]\s*(.*?)\s*$", re.MU
 SPEC_ID_RE = re.compile(r"^(?:单元 ID|页面 ID)\s*[：:]\s*(\S+)\s*$", re.MULTILINE)
 SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", re.MULTILINE | re.IGNORECASE)
 REQUIRED_SPEC_HEADINGS = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
+# Issue #38 PR 1 (02): 布局意图 must be expanded into six sub-points.
+# Each sub-point is a level-three heading under `### 布局意图`.
+LAYOUT_INTENT_SUBPOINTS = (
+    "读者问题",
+    "唯一结论",
+    "关系类型",
+    "主视觉",
+    "阅读顺序",
+    "选这个形式的原因",
+)
+LAYOUT_INTENT_HEADING_RE = re.compile(
+    r"^###\s+布局意图\s*\n(?P<body>.*?)(?=^###\s|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+SUBPOINT_HEADING_RE = re.compile(r"^####\s+(?P<name>\S+)\s*$", re.MULTILINE)
+
+
+def _check_layout_intent(page_body: str, page_number: int, unit_id: str) -> list[str]:
+    """Validate that the 布局意图 section is filled in with all six sub-points.
+
+    Issue #38 PR 1 (02) requires each Spec page to plan the visual layout:
+    读者问题 / 唯一结论 / 关系类型 / 主视觉 / 阅读顺序 / 选这个形式的原因.
+    Empty sub-points or missing headings are rejected before approval.
+    """
+    errors: list[str] = []
+    match = LAYOUT_INTENT_HEADING_RE.search(page_body)
+    if match is None:
+        return [f"{unit_id}：第 {page_number} 页缺少 ### 布局意图"]
+    body = match.group("body")
+    if not body.strip():
+        errors.append(f"{unit_id}：第 {page_number} 页的布局意图不能为空")
+        return errors
+    headings = [m.group("name").strip() for m in SUBPOINT_HEADING_RE.finditer(body)]
+    if not headings:
+        errors.append(f"{unit_id}：第 {page_number} 页的布局意图缺少 #### 子标题")
+        return errors
+    seen: set[str] = set()
+    for expected in LAYOUT_INTENT_SUBPOINTS:
+        if expected not in headings:
+            errors.append(f"{unit_id}：第 {page_number} 页的布局意图缺少 #### {expected}")
+        else:
+            seen.add(expected)
+    extras = [name for name in headings if name not in LAYOUT_INTENT_SUBPOINTS]
+    if extras:
+        errors.append(
+            f"{unit_id}：第 {page_number} 页的布局意图含未识别的 #### 子标题：{'、'.join(extras)}"
+        )
+    # Each sub-point body must contain at least one non-heading line.
+    if seen == set(LAYOUT_INTENT_SUBPOINTS):
+        for name in LAYOUT_INTENT_SUBPOINTS:
+            pattern = (
+                r"^####\s+" + re.escape(name) + r"\s*\n(?P<body>.*?)(?=^####\s|\Z)"
+            )
+            section = re.search(pattern, body, flags=re.MULTILINE | re.DOTALL)
+            if section and not section.group("body").strip():
+                errors.append(f"{unit_id}：第 {page_number} 页的布局意图 → {name} 不能为空")
+    return errors
 
 
 def split_spec_pages(text: str) -> tuple[str, list[dict[str, Any]]]:
@@ -138,6 +195,7 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
         for heading in REQUIRED_SPEC_HEADINGS:
             if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page["body"], flags=re.MULTILINE):
                 errors.append(f"{unit.id}：第 {page['number']} 页缺少 ### {heading}")
+        errors.extend(_check_layout_intent(page["body"], page["number"], unit.id))
         mapping = re.search(
             r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)",
             page["body"],
@@ -210,6 +268,25 @@ def prepare_unit_handoff(
                 "每页设置 data-unit-id、data-page-role，并包含一个 slide-notes。"
                 "某一页的图表和图标只能使用该页 Spec 中声明的内容。"
             )
+            # Issue #38 PR 1 (06): surface 1–2 most relevant example paths.
+            from .examples_index import format_matches, read_unit_spec_text, select_examples
+            spec_path = paths.spec
+            spec_text = read_unit_spec_text(spec_path)
+            matches = select_examples(spec_text)
+            if matches:
+                lines.extend(
+                    [
+                        "## 相关参考案例",
+                        "",
+                        format_matches(matches),
+                        "",
+                        "完整案例在 `examples/<category>/<id>/`：",
+                        "拷贝目录到本地后按自己的数据替换 `data.json`；其余结构与 Spec 一致。",
+                        "完整索引见 `references/example-index.md`；",
+                        "反例与修正在 `references/visual-rules.md`。",
+                        "",
+                    ]
+                )
         lines.append("")
         output.write_text("\n".join(lines), encoding="utf-8")
         outputs.append(output)

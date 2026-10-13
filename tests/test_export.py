@@ -28,7 +28,7 @@ def _spec_text(unit: Unit) -> str:
         f"## Slide 1 — {unit.id}\n单元 ID：{unit.id}\n页面角色：{unit.role}\n"
         "### 目的\nExplain.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
         "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-        "### 布局意图\nLayout.\n### 图标需求\n无\n"
+        "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n"
     )
 
 
