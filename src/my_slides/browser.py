@@ -419,7 +419,7 @@ def check_deck(
                     viewport_errors.append(f"{prefix}: chart label extends beyond SVG: {metrics['chartLabels'][:3]}")
                 if metrics["inaccessibleCharts"]:
                     viewport_errors.append(f"{prefix}: chart SVG is missing an accessible summary")
-                if metrics["lowContrast"].length:
+                if metrics["lowContrast"]:
                     viewport_errors.append(f"{prefix}: text contrast below 4.5:1 (large text 3:1): {metrics['lowContrast'][:3]}")
 
             # Deck smoke once per viewport (not per unit).
