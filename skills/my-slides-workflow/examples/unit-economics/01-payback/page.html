@@ -1,0 +1,41 @@
+<section class="slide" data-unit-id="unit-econ-payback" data-page-role="content" data-unit-page="9">
+  <header class="slide-title">
+    <h1>Aurora 客户回本 8 个月</h1>
+    <p class="slide-subtitle">单客户累计毛利（元），2024-Q4 估算</p>
+  </header>
+  <div class="slide-body">
+    <div class="chart-area">
+      <div id="cumulative-profit"></div>
+    </div>
+    <aside class="kpi-card">
+      <div class="kpi-label">LTV / CAC</div>
+      <div class="kpi-value">8.0</div>
+      <div class="kpi-note">阈值 ≥ 3.0</div>
+    </aside>
+  </div>
+  <footer class="slide-foot">
+    <span>LTV 按 3 年留存曲线外推；CAC 含销售 + 营销全口径；来源：wiki/finance/aurora-unit-economics.md（虚构）</span>
+  </footer>
+  <script type="application/json" class="slide-notes">
+    {
+      "payback_months": 8,
+      "ltv_cac_ratio": 8.0,
+      "threshold_payback_months": 12,
+      "main_call": "回本周期 8 个月（< 12 月阈值）；LTV/CAC = 8.0。",
+      "as_of": "2024-Q4"
+    }
+  </script>
+  <script type="application/json" class="mls-echarts-spec">
+    {
+      "type": "line",
+      "title": "单客户累计毛利（元）",
+      "x": [0, 3, 6, 9, 12, 15, 18, 21, 24, 27],
+      "series": [
+        {"name": "累计毛利", "data": [-3500, -2200, -800, 400, 1600, 2700, 3800, 4900, 6000, 7100], "mark_zero": true, "annotate_x": 8}
+      ]
+    }
+  </script>
+  <script type="application/json" class="mls-lucide-spec">
+    {"icons": [{"name": "trending-up", "size": 16}, {"name": "wallet", "size": 16}]}
+  </script>
+</section>

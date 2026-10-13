@@ -1,0 +1,140 @@
+# Example index — problems.yaml
+#
+# Used by `prepare slides` to look up the 1–2 most relevant examples for the
+# current Spec. The handoff surfaces the path + a one-line summary only.
+#
+# Each entry lists:
+#   id          — short id of the example
+#   category    — top-level directory under examples/
+#   path        — relative path from the skill root
+#   title       — short title
+#   summary     — one-line summary shown in the handoff
+#   purpose     — what the example is for
+#   inputs      — required inputs (data shape)
+#   bounds      — limitations / scope
+#   density     — text density (low / medium / high)
+#   layout      — recommended layout
+#   relation    — relation type from Spec 布局意图
+#   signals     — keywords that trigger this example
+
+- id: investment-summary-cover-kpis
+  category: investment-summary
+  path: examples/investment-summary/01-cover-kpis
+  title: 投资摘要 KPI 封面
+  summary: 一句话跟投 + 5 张 KPI 卡片网格；IC 30 秒决策。
+  purpose: 一句话决策判断
+  inputs: 3–5 个 KPI（估值、增速、回本、集中度、风险）
+  bounds: 单一情景
+  density: 极低
+  layout: 单段标题 + KPI 卡片网格
+  relation: 对比 / 风险
+  signals:
+    - 跟投
+    - 一句话
+    - KPI
+    - 估值
+    - 阈值
+    - verdict
+
+- id: market-trend-pivot
+  category: market-trend
+  path: examples/market-trend/01-pivot-share-shift
+  title: 行业拐点 + 占比迁移
+  summary: 100% 堆叠条 + 拐点说明块；表达「哪一年 + 谁抢谁」。
+  purpose: 行业拐点 + 占比迁移
+  inputs: 5–8 年序列 + 4–6 个类别
+  bounds: 同口径、同范围
+  density: 中
+  layout: 左侧堆叠条 + 右侧拐点说明
+  relation: 时间序列 + 结构构成
+  signals:
+    - 拐点
+    - 占比
+    - 份额
+    - 迁移
+    - industry
+    - stacked
+
+- id: competition-dumbbell
+  category: competition
+  path: examples/competition/01-dumbbell
+  title: 同业哑铃对比
+  summary: 横向哑铃图，5 家公司 × 两期差异，Δpp 直接标出。
+  purpose: 同业横评 / 排序
+  inputs: 3–6 家公司 + 2 指标 / 两期
+  bounds: 同期数据
+  density: 中
+  layout: 横向哑铃图 + Δpp 行
+  relation: 对比
+  signals:
+    - 同业
+    - 横评
+    - 哑铃
+    - 对比
+    - 公司
+
+- id: technology-funnel
+  category: technology
+  path: examples/technology/01-funnel
+  title: 业务漏斗（机理）
+  summary: 漏斗图 + 顶部结论句，定位转化瓶颈。
+  purpose: 业务机理 / 流程说明
+  inputs: 3–6 个环节 + 转化率
+  bounds: 单一链路
+  density: 中
+  layout: 顶部结论 + 漏斗图
+  relation: 因果 / 流程
+  signals:
+    - 漏斗
+    - 转化
+    - 瓶颈
+    - 流程
+
+- id: unit-economics-payback
+  category: unit-economics
+  path: examples/unit-economics/01-payback
+  title: 单位经济 / 回本周限
+  summary: 折线（累计毛利）+ KPI 卡片（LTV/CAC），回本点高亮。
+  purpose: 单位经济（LTV / CAC / 回本）
+  inputs: 12–24 个月累计毛利 + LTV + CAC
+  bounds: 客单价稳定
+  density: 中
+  layout: 折线 + KPI 卡片
+  relation: 时间序列 + 对比
+  signals:
+    - LTV
+    - CAC
+    - 回本
+    - 单位经济
+
+- id: financial-scenario-sensitivity
+  category: financial-scenario
+  path: examples/financial-scenario/01-sensitivity
+  title: 财务情景 / 敏感性矩阵
+  summary: 矩阵热力图 + 基期高亮，两变量交互下 IRR 区间。
+  purpose: 财务情景 / 敏感性
+  inputs: 2 变量 × 3–5 档 + IRR / 估值矩阵
+  bounds: 同时显示
+  density: 中
+  layout: 矩阵热力图 + 顶部结论
+  relation: 风险 / 情景
+  signals:
+    - 敏感性
+    - 情景
+    - 矩阵
+    - IRR
+    - 退出
+
+# default — used when no signal matches
+- id: market-trend-pivot
+  category: market-trend
+  path: examples/market-trend/01-pivot-share-shift
+  title: 行业拐点 + 占比迁移
+  summary: 默认推荐：100% 堆叠条 + 拐点说明块。
+  purpose: 默认推荐
+  inputs: 任意 5–8 年序列
+  bounds: 无
+  density: 中
+  layout: 左侧堆叠条 + 右侧拐点说明
+  relation: 时间序列 + 结构构成
+  signals: []

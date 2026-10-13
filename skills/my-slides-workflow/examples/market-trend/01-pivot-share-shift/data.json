@@ -1,0 +1,21 @@
+{
+  "industry": "物流 SaaS（中国市场，虚构）",
+  "unit_id": "market-trend-pivot",
+  "chapter": "行业分析",
+  "role": "content",
+  "as_of": "2024-12-31",
+  "years": [2018, 2019, 2020, 2021, 2022, 2023, 2024],
+  "share_by_category": [
+    {"category": "传统 TMS", "values": [62, 60, 57, 54, 51, 47, 44]},
+    {"category": "云端调度", "values": [22, 24, 26, 28, 30, 33, 36]},
+    {"category": "即时配 SaaS", "values": [10, 10, 11, 11, 12, 13, 14]},
+    {"category": "数据/AI 决策", "values": [4, 4, 4, 5, 5, 5, 5]},
+    {"category": "其他", "values": [2, 2, 2, 2, 2, 2, 1]}
+  ],
+  "pivot_year": 2022,
+  "pivot_note": "2022 年云端调度份额首次超过 30%，传统 TMS 同比 -3pp。",
+  "sources": [
+    "wiki/market/logistics-saas.md（虚构）",
+    "行业研究简报 2024-11（虚构）"
+  ]
+}
