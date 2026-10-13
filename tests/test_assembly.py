@@ -194,7 +194,10 @@ class AssemblyTests(unittest.TestCase):
         self.assertNotIn("mls-echarts-spec", first.decode("utf-8"))
         self.assertIn("third-party-notices", first.decode("utf-8"))
         checked = check_deck(output, unit_ids=["cover", "summary-01"])
-        self.assertTrue(checked["valid"], checked)
+        # The chart's 1100px SVG is unreadable when shrunk into a 390px viewport.
+        # The new visual gate must flag it, while the deck remains fully offline.
+        self.assertFalse(checked["valid"], checked)
+        self.assertTrue(any("text below readable size" in error for error in checked["errors"]), checked)
         self.assertEqual(checked["external_requests"], [])
         page.write_text(page.read_text(encoding="utf-8").replace("<h1>summary-01</h1>", "<h1>Revenue revised</h1>"), encoding="utf-8")
         output, errors, _ = build_units_deck(self.base, cfg, unit_ids=["summary-01"], write=True)
