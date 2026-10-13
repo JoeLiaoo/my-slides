@@ -15,6 +15,7 @@ class BrowserUnitChecks(unittest.TestCase):
             deck = directory / "index.html"
             pages = [f'<section class="slide" data-unit-id="sample" data-page-role="content" data-slide="{i}"><h1>Page {i + 1}</h1></section>'
                      for i in range(2)]
+            pages.append('<section class="slide" data-unit-id="other" data-page-role="content" data-slide="2"><h1>Other page</h1></section>')
             deck.write_text(render_document(pages, [], title="Capture", brand_color="#A6192E", has_assets=False), encoding="utf-8")
             result = check_deck(deck, unit_ids=["sample"], evidence_dir=directory / "evidence", spec_hashes={"sample": "spec-v1"})
             self.assertTrue(result["valid"], result["errors"])
@@ -24,6 +25,10 @@ class BrowserUnitChecks(unittest.TestCase):
             self.assertTrue(all((directory / "evidence" / item["file"]).stat().st_size > 100 for item in evidence["screenshots"]))
             self.assertTrue(all((directory / "evidence" / name).is_file() for name in evidence["contacts"]))
             self.assertEqual(evidence["spec_sha256"]["sample"], "spec-v1")
+            second = check_deck(deck, unit_ids=["other"], evidence_dir=directory / "evidence", spec_hashes={"other": "spec-v2"})
+            self.assertTrue(second["valid"], second["errors"])
+            self.assertEqual(len(second["evidence"]["screenshots"]), 9)
+            self.assertEqual(second["evidence"]["spec_sha256"], {"sample": "spec-v1", "other": "spec-v2"})
 
     def test_structural_check_detects_generator_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:

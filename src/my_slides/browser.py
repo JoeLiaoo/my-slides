@@ -385,10 +385,23 @@ def check_deck(
             errors.extend(viewport_errors)
         browser.close()
     if evidence_dir is not None:
+        prior_manifest = evidence_dir / "measurements.json"
+        if prior_manifest.is_file():
+            try:
+                prior = json.loads(prior_manifest.read_text(encoding="utf-8")).get("evidence", {})
+                if prior.get("deck_sha256") == deck_sha and prior.get("rules_version") == QA_RULES_VERSION:
+                    selected = set(measured_units)
+                    retained = [item for item in prior.get("screenshots", [])
+                                if item.get("unit_id") not in selected and (evidence_dir / item.get("file", "")).is_file()]
+                    screenshots = retained + screenshots
+                    spec_hashes = {**prior.get("spec_sha256", {}), **(spec_hashes or {})}
+            except (OSError, ValueError, TypeError):
+                pass
         # Contact sheets are generated from the exact captured PNGs, never a second render.
         from PIL import Image, ImageDraw
         for label, _width, _height in VIEWPORTS:
-            files = [evidence_dir / item["file"] for item in screenshots if item["viewport"] == label]
+            files = [evidence_dir / item["file"] for item in sorted(screenshots, key=lambda item: item["index"])
+                     if item["viewport"] == label]
             if not files:
                 continue
             thumb_width, thumb_height = 320, 230
