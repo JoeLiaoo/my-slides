@@ -8,7 +8,8 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 2. 写 `slides/pages/<id>.html`：每个 Spec 页对应一个 `<section class="slide">`。
 3. `my-slides slides build --unit <id>`：把 `<style>` 包裹在 `@scope` 内，加入壳、字体、导航，输出 `slides/previews/<id>.html`。
 4. `my-slides slides check --unit <id>`：结构检查（页数 = Spec 页数，每页有 `slide-notes` JSON，图表 / 图标范围合规）。
-5. 需要桌面与手机视口时加 `--browser`；该模式会用 Playwright Chromium 跑视口测量。
+5. 运行 `my-slides slides check --all --browser --screenshots`，会用 Playwright Chromium 测三视口并将每页 PNG、三个 contact sheet、`measurements.json` 存到 `my-slides/.state/visual/<deck-sha>/`。先打开全部 contact sheet；有问题的页打开 1× PNG，并对图表、表格和脚注放大至 2–4×。记录问题、修复和未解决项；修改后重新 build/check/看图。
+6. 实际看图后运行 `my-slides slides visual-review --unit <id> --images contact-desktop.png contact-mobile-portrait.png contact-mobile-landscape.png --notes "观察、修复、未解决项"`。这只是 Agent 审阅记录，不是用户批准。`status --json` 的 `slides.visual` 单独显示证据和审阅是否仍匹配当前 deck/Spec/规则。截图本身不代表视觉通过。
 
 ## HTML 写法
 
@@ -37,6 +38,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 - slide 嵌套：禁止 `<section class="slide">` 内再出现 `<section class="slide">`。
 - 单元 ID 错配：每个 slide 的 `data-unit-id` 必须等于 `units.json` 中该单元的 ID。
 - 图表 / 图标越界：某页用了 Spec 没声明的 echarts 图表类型或 lucide 图标。
+- 阅读字号：浏览器测标题/正文/注释和 SVG 图内文字的实际显示尺寸；桌面阈值分别为 18/14/11px，手机竖屏 12/10/8px，横屏 11/9/7px。确有必要的局部例外可用 `data-qa-small-text="allowed"`，需要在视觉审阅记录中说明。ECharts 若将字转成路径，程序无法读出这些字，必须看截图。
 - slide-notes 缺失或重复。
 - `<style>` 中不配对或注入了外部资源。
 - CDN：把所有外部链接 / CDN 改成内嵌资源；白名单之外不允许任何外部 URL。

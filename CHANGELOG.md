@@ -6,6 +6,13 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.5] - Pending
+
+### Added
+
+- `slides check --browser --screenshots` 保存三视口逐页截图、contact sheet 与带 deck/Spec/检查规则指纹的测量 JSON；检查过小的正文、脚注和 SVG 图内文字及 SVG 标签越界。
+- `slides visual-review` 在实际看图后记录 Agent 审阅的图片和问题，`status --json` 分开展示当前自动截图与 Agent 审阅状态；HTML、Spec 或规则变化会使旧证据过期，导出门槛保持原样。
+
 ## [0.4.4] - Pending
 
 ### Added

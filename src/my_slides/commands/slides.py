@@ -15,6 +15,13 @@ def run(args: argparse.Namespace) -> int:
     root = project_root(args.project)
     base, cfg = ensure_project(root)
     require_v2_project(base)
+    if args.slides_command == "visual-review":
+        from ..visual_review import record_visual_review
+        result = record_visual_review(base, args.unit, args.images, args.notes)
+        emit(args, result, f"视觉审阅已记录：{args.unit}")
+        return 0
+    if args.slides_command == "check" and args.screenshots and not args.browser:
+        raise ValueError("--screenshots 需要同时指定 --browser")
     selected = resolve_unit_selection(
         base, cfg,
         unit_ids=args.units, changed=args.changed, all_units=args.all_units,
@@ -36,7 +43,8 @@ def run(args: argparse.Namespace) -> int:
         from ..browser import check_units_on_deck
 
         output = base / "slides" / "index.html"
-        check_result = check_units_on_deck(base, output, selected_ids, browser=bool(args.browser))
+        check_result = check_units_on_deck(base, output, selected_ids, browser=bool(args.browser),
+                                           screenshots=bool(args.screenshots))
         errors = list(check_result["errors"])
         browser_result = check_result.get("browser")
         plan = {"selected_units": selected_ids, "measured": bool(args.browser)}

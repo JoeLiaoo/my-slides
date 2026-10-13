@@ -104,6 +104,8 @@ my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
 my-slides slides check --unit <id>          # 结构检查（单元集合/顺序、封面）
 my-slides slides check --unit <id> --browser  # 另需 Playwright Chromium
+my-slides slides check --all --browser --screenshots  # 保存三视口截图及 contact sheets
+my-slides slides visual-review --unit <id> --images contact-desktop.png contact-mobile-portrait.png contact-mobile-landscape.png --notes "观察与修订结论"
 ```
 
 也可用 `--changed` 或 `--all`。默认的 `slides check` 只做结构检查；加 `--browser` 才跑桌面/手机视口测量。

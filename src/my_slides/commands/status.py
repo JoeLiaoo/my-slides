@@ -11,6 +11,7 @@ from ..project import V1_UNSUPPORTED_MESSAGE, ensure_project, project_root
 from ..sources import scan_sources
 from ..state import collect_units_status
 from ..units import detect_format_version
+from ..visual_review import visual_status
 
 
 def run(args: argparse.Namespace) -> int:
@@ -90,6 +91,8 @@ def run(args: argparse.Namespace) -> int:
         "checked_current": bool(selected_rows) and all(row["check_current"] for row in selected_rows),
         "unchecked_units": [row["id"] for row in selected_rows if not row["check_current"]],
         "message": "current 表示所选单元的 HTML 构建仍有效；checked_current 表示浏览器检查仍有效",
+        "visual": {row["id"]: visual_status(base, row["id"], html_current=row["html_current"])
+                   for row in selected_rows},
     }
     last = last_delivery(base)
     if last is None:
