@@ -34,12 +34,15 @@ _LAYOUT_INTENT = """
 """
 
 
-def _spec(unit_id: str, role: str, *, intent: str = "") -> str:
+def _spec(unit_id: str, role: str, *, intent: dict | None = None) -> str:
+    # Keep fallback out of the f-string expression: Python 3.11 forbids
+    # backslashes inside `{...}` (CI runs 3.11; local 3.12+ would mask this).
+    layout = _LAYOUT_INTENT.format_map(intent) if intent else "### 布局意图\n无\n"
     return (
         f"## Slide 1 — {unit_id}\n单元 ID：{unit_id}\n页面角色：{role}\n"
         "### 目的\nPurpose.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
         "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-        f"{_LAYOUT_INTENT.format_map(intent) if intent else '### 布局意图\n无\n'}"
+        f"{layout}"
         "### 图标需求\n无\n"
     )
 
