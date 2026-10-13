@@ -16,6 +16,14 @@
     .batching-demo .takeaway p + p { margin-top: 5px; }
     .batching-demo .boundary { font-size: 11px; }
   }
+  @media (min-width: 601px) and (max-height: 500px) {
+    .batching-demo { justify-content: flex-start; padding: 18px 28px 64px; gap: 8px; }
+    .batching-demo h1 { font-size: 26px; }
+    .batching-demo .lead { font-size: 16px; }
+    .batching-demo figure { display: none; }
+    .batching-demo .mobile-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin: 0; padding-left: 25px; font-size: 15px; }
+    .batching-demo .takeaway { font-size: 14px; }
+  }
 </style>
 <section class="slide batching-demo" data-unit-id="batching-static" data-page-role="content">
   <h1>请求先组合，再集中执行</h1>
