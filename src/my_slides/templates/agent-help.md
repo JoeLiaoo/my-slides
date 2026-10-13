@@ -19,6 +19,10 @@ My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claud
 
 单元清单变更使用 `my-slides units add/move/rename/remove`，不要手工改 `units.json`。删除默认只预览影响，确认后使用 `--yes` 移入 `.state/trash/`，并保留输出的恢复命令。删除曾有报告或 Spec 批准记录的单元前，Agent 必须先征得用户明确同意；有未解决依赖或链接时命令会阻止删除。可用 `my-slides units trash list` 查看回收区，用 `my-slides units restore <trash-id>` 恢复原位置。章节调整需用户重新确认报告；未变的 Spec 批准保留。单元清单或身份变化后重建整套 Slides 并重新检查。
 
+大章节调整使用 `my-slides chapters list/add/rename/remove/move`，一次同步 `project.yaml`、`units.json`、`wiki/index.md`；重命名只改 `chapter` 字段，报告与 Spec 批准绑定的内容哈希与依赖指纹不变，无需重新批准，但需要按新顺序重建整套 Slides 并重新检查。删除仍被小章节引用的大章节会被命令拒绝。
+
+成品交付使用 `my-slides export [--output <目录>]`。该命令检查全部单元的报告、Spec、HTML 构建、浏览器检查是否都是最新版本，验证失败时列出未就绪的小章节；通过则复制 `slides/index.html` 为 `<项目名>-v<序号>-<日期>.html`，并在 `.state/deliveries.json` 记录交付时间、版本号、包含的单元与各单元 SHA-256。`status --json` 的 `delivery` 字段显示最近一次交付与自该交付以来变化单元。
+
 生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查。
 
 其他入口：`my-slides --help` 查看命令列表；`my-slides <命令> --help` 查看参数；`my-slides help --json` 获取机器可读的本指南；`my-slides --version` 查看版本。

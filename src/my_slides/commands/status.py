@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 from ..command_output import emit
+from ..delivery import last_delivery, units_changed_since
 from ..project import V1_UNSUPPORTED_MESSAGE, ensure_project, project_root
 from ..sources import scan_sources
 from ..state import collect_units_status
@@ -33,7 +35,7 @@ def run(args: argparse.Namespace) -> int:
     )
     selected_ids = set(unit_status["selected_units"])
     selected_rows = [row for row in unit_status["units"] if row["id"] in selected_ids]
-    approval_status = {}
+    approval_status: dict[str, Any] = {}
     for kind in ("report", "spec"):
         approved = [row["id"] for row in selected_rows if row[f"{kind}_current"]]
         pending_approval = [
@@ -66,7 +68,7 @@ def run(args: argparse.Namespace) -> int:
                 row["id"]: row.get(f"{kind}_latest_rejection")
                     for row in selected_rows
                     if row.get(f"{kind}_latest_decision") == "rejected"
-                },
+            },
             "needs_review_units": needs_review,
             "approved_by": {
                 row["id"]: {
@@ -89,6 +91,22 @@ def run(args: argparse.Namespace) -> int:
         "unchecked_units": [row["id"] for row in selected_rows if not row["check_current"]],
         "message": "current 表示所选单元的 HTML 构建仍有效；checked_current 表示浏览器检查仍有效",
     }
+    last = last_delivery(base)
+    if last is None:
+        delivery_summary: dict[str, Any] = {"has_delivery": False}
+    else:
+        changed = units_changed_since(base, root)
+        delivery_summary = {
+            "has_delivery": True,
+            "last_delivery": last,
+            "changed_since": changed["changed_units"],
+            "unchanged_since": changed["unchanged_units"],
+            "deck_changed": changed["deck_changed"],
+        }
+    delivery_line = (
+        f"v{last['sequence']}（{last['date']}）"
+        if last else "暂无"
+    )
     human = (
         f"项目：{root}\n格式：v2\n待整理资料：{len(pending)}\n已移除资料：{len(removed)}\n"
         f"选定单元：{len(unit_status['selected_units'])}\n"
@@ -97,7 +115,8 @@ def run(args: argparse.Namespace) -> int:
         f"阻塞：{len(unit_status['blocked_units'])}\n"
         f"待人工确认：报告 {len(approval_status['report']['pending_units'])}，Spec {len(approval_status['spec']['pending_units'])}\n"
         f"已驳回：报告 {len(approval_status['report']['rejected_units'])}，Spec {len(approval_status['spec']['rejected_units'])}\n"
-        "提示：用 --json 查看各单元批准/驳回/构建/检查状态"
+        f"最近交付：{delivery_line}\n"
+        "提示：用 --json 查看各单元批准/驳回/构建/检查/交付状态"
     )
     data = {
         "project": str(root),
@@ -114,6 +133,7 @@ def run(args: argparse.Namespace) -> int:
         "reasons": unit_status["reasons"],
         "units": unit_status["units"],
         "dependency_graph": unit_status["dependency_graph"],
+        "delivery": delivery_summary,
     }
     emit(args, data, human)
     return 0

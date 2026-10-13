@@ -6,6 +6,14 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.3] - Pending
+
+### Added
+
+- `my-slides chapters list/add/rename/remove/move` 管理项目报告大章节。`add` 顺序追加或插入到指定章节之后；`rename` 同时更新 `project.yaml`、`units.json`、`wiki/index.md`，报告与 Spec 批准绑定的内容哈希与依赖指纹不变，无需重新批准；`remove` 在仍有小章节引用时拒绝；`move` 调整顺序并验证 `units.json` 跟随新顺序。`chapters list` 额外报告 units.json 引用但 project.yaml 之外的孤儿章节。
+- `my-slides export [--output DIR]` 校验整套 Slides 后导出 `<项目名>-v<序号>-<日期>.html`，并在 `.state/deliveries.json` 记录交付时间、版本、包含单元与各单元 SHA-256。若报告、Spec、HTML 构建或检查不是最新版本则拒绝，并列出需要补齐的小章节。
+- `status --json` 增加 `delivery` 字段，包含最近一次交付记录与自该交付以来变化的单元（按报告、Spec、HTML 哈希分别列出原因）；没有交付时返回 `has_delivery: false`。
+
 ## [0.4.2] - Pending
 
 ### Fixed
