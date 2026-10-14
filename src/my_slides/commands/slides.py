@@ -15,6 +15,13 @@ def run(args: argparse.Namespace) -> int:
     root = project_root(args.project)
     base, cfg = ensure_project(root)
     require_v2_project(base)
+    if args.slides_command == "visual-review":
+        from ..visual_review import record_visual_review
+        result = record_visual_review(base, args.unit, args.images, args.notes)
+        emit(args, result, f"视觉审阅已记录：{args.unit}")
+        return 0
+    if args.slides_command == "check" and args.screenshots and not args.browser:
+        raise ValueError("--screenshots 需要同时指定 --browser")
     selected = resolve_unit_selection(
         base, cfg,
         unit_ids=args.units, changed=args.changed, all_units=args.all_units,
@@ -24,6 +31,7 @@ def run(args: argparse.Namespace) -> int:
     browser_result = None
     output: Path | None = None
     errors: list[str] = []
+    warnings: list[str] = []
     if args.slides_command == "build":
         from ..assembly import build_units_deck
 
@@ -36,8 +44,10 @@ def run(args: argparse.Namespace) -> int:
         from ..browser import check_units_on_deck
 
         output = base / "slides" / "index.html"
-        check_result = check_units_on_deck(base, output, selected_ids, browser=bool(args.browser))
+        check_result = check_units_on_deck(base, output, selected_ids, browser=bool(args.browser),
+                                           screenshots=bool(args.screenshots))
         errors = list(check_result["errors"])
+        warnings = list(check_result.get("warnings", []))
         browser_result = check_result.get("browser")
         plan = {"selected_units": selected_ids, "measured": bool(args.browser)}
     data = {
@@ -45,6 +55,7 @@ def run(args: argparse.Namespace) -> int:
         "output": str(output) if output else None,
         "browser": browser_result,
         "errors": errors,
+        "warnings": warnings,
         "plan": plan,
     }
     if errors:
@@ -52,5 +63,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         label = "合并完成" if args.slides_command == "build" else "检查通过"
         human = f"{label}：{output}"
+    if warnings and not getattr(args, "json", False):
+        human += "\n视觉提醒（不改变退出码，需到截图核对）：\n" + "\n".join(f"- {warning}" for warning in warnings)
     emit(args, data, human, error=bool(errors))
     return 1 if errors else 0

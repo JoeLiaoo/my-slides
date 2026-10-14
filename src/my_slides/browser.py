@@ -13,6 +13,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+QA_RULES_VERSION = "visual-qa-1"
+VIEWPORTS = (("desktop", 1920, 1080), ("mobile-portrait", 390, 844), ("mobile-landscape", 844, 390))
+
 
 class _DeckSlideParser(HTMLParser):
     """Collect slide elements only, so CSS such as @scope ([data-unit-id=...]) is ignored."""
@@ -106,6 +109,7 @@ def structural_check_deck(
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": [],
         "measured": False,
         "unit_ids": unit_ids,
         "sections": [{"id": unit_id, "pages": count} for unit_id, count in groups],
@@ -117,6 +121,8 @@ def check_deck(
     *,
     unit_ids: list[str] | None = None,
     slide_indexes: list[int] | None = None,
+    evidence_dir: Path | None = None,
+    spec_hashes: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """Browser QA. When unit_ids/slide_indexes given, activate each target before measuring."""
     try:
@@ -126,10 +132,24 @@ def check_deck(
 
     if not path.exists():
         raise ValueError(f"Slides 文件不存在：{path}")
+    # Pillow 仅在 --screenshots（evidence_dir 非空）时用于截图拼图；先于浏览器启动做检查，
+    # 让缺包时返回清晰提示，而不是看一段 ImportError 调用栈。
+    if evidence_dir is not None:
+        try:
+            from PIL import Image, ImageDraw  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "生成截图 contact sheet 需要 Pillow；请 pip install 'my-slides[browser]' 后重试"
+            ) from exc
     errors: list[str] = []
+    warnings: list[str] = []
     external_requests: list[str] = []
     measurements: dict[str, Any] = {}
     measured_units: list[str] = []
+    screenshots: list[dict[str, Any]] = []
+    deck_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    if evidence_dir is not None:
+        evidence_dir.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         try:
             browser = playwright.chromium.launch(headless=True)
@@ -170,6 +190,7 @@ def check_deck(
                     "viewports": {},
                     "external_requests": external_requests,
                     "errors": errors,
+                    "warnings": warnings,
                     "measured": True,
                     "measured_units": [],
                     "cached": False,
@@ -184,12 +205,14 @@ def check_deck(
             measured_units = [item["unitId"] for item in catalog if item["unitId"]]
 
         # 桌面、手机竖屏、手机横屏都按真实窗口测量，不再假设 1920×1080 画布。
-        for label, width, height in (("desktop", 1920, 1080), ("mobile-portrait", 390, 844), ("mobile-landscape", 844, 390)):
+        for label, width, height in VIEWPORTS:
             page.set_viewport_size({"width": width, "height": height})
+            page.evaluate("(label) => { window.__mlsViewport = label; }", label)
             # Reset to first slide for deck-level smoke.
             page.evaluate("() => { const pages=[...document.querySelectorAll('.slide')]; pages.forEach((p,i)=>p.classList.toggle('active', i===0)); }")
             page.evaluate(_SETTLE_ANIMATIONS)
             viewport_errors: list[str] = []
+            viewport_warnings: list[str] = []
             per_slide: list[dict[str, Any]] = []
             for target in targets:
                 page.evaluate(
@@ -245,6 +268,44 @@ def check_deck(
                       }
                       const overflow = slide.scrollWidth > slide.clientWidth + 1 || slide.scrollHeight > slide.clientHeight + 1;
                       const chartOverflow = [];
+                      const smallText = [];
+                      const chartSmallText = [];
+                      const chartLabels = [];
+                      const thresholds = {desktop: {heading: 18, body: 14, note: 11}, 'mobile-portrait': {heading: 12, body: 10, note: 8}, 'mobile-landscape': {heading: 11, body: 9, note: 7}};
+                      const threshold = thresholds[window.__mlsViewport] || thresholds.desktop;
+                      const isMobileViewport = window.__mlsViewport === 'mobile-portrait' || window.__mlsViewport === 'mobile-landscape';
+                      for (const element of slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,.mls-chart svg text')) {
+                        const style = getComputedStyle(element);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                        const text = element.textContent?.trim();
+                        const box = element.getBoundingClientRect();
+                        if (!text || box.width < 1 || box.height < 1) continue;
+                        const isChart = Boolean(element.closest('.mls-chart'));
+                        const role = /^H[1-6]$/.test(element.tagName) ? 'heading' :
+                          (element.matches('figcaption,.footnote,.source,.note') || isChart ? 'note' : 'body');
+                        let size = parseFloat(style.fontSize);
+                        if (isChart) {
+                          // SVG font-size is in user coordinates; the screen scale comes from the SVG viewBox.
+                          const svg = element.ownerSVGElement;
+                          const view = svg?.viewBox?.baseVal;
+                          const displayed = svg?.getBoundingClientRect();
+                          if (view?.width && view?.height && displayed) size *= Math.min(displayed.width / view.width, displayed.height / view.height);
+                          const svgBounds = svg.getBoundingClientRect();
+                          if (box.left < svgBounds.left - 2 || box.right > svgBounds.right + 2 ||
+                              box.top < svgBounds.top - 2 || box.bottom > svgBounds.bottom + 2) {
+                            chartLabels.push({text: text.slice(0, 60), reason: 'outside SVG bounds'});
+                          }
+                        }
+                        if (size < threshold[role] - .25 && !element.closest('[data-qa-small-text="allowed"]')) {
+                          // Mobile viewport + chart SVG text is a soft warning (review screenshot),
+                          // while desktop chart text below threshold is a hard error like HTML text.
+                          if (isChart && isMobileViewport) {
+                            chartSmallText.push({text: text.slice(0, 60), role, pixels: Math.round(size * 10) / 10});
+                          } else {
+                            smallText.push({text: text.slice(0, 60), role, pixels: Math.round(size * 10) / 10});
+                          }
+                        }
+                      }
                       for (const container of slide.querySelectorAll('.chart-container')) {
                         const box = container.getBoundingClientRect();
                         const containerStyle = getComputedStyle(container);
@@ -290,11 +351,17 @@ def check_deck(
                         invisibleText,
                         overlaps,
                         clipped,
-                        chartOverflow
+                        chartOverflow, smallText, chartSmallText, chartLabels
                       };
                     }""",
                     target,
                 )
+                if evidence_dir is not None and 0 <= target < len(catalog):
+                    name = f"{label}-p{target + 1:03d}.png"
+                    page.screenshot(path=str(evidence_dir / name), animations="disabled")
+                    screenshots.append({"viewport": label, "index": target, "unit_id": metrics["unitId"],
+                                        "page": catalog[target].get("dataSlide"), "file": name,
+                                        "sha256": hashlib.sha256((evidence_dir / name).read_bytes()).hexdigest()})
                 per_slide.append(metrics)
                 prefix = f"{label}/slide {target}"
                 if metrics["unitId"]:
@@ -321,6 +388,14 @@ def check_deck(
                     viewport_errors.append(f"{prefix}: slide contains text hidden by opacity or transparent color")
                 if metrics["overlaps"]:
                     viewport_errors.append(f"{prefix}: sibling text blocks overlap")
+                if metrics["smallText"]:
+                    viewport_errors.append(f"{prefix}: text below readable size: {metrics['smallText'][:3]}")
+                if metrics["chartSmallText"]:
+                    viewport_warnings.append(
+                        f"{prefix}: chart text below readable size (review screenshot): {metrics['chartSmallText'][:3]}"
+                    )
+                if metrics["chartLabels"]:
+                    viewport_errors.append(f"{prefix}: chart label extends beyond SVG: {metrics['chartLabels'][:3]}")
 
             # Deck smoke once per viewport (not per unit).
             if len(catalog) > 1 and not unit_ids:
@@ -334,19 +409,59 @@ def check_deck(
 
             measurements[label] = {"slides": per_slide}
             errors.extend(viewport_errors)
+            warnings.extend(viewport_warnings)
         browser.close()
+    if evidence_dir is not None:
+        prior_manifest = evidence_dir / "measurements.json"
+        if prior_manifest.is_file():
+            try:
+                prior = json.loads(prior_manifest.read_text(encoding="utf-8")).get("evidence", {})
+                if prior.get("deck_sha256") == deck_sha and prior.get("rules_version") == QA_RULES_VERSION:
+                    selected = set(measured_units)
+                    retained = [item for item in prior.get("screenshots", [])
+                                if item.get("unit_id") not in selected and (evidence_dir / item.get("file", "")).is_file()]
+                    screenshots = retained + screenshots
+                    spec_hashes = {**prior.get("spec_sha256", {}), **(spec_hashes or {})}
+            except (OSError, ValueError, TypeError):
+                pass
+        # Contact sheets are generated from the exact captured PNGs, never a second render.
+        from PIL import Image, ImageDraw
+        for label, _width, _height in VIEWPORTS:
+            files = [evidence_dir / item["file"] for item in sorted(screenshots, key=lambda item: item["index"])
+                     if item["viewport"] == label]
+            if not files:
+                continue
+            thumb_width, thumb_height = 320, 230
+            sheet = Image.new("RGB", (thumb_width * min(3, len(files)), thumb_height * ((len(files) + 2) // 3)), "#eeeeee")
+            draw = ImageDraw.Draw(sheet)
+            for index, file in enumerate(files):
+                with Image.open(file) as source:
+                    source.thumbnail((thumb_width - 16, thumb_height - 32))
+                    x = index % 3 * thumb_width + (thumb_width - source.width) // 2
+                    y = index // 3 * thumb_height + 20
+                    sheet.paste(source.convert("RGB"), (x, y))
+                    draw.text((index % 3 * thumb_width + 8, index // 3 * thumb_height + 3), file.stem, fill="#111111")
+            sheet.save(evidence_dir / f"contact-{label}.png")
     if external_requests:
         errors.append("offline deck requested external resources: " + ", ".join(dict.fromkeys(external_requests)))
-    return {
+    result = {
         "valid": not errors,
         "viewports": measurements,
         "external_requests": external_requests,
         "errors": errors,
+        "warnings": warnings,
         "measured": True,
         "measured_units": measured_units,
         "cached": False,
         "input_fingerprint": hashlib.sha256(path.read_bytes()).hexdigest(),
     }
+    if evidence_dir is not None:
+        result["evidence"] = {"directory": str(evidence_dir), "screenshots": screenshots,
+                              "contacts": [f"contact-{label}.png" for label, _, _ in VIEWPORTS],
+                              "deck_sha256": deck_sha, "spec_sha256": spec_hashes or {},
+                              "rules_version": QA_RULES_VERSION, "review_status": "unreviewed"}
+        (evidence_dir / "measurements.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
 
 
 def record_unit_check_results(
@@ -391,6 +506,7 @@ def check_units_on_deck(
     unit_ids: list[str],
     *,
     browser: bool = False,
+    screenshots: bool = False,
 ) -> dict[str, Any]:
     """Combine structural deck checks with optional browser measurement for units."""
     from .unit_workflow import split_spec_pages
@@ -412,10 +528,16 @@ def check_units_on_deck(
         expected_page_counts=expected_page_counts,
     )
     errors = list(structural["errors"])
+    warnings = list(structural.get("warnings", []))
     browser_result = None
     if browser:
-        browser_result = check_deck(path, unit_ids=unit_ids)
+        from .dependencies import fingerprint_file
+        deck_sha = fingerprint_file(path) if path.is_file() else None
+        evidence_dir = base / ".state" / "visual" / deck_sha[:16] if screenshots and deck_sha else None
+        browser_result = check_deck(path, unit_ids=unit_ids, evidence_dir=evidence_dir,
+                                    spec_hashes={unit_id: fingerprint_file(unit_paths(base, unit_id).spec) for unit_id in unit_ids})
         errors.extend(browser_result["errors"])
+        warnings.extend(browser_result.get("warnings", []))
         record_unit_check_results(
             base,
             unit_ids,
@@ -425,6 +547,7 @@ def check_units_on_deck(
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": warnings,
         "structural": structural,
         "browser": browser_result,
         "selected_units": unit_ids,
