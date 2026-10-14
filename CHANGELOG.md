@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.9] - Pending
+
+### Changed
+
+- README、AGENTS、skill 入口、agent-help 与 `docs/testing.md` 同步 #38 已合入能力（截图 / 视觉 QA、metric 绑定、图表语义、主题 token、可访问性、静态解释图试点），并标明 figure-spec、交互运行时与真人读者试验仍延期。
+
 ## [0.4.8] - Pending
 
 ### Fixed

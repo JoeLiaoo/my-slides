@@ -58,7 +58,7 @@ For a PR into the **my-slides** repo `main`, select a version step that matches 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` (or `--chapter`) → `review report` → paste it and wait → after an explicit user approval, `confirm report --via chat` → `assemble`.
 3. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec` → `review spec` → paste it and wait → after an explicit user approval, `confirm spec --via chat`.
-4. `prepare slides --unit <id>` (it now appends the 1–2 most relevant reference example snippets to the handoff) → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural); optionally `slides check --unit <id> --browser`. Re-check visual rules in `references/visual-rules.md` before reporting done.
+4. `prepare slides --unit <id>` (it appends the 1–2 most relevant reference example snippets to the handoff) → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural) → for delivery QA, `slides check --all --browser --screenshots`, open contact sheets, then `slides visual-review` with notes. Optional page `metric-spec` and chart rules: `references/charts.md`. Re-check `references/visual-rules.md` before reporting done. figure-spec / interactive runtimes are deferred; use static SVG only when text cannot explain the mechanism (see `examples/technology/02-batching-static/`).
 
 ## Useful commands
 
@@ -93,6 +93,8 @@ my-slides prepare slides --unit <id>
 my-slides slides build --unit <id>
 my-slides slides check --unit <id>
 my-slides slides check --unit <id> --browser
+my-slides slides check --all --browser --screenshots
+my-slides slides visual-review --unit <id> --images contact-desktop.png contact-mobile-portrait.png contact-mobile-landscape.png --notes "观察与修订结论"
 ```
 
 Use `--project <path>` when the agent's current directory is outside the project.
