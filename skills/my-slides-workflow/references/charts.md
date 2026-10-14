@@ -2,11 +2,11 @@
 
 Open when picking a chart type or sanity-checking the numbers behind a Spec page. Charts in `slides/pages/<id>.html` must be declared in the Spec's `展示内容` and rendered with `mls-echarts-spec` JSON blocks. Renderer is ECharts 6.1.0 (`my-slides renderer install`).
 
-## 数字证据清单（强制）
+## 数字证据清单
 
 报告组装后、撰写 Spec 前运行 `my-slides prepare evidence-research`。公开网络可用于查市场规模、融资、ARR、成本曲线等硬数字；将值、单位、期间、出处 URL 和估计/口径写入 `my-slides/research/numbers.md`，再运行 `my-slides validate evidence-research`。每条记录用稳定编号（如 `N-001`），来源名称写成 `机构或作者《标题》（日期）`。缺少可靠数字时继续研究并记下数据缺口，不要补造数字。
 
-所有图表数据只能取自该文件的记录。每个内容页在 Spec 的证据/展示内容中列出编号；有 ECharts 块时，必须在展示内容写 `数据编号：N-001`。图表 JSON 中的值、单位和期间应与对应记录一致。数据更新后先更新清单，再更新 Spec 并重新审批。准备图表时禁止从未登记的报告段落、访谈记忆或网页临时复制数字。
+所有图表数据只能取自该文件的记录。仅在数字直接支撑本页结论时引用编号；同一个数字 ID 在整套 deck 只能出现一次。无合适数字时允许无数字页，可用表格或结构图组织定性证据。有 ECharts 块时，必须在展示内容写 `数据编号：N-001`。图表 JSON 中的值、单位和期间应与对应记录一致。数据更新后先更新清单，再更新 Spec 并重新审批。准备图表时禁止从未登记的报告段落、访谈记忆或网页临时复制数字。
 
 ## 关系 → 图形
 

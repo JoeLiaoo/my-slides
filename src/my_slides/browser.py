@@ -13,7 +13,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-QA_RULES_VERSION = "visual-qa-1"
+QA_RULES_VERSION = "visual-qa-2"
 VIEWPORTS = (("desktop", 1920, 1080), ("mobile-portrait", 390, 844), ("mobile-landscape", 844, 390))
 
 

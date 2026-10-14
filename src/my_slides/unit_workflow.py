@@ -82,6 +82,13 @@ SLIDE_HEADING_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-]\s*(.*?)\s*$", re.MU
 SPEC_ID_RE = re.compile(r"^(?:单元 ID|页面 ID)\s*[：:]\s*(\S+)\s*$", re.MULTILINE)
 SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", re.MULTILINE | re.IGNORECASE)
 REQUIRED_SPEC_HEADINGS = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
+CONTENT_TYPES = ("演进/时间线", "对比", "清单/矩阵", "趋势/图表", "案例", "判断/收束")
+LAYOUTS = (
+    "KPI卡片", "哑铃对比", "100%堆叠趋势", "漏斗流程", "静态机制图",
+    "敏感性热图", "单位经济折线",
+)
+CONTENT_TYPE_RE = re.compile(r"^内容类型\s*[：:]\s*(.+?)\s*$", re.MULTILINE)
+LAYOUT_RE = re.compile(r"^版式\s*[：:]\s*(.+?)\s*$", re.MULTILINE)
 INVESTMENT_JUDGMENT_HEADING = "我们的判断 / 对投资的含义"
 NUMBER_ID_RE = re.compile(r"\bN-\d{3,}\b")
 SOURCE_FOOTNOTE_RE = re.compile(r"^###\s+来源脚注\s*$\n(?P<body>.*?)(?=^###\s|\Z)", re.MULTILINE | re.DOTALL)
@@ -182,6 +189,12 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
         )
     declared_ids = SPEC_ID_RE.findall(preamble)
     for page in pages:
+        content_types = CONTENT_TYPE_RE.findall(page["body"])
+        layouts = LAYOUT_RE.findall(page["body"])
+        if len(content_types) != 1 or content_types[0] not in CONTENT_TYPES:
+            errors.append(f"{unit.id}：第 {page['number']} 页须声明一个有效内容类型（{'、'.join(CONTENT_TYPES)}）")
+        if len(layouts) != 1 or layouts[0] not in LAYOUTS:
+            errors.append(f"{unit.id}：第 {page['number']} 页须从可用版式中选择一个（{'、'.join(LAYOUTS)}）")
         declared_ids.extend(SPEC_ID_RE.findall(page["body"]))
     if not declared_ids:
         errors.append(f"{unit.id}：缺少单元 ID（写法：单元 ID：{unit.id}，旧文件中的页面 ID 仍然有效）")
@@ -208,7 +221,9 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
                 rf"^###\s+{re.escape(INVESTMENT_JUDGMENT_HEADING)}\s*$\n(?P<body>.*?)(?=^###\s|\Z)",
                 page["body"], flags=re.MULTILINE | re.DOTALL,
             )
-            if not judgment or not judgment.group("body").strip():
+            if judgment and not judgment.group("body").strip():
+                errors.append(f"{unit.id}：第 {page['number']} 页的判断框不能为空")
+            if not judgment and (re.search(r"关键页\s*[：:：]\s*(?:是|true|yes)", page["body"], re.IGNORECASE) or re.search(r"内容类型\s*[：:]\s*判断/收束", page["body"])):
                 errors.append(f"{unit.id}：第 {page['number']} 页须填写 ### {INVESTMENT_JUDGMENT_HEADING} 结论框")
             footnote = SOURCE_FOOTNOTE_RE.search(page["body"])
             if not footnote or not re.search(r".+《[^《》]+》\（?\d{4}[^）]*\）", footnote.group("body")):
@@ -221,11 +236,9 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
                 if any(INLINE_QUALIFIER_RE.search(section) for section in content_sections):
                     errors.append(f"{unit.id}：第 {page['number']} 页的估计/口径/未核验限定请移入来源脚注")
             cited_ids = set(NUMBER_ID_RE.findall(page["body"]))
-            if not cited_ids:
-                errors.append(f"{unit.id}：第 {page['number']} 页须引用 numbers.md 中的数据编号（如 N-001）")
-            elif research_errors:
+            if cited_ids and research_errors:
                 errors.append(f"{unit.id}：第 {page['number']} 页引用数字前须先完成 `my-slides validate evidence-research`")
-            elif number_ids:
+            elif cited_ids and number_ids:
                 missing_ids = sorted(cited_ids - number_ids)
                 if missing_ids:
                     errors.append(f"{unit.id}：第 {page['number']} 页引用了 numbers.md 不存在的编号：{'、'.join(missing_ids)}")
@@ -243,6 +256,56 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
         errors.append(f"{unit.id}：页面角色必须填写 cover 或 content")
     errors.extend(f"{unit.id}：{msg}" for msg in validate_local_markdown_links(text, path))
     return errors
+
+
+def _validate_deck_layouts_and_number_reuse(base: Path) -> list[str]:
+    """Check cross-unit layout rhythm and ensure registered figure IDs are one-use per deck."""
+    try:
+        units, manifest_errors = load_units_manifest(base, chapters=None)
+    except UnitsError:
+        return []
+    if manifest_errors:
+        return []
+    layouts: list[tuple[str, str, int]] = []
+    uses: dict[str, list[str]] = {}
+    total_pages = 0
+    for unit in units:
+        path = unit_paths(base, unit.id).spec
+        if not path.is_file():
+            continue
+        _, pages = split_spec_pages(path.read_text(encoding="utf-8"))
+        for page in pages:
+            total_pages += 1
+            match = LAYOUT_RE.search(page["body"])
+            if match:
+                layout = match.group(1)
+                layouts.append((unit.id, layout, page["number"]))
+            for number_id in sorted(set(NUMBER_ID_RE.findall(page["body"]))):
+                uses.setdefault(number_id, []).append(f"{unit.id} 第 {page['number']} 页")
+    errors: list[str] = []
+    run: list[tuple[str, str, int]] = []
+    for item in layouts:
+        if run and item[1] == run[-1][1]:
+            run.append(item)
+        else:
+            if len(run) > 2:
+                errors.append("整套 deck 同一版式连续超过 2 页：" + "、".join(f"{u} 第 {n} 页" for u, _, n in run))
+            run = [item]
+    if len(run) > 2:
+        errors.append("整套 deck 同一版式连续超过 2 页：" + "、".join(f"{u} 第 {n} 页" for u, _, n in run))
+    minimum = min(3, total_pages) if total_pages else 0
+    unique_count = len({layout for _, layout, _ in layouts})
+    if unique_count < minimum:
+        errors.append(f"整套 deck 至少需要 {minimum} 种不同版式（当前 {unique_count} 种）")
+    for number_id, locations in uses.items():
+        if len(locations) > 1:
+            errors.append(f"数字编号 {number_id} 在整套 deck 中重复引用：{'、'.join(locations)}")
+    return errors
+
+
+def validate_deck_spec(base: Path) -> list[str]:
+    """Public deck-wide Spec checks used by the validate command."""
+    return _validate_deck_layouts_and_number_reuse(base)
 
 
 def prepare_unit_handoff(
@@ -296,9 +359,12 @@ def prepare_unit_handoff(
             lines.append(
                 "请按小章节写 Spec：文件顶部写一次“单元 ID”和“页面角色”；"
                 f"用连续的 ## Slide N — 标题描述每一页（封面只能一页，内容最多 {MAX_CONTENT_PAGES} 页）。"
-                "先完成并校验 my-slides/research/numbers.md。每个内容页都要有“我们的判断 / 对投资的含义”结论框、"
-                "标准来源脚注和 numbers.md 数据编号；嘉宾引语只作证据，估计/口径限定集中写在脚注。"
-                "图表数据放在该页自己的 echarts-spec 代码块，并在展示内容标明对应数据编号。"
+                "每页必须声明内容类型（演进/时间线、对比、清单/矩阵、趋势/图表、案例、判断/收束）和版式；"
+                "可用版式目录见 references/example-index.md。同版式最多连续两页，整套至少 min(3, 总页数) 种版式。"
+                "每个数字 ID 在整套 deck 只能引用一次；无合适数字时允许无数字页，用表格或结构图组织信息。"
+                "仅章节收束页或标注“关键页：是”时填写“我们的判断 / 对投资的含义”。"
+                "内容页保留规范来源脚注；嘉宾引语只作证据，估计/口径限定集中写在脚注。"
+                "先完成并校验 my-slides/research/numbers.md；图表数据放在该页自己的 echarts-spec 代码块，并在展示内容标明编号。"
             )
         else:
             lines.append(

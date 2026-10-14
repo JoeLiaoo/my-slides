@@ -263,6 +263,11 @@ def review_packet(
         "digest": digest,
         "units": rows,
         "reviewed_at": now(),
+        "visual_rubric": (
+            "Spec 视觉检查：逐页核对内容类型与版式是否匹配、同一版式连续不超过 2 页、"
+            "整套版式种类达下限；记录 deck 版式多样性 1–5 分和每页信息密度 1–5 分。"
+            "参照 references/visual-rules.md：3 分及以上为交付线。"
+        ) if kind == "spec" else None,
     }
 
 

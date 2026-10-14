@@ -20,6 +20,8 @@ issue [#38](https://github.com/JoeLiaoo/my-slides/issues/38) 已合入并关闭�
 
 **未做、不承诺：** 受控 figure-spec、交互运行时、真人盲测读者理解。需要时再单独开 issue；普通报告继续用文字、表格、现有图表和（必要时）手工静态 SVG。
 
+Spec 校验还会检查每页内容类型与示例库版式、整套 deck 的版式节奏与种类下限，以及数字 ID 是否跨页重复。每个数字只在最能支撑结论的一页出现；无合适数字时用表格或结构图。作者判断框仅用于章节收束页或标注的关键页。review 与 `slides visual-review` 按 `references/visual-rules.md` 检查版式多样性和单页信息密度。
+
 
 ## 目标工作流
 

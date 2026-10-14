@@ -22,15 +22,19 @@ Open when writing or validating a Spec page (`specs/units/<id>.md`). `my-slides 
 ### 核心结论
 …
 
+内容类型：演进/时间线 | 对比 | 清单/矩阵 | 趋势/图表 | 案例 | 判断/收束
+版式：从 `references/example-index.md` 的版式目录中选一项
+关键页：是（可选；仅需作者判断框时填写）
+
 ### 我们的判断 / 对投资的含义
-…（内容页必填：投资方作者口吻的一句判断与配置含义；封面可省略）
+…（仅章节收束页或标注“关键页：是”时填写）
 
 ### 展示内容
 …
 
 ### 证据与来源
 …
-内容页需列出 `research/numbers.md` 中的编号（如 `数据编号：N-001`）
+需要数字时列出 `research/numbers.md` 中的编号（如 `数据编号：N-001`）；无合适数字时写明“无数字”，以表格或结构图组织信息。
 
 ### 限定条件
 …
@@ -74,7 +78,10 @@ Open when writing or validating a Spec page (`specs/units/<id>.md`). `my-slides 
 | --- | --- | --- |
 | 目的 | 这页要为读者回答什么 | 一句话陈述读者视角的问题 |
 | 核心结论 | 离开这页要带走的结论 | 一句话陈述该页唯一结论 |
-| 我们的判断 / 对投资的含义 | 投资方作者的判断框 | 内容页必填；观点由作者承担，不用嘉宾引语代替 |
+| 内容类型 | 页面沟通任务 | 必须从顶部列出的六类中选一类 |
+| 版式 | 页面结构 | 必须从 `references/example-index.md` 的版式目录中选一项 |
+| 关键页 | 是否需要作者判断框 | 标注“是”时必填；章节收束（判断/收束）页也必填 |
+| 我们的判断 / 对投资的含义 | 投资方作者的判断框 | 仅关键页和章节收束页填写；其他页删除此节 |
 | 展示内容 | 在这页上能看到的具体元素 | 关键数据、对比项、图表、引用句 |
 | 证据与来源 | 论据与可追溯资料 | 报告段落编号、Wiki 页面链接及 `numbers.md` 数据编号 |
 | 限定条件 | 影响结论的边界 | 口径、估计、未核验状态等在脚注集中注明 |
@@ -83,7 +90,7 @@ Open when writing or validating a Spec page (`specs/units/<id>.md`). `my-slides 
 | 图标需求 | 需要的 lucide 图标 | kebab-case 名称（如 `chart-line`）；不需要时写「无」 |
 | 来源脚注 | 页内一行来源 | `机构或作者《标题》（日期）`；估计/口径在此一次性说明 |
 
-内容页必须有 `### 我们的判断 / 对投资的含义`，可直接放进 HTML 结论框。嘉宾或外部专家的原话只能列入证据，不能代替投资方判断。封面可省略判断框；内容页必须引用 `research/numbers.md` 中的数据编号。
+作者判断框只出现在标注“关键页：是”或内容类型为“判断/收束”的页面。嘉宾或外部专家的原话只能列入证据，不能代替投资方判断。每个数字 ID 在整套 deck 最多引用一次；无合适数字时允许无数字页，用表格或结构图组织信息。数字校验跨单元执行。
 
 若本页声明 ECharts 图表，必须在 `展示内容` 中写 `数据编号：N-001`（可列多个编号）。图表的所有值只能来自这些清单记录，不得临时从报告、记忆或网页补数。`my-slides validate spec` 会检查编号存在、作者判断框、来源脚注格式及图表编号声明。
 
@@ -136,7 +143,7 @@ Open when writing or validating a Spec page (`specs/units/<id>.md`). `my-slides 
 
 1. `my-slides prepare spec --unit <id>` → 在 `my-slides/work/specs/<id>.md` 得到交接材料（含单元 ID、章节、文件路径）。
 2. 按本参考写出 `specs/units/<id>.md`；图标与图表声明直接进入本页的 `图标需求` 与 `展示内容`。
-3. 先通过 `my-slides validate evidence-research`，再运行 `my-slides validate spec --unit <id>`：检查小节齐全、作者判断框、来源脚注、数字编号有效、布局意图六个子项均非空、`报告段落映射` 非空、单元 ID 与角色一致、图表/图标范围与本单元一致、本地 Markdown 链接全部解析。
+3. 先通过 `my-slides validate evidence-research`，再运行 `my-slides validate spec --unit <id>`：检查内容类型和版式、作者判断框条件、来源脚注、数字编号有效且全 deck 不重复、版式连续不超过两页且种类达到下限、布局意图六个子项均非空、`报告段落映射` 非空、单元 ID 与角色一致、图表/图标范围与本单元一致、本地 Markdown 链接全部解析。
 4. `my-slides approve spec --unit <id>` 提交待审；`review` 输出 `APPROVE` / `REJECT` 短语；用户明确批准后 `confirm spec --via chat`。
 5. 章节整体修改后只需重提该章节；其他章节仍按各自版本审批。
 
