@@ -9,6 +9,22 @@ Open when choosing a layout, a chart, or a Spec sketch. `prepare slides` reads t
 3. `my-slides prepare slides` 会按同一张索引自动把对应路径与摘要贴进交接材料，避免你从头搜。
 4. 真正动手前，复制 `examples/<category>/<id>/` 到本地 fixture，再按你的数据替换。
 
+## 可用版式目录
+
+每页 Spec 都要声明一个“内容类型”和一个版式。以下版式均对应仓库中可重建的 `html-slides` 示例；若一页不适合任何数字图表，可用表格、清单或静态结构图表达，版式仍选与信息关系匹配的一类。
+
+| Spec 版式名 | 示例来源 | 适用内容类型 | 主要结构 |
+| --- | --- | --- | --- |
+| KPI卡片 | `examples/investment-summary/01-cover-kpis/` | 判断/收束、案例 | 标题 + 3–5 个指标卡 |
+| 哑铃对比 | `examples/competition/01-dumbbell/` | 对比 | 两期 / 多对象的同指标差异 |
+| 100%堆叠趋势 | `examples/market-trend/01-pivot-share-shift/` | 演进/时间线、趋势/图表 | 时间轴 + 份额迁移 |
+| 漏斗流程 | `examples/technology/01-funnel/` | 演进/时间线、案例 | 阶段转化 + 瓶颈 |
+| 静态机制图 | `examples/technology/02-batching-static/` | 演进/时间线、案例 | 有序步骤、因果关系或系统结构 |
+| 敏感性热图 | `examples/financial-scenario/01-sensitivity/` | 清单/矩阵、趋势/图表 | 两变量情景矩阵 |
+| 单位经济折线 | `examples/unit-economics/01-payback/` | 趋势/图表、判断/收束 | 单位经济指标 + 回本时间序列 |
+
+同一版式连续最多两页；整套 deck 至少使用 `min(3, 总页数)` 种不同版式。完整 deck 达到三页后至少三种；更短的 deck 每页尽量不同。
+
 ## 六个默认类别
 
 每个类别下面至少有 1 个可重建的最小例子（Wiki/sources → report 摘录 → Spec → HTML → check 备注）。所有数字都是**虚构的**，可在 `data.json` 里看到。

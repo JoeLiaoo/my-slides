@@ -25,7 +25,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
   - `data-page-role="cover" | "content"`，与 `units.json` 中该单元的角色一致。
   - 推荐额外带 `data-unit-page="<N>"`（在整套 deck 中的页码），便于跨页编号。
 - 每页必须有一个 `<script type="application/json" class="slide-notes">…</script>`，内容是 JSON 对象；不要同时放两个 `slide-notes`。
-- 每张内容页要把 Spec 的「我们的判断 / 对投资的含义」实际渲染成清楚可见的结论框；嘉宾/访谈引语放证据层，不能占据作者判断框。
+- 仅在 Spec 标注关键页或内容类型为「判断/收束」的页面渲染「我们的判断 / 对投资的含义」作者结论框；其他页不重复结论框。嘉宾/访谈引语放证据层，不能占据作者判断框。
 - 每张内容页显示一行标准来源脚注：`机构或作者《标题》（日期）`。估计、未核验状态和数据口径在该脚注一次性说明，正文不重复限定词。
 - 页面及 ECharts 数据只使用已校验的 `my-slides/research/numbers.md` 编号；图表旁或图注应显示对应来源编号/来源脚注，不能只在 Spec 中留一条无法追溯的引用。
 - 图表用 `<script type="application/json" class="mls-echarts-spec">…</script>`；图标用 `<script type="application/json" class="mls-lucide-spec">…</script>`。每个标记只承载一种资产；只能使用 Spec 中声明的图表类型 / lucide 图标名。

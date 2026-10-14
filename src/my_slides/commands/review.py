@@ -11,6 +11,8 @@ from ..project import ensure_project, project_root, require_v2_project
 
 def _human(packet: dict) -> str:
     lines = [f"待审批：{packet['kind']} / {packet['target']}"]
+    if packet.get("visual_rubric"):
+        lines.append("\n" + packet["visual_rubric"])
     for unit in packet["units"]:
         title = f"{unit['chapter']} / {unit['title']}" if unit.get("title") else unit["chapter"]
         pages = f"\n页数：{unit['pages']}" if unit.get("pages") else ""

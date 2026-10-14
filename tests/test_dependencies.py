@@ -241,7 +241,7 @@ class DependencyStateTests(unittest.TestCase):
         paths = unit_paths(self.base, "uses-w")
         paths.spec.write_text(
             "## Slide 1 — uses-w\n页面 ID：uses-w\n页面角色：content\n"
-            "### 目的\nExplain.\n### 核心结论\nConclusion.\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
+            "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
             "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
             "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n",
             encoding="utf-8",

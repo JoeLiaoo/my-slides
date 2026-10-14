@@ -6,6 +6,18 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.6.0] - Pending
+
+### Breaking Changes
+
+- Spec 每页现在必须声明内容类型和示例库版式；校验整套 deck 的连续版式上限、多样性下限及数字 ID 跨单元不得重复。无合适数字时可省略编号，改用表格或结构图。
+- 作者判断框只在章节收束页或标注关键页时要求；旧 Spec 需按新字段和规则更新后才能通过校验。
+
+### Changed
+
+- `review spec` 与 visual-review 指南增加版式多样性和单页信息密度评分标准；保留规范化来源脚注要求。
+- 更新 my-slides workflow skill 与 examples 版式目录。
+
 ## [0.5.0] - Pending
 
 ### Breaking Changes
