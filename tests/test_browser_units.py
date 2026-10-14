@@ -81,7 +81,8 @@ class BrowserUnitChecks(unittest.TestCase):
             directory = Path(tmp)
             deck = directory / "chart.html"
             chart_svg = (
-                '<svg viewBox="0 0 1100 560" width="1100" height="560">'
+                '<svg viewBox="0 0 1100 560" width="1100" height="560" role="img" aria-label="Revenue chart">'
+                '<title>Revenue chart</title>'
                 '<text x="20" y="40" font-size="14">2024</text>'
                 '<text x="20" y="540" font-size="14">baseline</text>'
                 '</svg>'
