@@ -25,6 +25,9 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
   - `data-page-role="cover" | "content"`，与 `units.json` 中该单元的角色一致。
   - 推荐额外带 `data-unit-page="<N>"`（在整套 deck 中的页码），便于跨页编号。
 - 每页必须有一个 `<script type="application/json" class="slide-notes">…</script>`，内容是 JSON 对象；不要同时放两个 `slide-notes`。
+- 每张内容页要把 Spec 的「我们的判断 / 对投资的含义」实际渲染成清楚可见的结论框；嘉宾/访谈引语放证据层，不能占据作者判断框。
+- 每张内容页显示一行标准来源脚注：`机构或作者《标题》（日期）`。估计、未核验状态和数据口径在该脚注一次性说明，正文不重复限定词。
+- 页面及 ECharts 数据只使用已校验的 `my-slides/research/numbers.md` 编号；图表旁或图注应显示对应来源编号/来源脚注，不能只在 Spec 中留一条无法追溯的引用。
 - 图表用 `<script type="application/json" class="mls-echarts-spec">…</script>`；图标用 `<script type="application/json" class="mls-lucide-spec">…</script>`。每个标记只承载一种资产；只能使用 Spec 中声明的图表类型 / lucide 图标名。
 - 自定义样式用 `<style>`，但要保证大括号配对；`slides build` 会用 `@scope` 包裹章节避免污染其他单元。`style="…"` 中不能出现 `url(` 或 `@import`。
 - 不能用 `<script>` 跑 JS；不能加载 CDN；不能放 `<iframe>`、`<form>`、`<video>` 等禁用的标签。完整白名单与禁项见 `src/my_slides/slide_fragments.py`。
@@ -35,6 +38,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 
 - 一页只承载一个唯一结论；超过两个并列结论时拆页。
 - 数字、单位、日期、来源贴近对应句子；不要把它们集中堆到页面底部。
+- 作者判断框、证据层、来源脚注三者分层；观点归属作者，外部引语只提供佐证。
 - 删除和拆页优先于缩小字号。文本过长就拆到下一页，而不是把字号挤到 12px。
 - 字体与行长阈值要看视口 + 文本角色（标题 / 正文 / 脚注），不按「整页最多 N 字」一刀切。
 - 同一组内字号对比 ≥ 1.5x；同页字号档位不超过 3 档。

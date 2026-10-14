@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .dependencies import fingerprint_file
+from .research import read_number_ids, validate_number_list
 from .state import (
     collect_units_status,
     mark_report_approved,
@@ -81,6 +82,10 @@ SLIDE_HEADING_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-]\s*(.*?)\s*$", re.MU
 SPEC_ID_RE = re.compile(r"^(?:单元 ID|页面 ID)\s*[：:]\s*(\S+)\s*$", re.MULTILINE)
 SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", re.MULTILINE | re.IGNORECASE)
 REQUIRED_SPEC_HEADINGS = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
+INVESTMENT_JUDGMENT_HEADING = "我们的判断 / 对投资的含义"
+NUMBER_ID_RE = re.compile(r"\bN-\d{3,}\b")
+SOURCE_FOOTNOTE_RE = re.compile(r"^###\s+来源脚注\s*$\n(?P<body>.*?)(?=^###\s|\Z)", re.MULTILINE | re.DOTALL)
+INLINE_QUALIFIER_RE = re.compile(r"未核验|估计口径|统计口径|数据口径|按.{0,8}口径|估算值")
 # Issue #38 PR 1 (02): 布局意图 must be expanded into six sub-points.
 # Each sub-point is a level-three heading under `### 布局意图`.
 LAYOUT_INTENT_SUBPOINTS = (
@@ -184,6 +189,9 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
         errors.append(f"{unit.id}：单元 ID / 页面 ID 必须与单元 ID 一致（当前为 {'、'.join(declared_ids)}）")
     preamble_roles = [role.lower() for role in SPEC_ROLE_RE.findall(preamble)]
     page_roles_found = False
+    number_ids = read_number_ids(base)
+    numbers_path = base / "research" / "numbers.md"
+    research_errors = validate_number_list(base) if numbers_path.exists() else []
     if any(role != unit.role for role in preamble_roles):
         errors.append(f"{unit.id}：页面角色与 units.json 中的 {unit.role} 不一致")
     for page in pages:
@@ -195,6 +203,34 @@ def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
         for heading in REQUIRED_SPEC_HEADINGS:
             if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page["body"], flags=re.MULTILINE):
                 errors.append(f"{unit.id}：第 {page['number']} 页缺少 ### {heading}")
+        if unit.role == "content":
+            judgment = re.search(
+                rf"^###\s+{re.escape(INVESTMENT_JUDGMENT_HEADING)}\s*$\n(?P<body>.*?)(?=^###\s|\Z)",
+                page["body"], flags=re.MULTILINE | re.DOTALL,
+            )
+            if not judgment or not judgment.group("body").strip():
+                errors.append(f"{unit.id}：第 {page['number']} 页须填写 ### {INVESTMENT_JUDGMENT_HEADING} 结论框")
+            footnote = SOURCE_FOOTNOTE_RE.search(page["body"])
+            if not footnote or not re.search(r".+《[^《》]+》\（?\d{4}[^）]*\）", footnote.group("body")):
+                errors.append(f"{unit.id}：第 {page['number']} 页须在 ### 来源脚注 使用“机构或作者《标题》（日期）”格式")
+            else:
+                content_sections = re.findall(
+                    r"^###\s+(?:目的|核心结论|展示内容|证据与来源|我们的判断 / 对投资的含义)\s*$\n(.*?)(?=^###\s|\Z)",
+                    page["body"], flags=re.MULTILINE | re.DOTALL,
+                )
+                if any(INLINE_QUALIFIER_RE.search(section) for section in content_sections):
+                    errors.append(f"{unit.id}：第 {page['number']} 页的估计/口径/未核验限定请移入来源脚注")
+            cited_ids = set(NUMBER_ID_RE.findall(page["body"]))
+            if not cited_ids:
+                errors.append(f"{unit.id}：第 {page['number']} 页须引用 numbers.md 中的数据编号（如 N-001）")
+            elif research_errors:
+                errors.append(f"{unit.id}：第 {page['number']} 页引用数字前须先完成 `my-slides validate evidence-research`")
+            elif number_ids:
+                missing_ids = sorted(cited_ids - number_ids)
+                if missing_ids:
+                    errors.append(f"{unit.id}：第 {page['number']} 页引用了 numbers.md 不存在的编号：{'、'.join(missing_ids)}")
+            if "echarts-spec" in page["body"] and not re.search(r"数据编号\s*[：:]\s*(?:N-\d{3,})(?:\s*[,，、]\s*N-\d{3,})*", page["body"]):
+                errors.append(f"{unit.id}：第 {page['number']} 页图表须在展示内容中声明数据编号：N-001")
         errors.extend(_check_layout_intent(page["body"], page["number"], unit.id))
         mapping = re.search(
             r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)",
@@ -260,7 +296,9 @@ def prepare_unit_handoff(
             lines.append(
                 "请按小章节写 Spec：文件顶部写一次“单元 ID”和“页面角色”；"
                 f"用连续的 ## Slide N — 标题描述每一页（封面只能一页，内容最多 {MAX_CONTENT_PAGES} 页）。"
-                "每一页都要有目的、核心结论等小节；图表数据放在该页自己的 echarts-spec 代码块。"
+                "先完成并校验 my-slides/research/numbers.md。每个内容页都要有“我们的判断 / 对投资的含义”结论框、"
+                "标准来源脚注和 numbers.md 数据编号；嘉宾引语只作证据，估计/口径限定集中写在脚注。"
+                "图表数据放在该页自己的 echarts-spec 代码块，并在展示内容标明对应数据编号。"
             )
         else:
             lines.append(

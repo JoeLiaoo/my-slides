@@ -17,6 +17,8 @@ Projects without `units.json` need `my-slides init` before other commands.
 
 `prepare slides` also surfaces the 1–2 most relevant reference example paths for the current Spec; read the index below to see how queries are matched. It does not dump the full example library into context.
 
+After report assembly and before drafting Specs, run `my-slides prepare evidence-research` and complete `my-slides/research/numbers.md` with sourced public figures. Run `my-slides validate evidence-research`; `next` recommends this phase when the list is missing or invalid. Every content-page Spec must cite one or more IDs from that list. ECharts data must map to those IDs.
+
 ## On-demand references
 
 This skill entry stays short. Read the references below only when the step you're about to do actually needs them. The packaged install mirrors this layout under `my-slides/templates/references/` for wheel users; resolve the path with the same relative layout.
@@ -52,13 +54,15 @@ For a PR into the **my-slides** repo `main`, select a version step that matches 
 - After the Wiki is ready, propose a 大章节 → 小章节 outline in the conversation (for example 行业分析 / 需求分析, 竞争分析). Create each section with `units add <id> --chapter <大章节> --title <小章节名>` only after the user accepts the outline. `units retitle` changes the display name and keeps existing approvals.
 - Generate HTML only from approved Specs. One unit is one section and may contain multiple slides: the HTML page count must equal the Spec's `## Slide N` count (cover is one page; a content section has at most 8). Keep custom styles scoped; include one `slide-notes` JSON block on every slide. A slide may use only the `echarts-spec` and Lucide icons declared on that same Spec page. Do not use a CDN. The editorial-light shell, fonts, and navigation are added by `slides build` into `slides/previews/<id>.html` and `slides/index.html`. Changing only slide layout does not require a new approval; changing Spec content requires re-approval of that section only.
 - Every Spec page must fill the 布局意图 sub-points (读者问题 / 唯一结论 / 关系类型 / 主视觉 / 阅读顺序 / 选这个形式的原因); an empty critical section is a validation error before approval. Read `references/spec.md` for the structure and worked examples.
+- Every content page must include a visible author-owned `我们的判断 / 对投资的含义` conclusion box. Guest or interview quotes are evidence only. Put estimates, unverified status, and data definitions in the page footnote, not in body copy; normalize each citation as `机构或作者《标题》（日期）` and state each estimate/scope once.
 
 ## Workflow
 
 1. `my-slides status` and `my-slides sources scan`. Update Wiki, then `validate wiki` and `sources mark-ingested`.
 2. `prepare report --unit <id>` → write `reports/units/<id>.md` → `validate report --unit <id>` → `approve report --unit <id>` (or `--chapter`) → `review report` → paste it and wait → after an explicit user approval, `confirm report --via chat` → `assemble`.
-3. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec` → `review spec` → paste it and wait → after an explicit user approval, `confirm spec --via chat`.
-4. `prepare slides --unit <id>` (it appends the 1–2 most relevant reference example snippets to the handoff) → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural) → for delivery QA, `slides check --all --browser --screenshots`, open contact sheets, then `slides visual-review` with notes. Optional page `metric-spec` and chart rules: `references/charts.md`. Re-check `references/visual-rules.md` before reporting done. figure-spec / interactive runtimes are deferred; use static SVG only when text cannot explain the mechanism (see `examples/technology/02-batching-static/`).
+3. `prepare evidence-research` → research public hard figures and record them in `research/numbers.md` → `validate evidence-research`. Reference those IDs from every content-page Spec; use no other values in charts.
+4. `prepare spec --unit <id>` → write the section Spec in `specs/units/<id>.md` (one `## Slide N —` block per page; `单元 ID` equals the unit ID; a legacy `页面 ID` line is still accepted) → validate → `approve spec` → `review spec` → paste it and wait → after an explicit user approval, `confirm spec --via chat`.
+5. `prepare slides --unit <id>` (it appends the 1–2 most relevant reference example snippets to the handoff) → write `slides/pages/<id>.html` with one `<section class="slide">` per Spec page → `slides build --unit <id>` → `slides check --unit <id>` (structural) → for delivery QA, `slides check --all --browser --screenshots`, open contact sheets, then `slides visual-review` with notes. The page must visibly render its author-voice conclusion box, source footnote, and evidence-backed data. Optional page `metric-spec` and chart rules: `references/charts.md`. Re-check `references/visual-rules.md` before reporting done. figure-spec / interactive runtimes are deferred; use static SVG only when text cannot explain the mechanism (see `examples/technology/02-batching-static/`).
 
 ## Useful commands
 
@@ -81,6 +85,8 @@ my-slides withdraw report --unit <id>
 my-slides revoke report --unit <id> --via chat                 # 查看已批准版本与 REVOKE 短语
 my-slides revoke report --unit <id> --via chat --phrase "REVOKE REPORT <id> <sha12>" --user-reply "..."
 my-slides assemble
+my-slides prepare evidence-research
+my-slides validate evidence-research
 my-slides prepare spec --unit <id>
 my-slides approve spec --unit <id>
 my-slides review spec --chapter <大章节>

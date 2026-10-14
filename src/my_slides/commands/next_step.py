@@ -10,6 +10,7 @@ from ..browser_runtime import browser_status
 from ..command_output import emit
 from ..dependencies import fingerprint_json
 from ..project import ensure_project, project_root, require_v2_project
+from ..research import validate_number_list
 from ..sources import scan_sources
 from ..state import collect_units_status
 from ..unit_workflow import validate_unit_report, validate_unit_spec
@@ -97,6 +98,13 @@ def run(args: argparse.Namespace) -> int:
         return recommend("my-slides assemble", "报告组装存在问题：" + "；".join(assembly_errors[:3]))
     if not assembled_path.is_file() or assembled_path.read_text(encoding="utf-8") != assembled:
         return recommend("my-slides assemble", "已批准报告单元，但整份报告尚未组装或已过期。")
+
+    research_errors = validate_number_list(base) if any(unit.role == "content" for unit in units) else []
+    if research_errors:
+        return recommend(
+            "my-slides prepare evidence-research",
+            "报告已组装；先整理可复核的公开数字并通过 evidence-research 校验，再撰写 Spec。",
+        )
 
     for unit in units:
         row = rows[unit.id]

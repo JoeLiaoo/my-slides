@@ -6,6 +6,17 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.5.0] - Pending
+
+### Breaking Changes
+
+- 内容页 Spec 现在必须提供投资方作者判断框、标准来源脚注，并引用通过校验的 `research/numbers.md` 数据编号；ECharts 数据须来自所列编号。报告组装后新增 evidence-research 阶段，旧内容页需补齐这些字段后才能通过 Spec 校验。
+
+### Added
+
+- 新增 `prepare evidence-research` / `validate evidence-research`，为公开数字研究建立带来源链接、日期和口径记录的编号清单，并让 `next` 在进入 Spec 前检查清单状态。
+- 更新 Skill 与 Spec、Slides、Charts、Visual Rules 参考，明确作者判断归属、引语的证据角色、限定词脚注和图表数据溯源要求。
+
 ## [0.4.9] - Pending
 
 ### Changed

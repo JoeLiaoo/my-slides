@@ -40,10 +40,10 @@ def _spec(unit_id: str, role: str, *, intent: dict | None = None) -> str:
     layout = _LAYOUT_INTENT.format_map(intent) if intent else "### 布局意图\n无\n"
     return (
         f"## Slide 1 — {unit_id}\n单元 ID：{unit_id}\n页面角色：{role}\n"
-        "### 目的\nPurpose.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
-        "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
+        "### 目的\nPurpose.\n### 核心结论\nConclusion.\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
+        "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
         f"{layout}"
-        "### 图标需求\n无\n"
+        "### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
     )
 
 
