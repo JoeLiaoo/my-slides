@@ -18,6 +18,7 @@ from .slide_fragments import (
     extract_approved_icons,
     validate_scoped_css,
 )
+from .metrics import bind_text, parse_page_metrics, validate_chart_metric_refs
 from .rendering import render_assets, renderer_status, validate_chart_spec
 from .dependencies import fingerprint_file, fingerprint_json
 from .state import read_unit_state, refresh_unit_currency, write_unit_state
@@ -83,6 +84,7 @@ def _render_slide_html(
     rendered: dict[str, str],
     unit_id: str,
     page_number: int,
+    metrics: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     source = "".join(slide["html"])
     asset_index = 0
@@ -97,6 +99,25 @@ def _render_slide_html(
         source = _ASSET_MARKER_RE.sub(replace_asset, source)
         if asset_index != len(assets):
             raise ValueError("渲染标记数量不一致")
+    if metrics is not None:
+        notes: list[str] = []
+        def bind_notes(match: re.Match[str]) -> str:
+            payload = json.loads(match.group(2))
+            def bind_value(value: Any) -> Any:
+                if isinstance(value, str):
+                    return bind_text(value, metrics, escape=False)
+                if isinstance(value, list):
+                    return [bind_value(item) for item in value]
+                if isinstance(value, dict):
+                    return {key: bind_value(item) for key, item in value.items()}
+                return value
+            encoded = json.dumps(bind_value(payload), ensure_ascii=False).replace("<", "\\u003c")
+            notes.append(match.group(1) + encoded + "</script>")
+            return f"__MLS_NOTES_{len(notes) - 1}__"
+        source = re.sub(r'(<script\b[^>]*class="slide-notes"[^>]*>)(.*?)</script>', bind_notes, source, flags=re.DOTALL)
+        source = bind_text(source, metrics, escape=True)
+        for index, note in enumerate(notes):
+            source = source.replace(f"__MLS_NOTES_{index}__", note)
     return _stamp_slide_root(source, unit_id, page_number)
 
 
@@ -153,6 +174,13 @@ def compute_unit_cache_key(
     for page_index, slide in enumerate(parser.slides):
         page_number = page_index + 1
         approved_charts, approved_icons = approved_assets_from_spec(spec_pages[page_index]["body"])
+        try:
+            metrics = parse_page_metrics(spec_pages[page_index]["body"])
+            # Fail before cache reuse if any placeholder names a missing record.
+            bind_text("".join(slide["html"]), metrics, escape=True)
+        except ValueError as exc:
+            errors.append(f"{unit.id}：第 {page_number} 页：{exc}")
+            metrics = {}
         role = slide.get("role") or ""
         if role and role != unit.role:
             errors.append(f"{unit.id}：第 {page_number} 页 data-page-role 与 units.json 不一致")
@@ -163,6 +191,8 @@ def compute_unit_cache_key(
                 note = json.loads("".join(slide["notes"]))
                 if not isinstance(note, dict):
                     errors.append(f"{unit.id}：第 {page_number} 页 slide-notes 必须是 JSON 对象")
+                else:
+                    bind_text(json.dumps(note, ensure_ascii=False), metrics, escape=False)
             except json.JSONDecodeError:
                 errors.append(f"{unit.id}：第 {page_number} 页 slide-notes JSON 无效")
         slide_assets: list[dict[str, Any]] = []
@@ -170,6 +200,7 @@ def compute_unit_cache_key(
             try:
                 if asset["kind"] == "chart":
                     validate_chart_spec(asset["spec"])
+                    validate_chart_metric_refs(asset["spec"], metrics)
                     canonical = json.dumps(asset["spec"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
                     if canonical not in approved_charts:
                         raise ValueError("图表数据必须与本页已批准 Spec 中的 echarts-spec 完全一致（不能借用其他页或其他小章节）")
@@ -184,7 +215,7 @@ def compute_unit_cache_key(
                 assets_to_render.append(asset)
             except ValueError as exc:
                 errors.append(f"{unit.id}：第 {page_number} 页：{exc}")
-        compiled_slides.append({"slide": slide, "assets": slide_assets, "page": page_number})
+        compiled_slides.append({"slide": slide, "assets": slide_assets, "page": page_number, "metrics": metrics})
     if errors:
         return None, errors, None
 
@@ -196,6 +227,7 @@ def compute_unit_cache_key(
             "css": css,
             "brand": brand_color,
             "renderer": renderer_status().get("packages"),
+            "renderer_code": fingerprint_file(Path(__file__).parent / "renderer" / "render.mjs"),
             "theme": theme_cache_fields(),
             "assets": [asset["spec"] for asset in assets_to_render],
         }
@@ -236,7 +268,7 @@ def compile_unit_page(
             pages = [
                 {
                     "page": item["page"],
-                    "html": _render_slide_html(item["slide"], item["assets"], rendered, unit.id, item["page"]),
+                    "html": _render_slide_html(item["slide"], item["assets"], rendered, unit.id, item["page"], item["metrics"]),
                 }
                 for item in ctx["compiled_slides"]
             ]

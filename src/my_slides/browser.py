@@ -271,6 +271,27 @@ def check_deck(
                       const smallText = [];
                       const chartSmallText = [];
                       const chartLabels = [];
+                      const inaccessibleCharts = [...slide.querySelectorAll('.mls-chart svg')]
+                        .filter(svg => !svg.getAttribute('aria-label') && !svg.querySelector('title,desc')).length;
+                      const lowContrast = [];
+                      const rgb = value => {
+                        const m = value.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+                        return m ? [Number(m[1]),Number(m[2]),Number(m[3]),m[4] === undefined ? 1 : Number(m[4])] : null;
+                      };
+                      const luminance = color => color.slice(0,3).map(v => {
+                        const n = v / 255; return n <= .04045 ? n / 12.92 : Math.pow((n + .055) / 1.055, 2.4);
+                      }).reduce((sum,v,i) => sum + v * [.2126,.7152,.0722][i], 0);
+                      for (const el of slide.querySelectorAll('h1,h2,h3,h4,p,li,td,th,figcaption')) {
+                        if (!el.textContent?.trim() || el.getBoundingClientRect().width < 1) continue;
+                        const fg = rgb(getComputedStyle(el).color);
+                        let parent = el, bg;
+                        while (parent && !bg) { const value = rgb(getComputedStyle(parent).backgroundColor); if (value && value[3] === 1) bg = value; parent = parent.parentElement; }
+                        if (!fg || fg[3] !== 1) continue;
+                        bg ||= [255,255,255,1];
+                        const a = luminance(fg), b = luminance(bg), ratio = (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+                        const size = parseFloat(getComputedStyle(el).fontSize);
+                        if (ratio < (size >= 24 ? 3 : 4.5)) lowContrast.push({text:el.textContent.slice(0,40), ratio:Math.round(ratio*10)/10});
+                      }
                       const thresholds = {desktop: {heading: 18, body: 14, note: 11}, 'mobile-portrait': {heading: 12, body: 10, note: 8}, 'mobile-landscape': {heading: 11, body: 9, note: 7}};
                       const threshold = thresholds[window.__mlsViewport] || thresholds.desktop;
                       const isMobileViewport = window.__mlsViewport === 'mobile-portrait' || window.__mlsViewport === 'mobile-landscape';
@@ -351,7 +372,7 @@ def check_deck(
                         invisibleText,
                         overlaps,
                         clipped,
-                        chartOverflow, smallText, chartSmallText, chartLabels
+                        chartOverflow, smallText, chartSmallText, chartLabels, inaccessibleCharts, lowContrast
                       };
                     }""",
                     target,
@@ -396,6 +417,10 @@ def check_deck(
                     )
                 if metrics["chartLabels"]:
                     viewport_errors.append(f"{prefix}: chart label extends beyond SVG: {metrics['chartLabels'][:3]}")
+                if metrics["inaccessibleCharts"]:
+                    viewport_errors.append(f"{prefix}: chart SVG is missing an accessible summary")
+                if metrics["lowContrast"]:
+                    viewport_errors.append(f"{prefix}: text contrast below 4.5:1 (large text 3:1): {metrics['lowContrast'][:3]}")
 
             # Deck smoke once per viewport (not per unit).
             if len(catalog) > 1 and not unit_ids:
@@ -406,6 +431,20 @@ def check_deck(
                 page.keyboard.press("ArrowLeft")
                 if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "0":
                     viewport_errors.append(f"{label}: ArrowLeft navigation failed")
+                page.locator("#nextSlide").click()
+                if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "1":
+                    viewport_errors.append(f"{label}: next button navigation failed")
+                page.locator("#prevSlide").focus()
+                page.keyboard.press("Enter")
+                if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "0":
+                    viewport_errors.append(f"{label}: keyboard button navigation failed")
+                page.evaluate("""() => {
+                  const stage = document.querySelector('[data-deck-stage]');
+                  const start = new Event('touchstart'); Object.defineProperty(start,'changedTouches',{value:[{clientX:200}]}); stage.dispatchEvent(start);
+                  const end = new Event('touchend'); Object.defineProperty(end,'changedTouches',{value:[{clientX:100}]}); stage.dispatchEvent(end);
+                }""")
+                if page.evaluate("document.querySelector('.slide.active')?.dataset.slide") != "1":
+                    viewport_errors.append(f"{label}: touch swipe navigation failed")
 
             measurements[label] = {"slides": per_slide}
             errors.extend(viewport_errors)

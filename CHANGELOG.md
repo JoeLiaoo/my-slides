@@ -6,6 +6,14 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.6] - Pending
+
+### Added
+
+- 可选的页内 `metric-spec` 将已批准数值、单位、期间与来源绑定到 KPI、正文、讲稿和单系列图表；原有 Spec 保持兼容。
+- 图表校验增加重复类别与系列、显式时间顺序、构成比例总和、瀑布总计与零基线；图表可写 `summary`，SVG 具有可读名称。
+- CSS 与离线 SVG 渲染共用语义 token；浏览器检查增加文字对比度、图表可读说明和按钮、键盘、触摸导航验证。
+
 ## [0.4.5] - Pending
 
 ### Added

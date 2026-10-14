@@ -41,6 +41,18 @@ Spec「布局意图」中写的关系类型决定主视觉。常用对应：
 - 缺失值：是否在图上明确标出空值或缺失区间？
 - 货币 / 汇率：跨币种对比要写汇率假设。
 
+## 可选页内 metric 绑定
+
+在同一 Spec 页的展示内容中可以加一个 `metric-spec` JSON 块：
+
+```metric-spec
+{"version":1,"metrics":[{"id":"revenue","value":12.5,"unit":"亿元","period":"2025","source":"wiki/finance.md","scope":"示例口径"}]}
+```
+
+HTML 正文、KPI 和 slide-notes 字符串可写 `{{metric:revenue.value}}`、`.unit`、`.period`、`.source`、`.scope`，构建时从批准的本页 Spec 填入。单系列图表仍写完整值，并加 `"metricRefs":["revenue", ...]`（与 `values` 逐项对应）；数值和单位须与记录相同。跨页不能引用。修改数值、来源或口径会改变 Spec，须重新审批；旧 Spec 无须使用此块。未绑定的自然语言数值仍由人核对。
+
+图表现在拒绝重复类别或系列名；时间折线可声明 `categoryKind: "time"`，类别必须按 ISO 日期严格递增；只有显式 `compositionPercent: true` 的百分比堆叠图才校验每组非负且合计 100%。瀑布图总计索引必须等于前面分项之和。柱状/堆叠/瀑布使用零基线；`axisMin`、`showLabels` 均可显式声明，隐藏标签须在图表旁保留可读数据与说明。图表 `summary` 会进入 SVG 可访问名称，描述单位和主要对比，不应只重复标题。
+
 ## 边界
 
 - 图表数据写在 HTML 的 `mls-echarts-spec` 块里，且必须与 Spec「展示内容」一致；改数据就要重提 Spec。

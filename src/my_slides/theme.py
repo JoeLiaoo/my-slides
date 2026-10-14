@@ -18,6 +18,7 @@ THEME_NAME = "editorial-light"
 SHELL_VERSION = "1"
 FONT_POLICY = "system-cjk-v1"
 ADAPTATION_VERSION = "2"
+TOKEN_VERSION = "1"
 UPSTREAM_COMMIT = "d8289f4c317905cc5d0ca265d32b791e6cb387b7"
 
 _ASSET_ORDER = (
@@ -83,6 +84,7 @@ def theme_cache_fields() -> dict[str, str]:
         "shell_version": SHELL_VERSION,
         "font_policy": FONT_POLICY,
         "adaptation_version": ADAPTATION_VERSION,
+        "token_version": TOKEN_VERSION,
     }
 
 
@@ -103,18 +105,28 @@ def shell_css(brand_color: str) -> str:
         raise ValueError("幻灯片样式资产与清单不一致：" + "；".join(errors))
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
         raise ValueError("brand_color 必须是 #RRGGBB")
+    tokens = semantic_tokens(brand_color)
     css = "\n".join(
         [
             _text("upstream/viewport-base.css"),
             _text("upstream/components.css"),
             _strip_external_fonts(_text("upstream/editorial-light.css")),
             _text("adapt.css"),
-            f":root {{ --brand: {brand_color}; --accent-blue: var(--brand); }}",
+            f":root {{ --brand: {brand_color}; --accent-blue: var(--brand); "
+            f"--mls-text: {tokens['text']}; --mls-muted: {tokens['muted']}; --mls-divider: {tokens['divider']}; "
+            + " ".join(f"--mls-series-{i}: {color};" for i, color in enumerate(tokens["series"], 1))
+            + " --mls-note-size: 0.75rem; }",
         ]
     )
     if re.search(r"@import|fonts\.googleapis|fonts\.gstatic|fontshare", css, flags=re.I):
         raise ValueError("外壳样式仍包含外部字体")
     return css
+
+
+def semantic_tokens(brand_color: str) -> dict[str, Any]:
+    """The same literal values feed CSS and the server-side SVG renderer."""
+    return {"text": "#27272a", "muted": "#52525b", "divider": "#e4e4e7",
+            "series": [brand_color, "#2563a6", "#4f7a64", "#d18a3a", "#8064a2"]}
 
 
 def wrap_rendered_asset(kind: str, svg: str) -> str:
