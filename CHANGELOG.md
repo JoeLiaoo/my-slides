@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.4.8] - Pending
+
+### Fixed
+
+- 静态批处理试点脚注改为 `.note` 角色，桌面三视口可读性检查通过；`pilot-evaluation.md` 写入实测结果，读者理解试验仍延期。
+
 ## [0.4.7] - Pending
 
 ### Added
