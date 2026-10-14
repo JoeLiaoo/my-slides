@@ -32,10 +32,10 @@ _COMPLETE_INTENT = """
 def _spec_with_intent(unit_id: str, role: str, intent: str = _COMPLETE_INTENT) -> str:
     return (
         f"## Slide 1 — {unit_id}\n单元 ID：{unit_id}\n页面角色：{role}\n"
-        "### 目的\nPurpose.\n### 核心结论\nConclusion.\n### 展示内容\nContent.\n"
-        "### 证据与来源\nSource.\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
+        "### 目的\nPurpose.\n### 核心结论\nConclusion.\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
+        "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
         f"{intent}"
-        "### 图标需求\n无\n"
+        "### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
     )
 
 
@@ -144,6 +144,30 @@ extra
             any("布局意图不能为空" in err for err in errors),
             f"expected empty-intent error, got: {errors}",
         )
+
+    def test_content_page_requires_author_box_valid_number_and_source_footnote(self):
+        spec = _spec_with_intent("evidence", "content")
+        spec = spec.replace("### 我们的判断 / 对投资的含义\nOur investment judgment.\n", "")
+        spec = spec.replace("数据编号：N-001", "数据编号：N-999")
+        unit = self._seed("evidence", "content", spec)
+        research = self.base / "research" / "numbers.md"
+        research.parent.mkdir(parents=True, exist_ok=True)
+        research.write_text(
+            "# 数字\n\n| 编号 | 指标 | 数值 | 单位 | 期间 | 来源 | URL | 口径 |\n"
+            "| --- | --- | --- | --- | --- | --- | --- | --- |\n"
+            "| N-001 | Fixture | 12 | % | 2026 | Research Org《Fixture》（2026-01） | https://example.org | 无 |\n",
+            encoding="utf-8",
+        )
+        errors = validate_unit_spec(self.base, unit)
+        self.assertTrue(any("结论框" in error for error in errors), errors)
+        self.assertTrue(any("不存在的编号" in error for error in errors), errors)
+
+    def test_qualifier_in_body_is_rejected(self):
+        spec = _spec_with_intent("qualifier", "content")
+        spec = spec.replace("### 展示内容\nContent.", "### 展示内容\n按统计口径 Content.")
+        unit = self._seed("qualifier", "content", spec)
+        errors = validate_unit_spec(self.base, unit)
+        self.assertTrue(any("限定请移入来源脚注" in error for error in errors), errors)
 
 
 if __name__ == "__main__":

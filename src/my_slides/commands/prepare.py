@@ -6,6 +6,7 @@ from datetime import datetime
 
 from ..command_output import emit
 from ..project import ensure_project, project_root, require_v2_project
+from ..research import number_list_path
 from ..sources import scan_sources
 from ..unit_workflow import prepare_unit_handoff, resolve_unit_selection
 from ..wiki import snapshot_wiki, validate_wiki
@@ -16,6 +17,31 @@ def prepare(args: argparse.Namespace) -> int:
     base, cfg = ensure_project(root)
     require_v2_project(base)
     kind = args.kind
+    if kind == "evidence-research":
+        research_dir = base / "research"
+        research_dir.mkdir(parents=True, exist_ok=True)
+        numbers = number_list_path(base)
+        if not numbers.exists():
+            numbers.write_text(
+                "# 数字证据清单\n\n"
+                "每个可用于内容页或图表的数字都登记在此；每个数据集占一行。公开资料须能由 URL 复核。\n\n"
+                "| 编号 | 指标/数据集 | 数值/序列 | 单位 | 期间 | 来源 | URL | 口径/估计 |\n"
+                "| --- | --- | --- | --- | --- | --- | --- | --- |\n",
+                encoding="utf-8",
+            )
+        output = base / "work" / "evidence-research.md"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            f"# 证据数字研究任务\n\n项目目录：{root}\n工作区：{base}\n\n"
+            "围绕当前报告待证明的投资判断，允许查阅公开网络资料，整理可复核的硬数字（如市场规模、融资、ARR、成本曲线）。"
+            "将每个数字或图表数据集登记到 `research/numbers.md`，赋唯一编号 N-001 起；记录数值/序列、单位、期间、"
+            "标准来源名 `机构或作者《标题》（日期）`、可访问 URL，以及估计值和口径说明。优先使用公司披露、监管文件、"
+            "论文及可信研究机构原始资料；注明市场估算、推算方法和发布日期。不要把未登记的数字写进 Spec 或图表。\n\n"
+            "完成后运行 `my-slides validate evidence-research`。\n",
+            encoding="utf-8",
+        )
+        emit(args, {"task_file": str(output), "numbers_file": str(numbers), "kind": kind}, f"已生成证据研究任务：{output}\n数字清单：{numbers}")
+        return 0
     if kind in {"report", "spec", "slides"}:
         units = resolve_unit_selection(
             base,

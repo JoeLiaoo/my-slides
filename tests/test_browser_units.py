@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import importlib.util
 from pathlib import Path
 
 from my_slides.browser import _deck_slides, structural_check_deck, check_deck
@@ -8,7 +9,10 @@ from my_slides.theme import render_document
 
 
 class BrowserUnitChecks(unittest.TestCase):
-    @unittest.skipUnless(browser_status()["chromium_installed"], "Playwright Chromium unavailable")
+    @unittest.skipUnless(
+        browser_status()["chromium_installed"] and importlib.util.find_spec("PIL"),
+        "Playwright Chromium or optional Pillow unavailable",
+    )
     def test_multislide_screenshots_and_contact_sheets_are_versioned(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

@@ -2,6 +2,12 @@
 
 Open when picking a chart type or sanity-checking the numbers behind a Spec page. Charts in `slides/pages/<id>.html` must be declared in the Spec's `展示内容` and rendered with `mls-echarts-spec` JSON blocks. Renderer is ECharts 6.1.0 (`my-slides renderer install`).
 
+## 数字证据清单（强制）
+
+报告组装后、撰写 Spec 前运行 `my-slides prepare evidence-research`。公开网络可用于查市场规模、融资、ARR、成本曲线等硬数字；将值、单位、期间、出处 URL 和估计/口径写入 `my-slides/research/numbers.md`，再运行 `my-slides validate evidence-research`。每条记录用稳定编号（如 `N-001`），来源名称写成 `机构或作者《标题》（日期）`。缺少可靠数字时继续研究并记下数据缺口，不要补造数字。
+
+所有图表数据只能取自该文件的记录。每个内容页在 Spec 的证据/展示内容中列出编号；有 ECharts 块时，必须在展示内容写 `数据编号：N-001`。图表 JSON 中的值、单位和期间应与对应记录一致。数据更新后先更新清单，再更新 Spec 并重新审批。准备图表时禁止从未登记的报告段落、访谈记忆或网页临时复制数字。
+
 ## 关系 → 图形
 
 Spec「布局意图」中写的关系类型决定主视觉。常用对应：
@@ -19,7 +25,7 @@ Spec「布局意图」中写的关系类型决定主视觉。常用对应：
 
 1. 先回到「布局意图 → 关系类型」一栏，写下关系标签。
 2. 在上表中找对应主图形；保留一个备选。
-3. 在 Spec「展示内容」里写明字段、单位和来源；图表数据要贴近结论而不是装饰。
+3. 在 Spec「展示内容」里写明字段、单位、`numbers.md` 数据编号和来源；图表数据要贴近结论而不是装饰。
 4. 决定哪些刻度必须出现：起点、终点、关键拐点 / 比较项；其它刻度让 ECharts 默认。
 5. 颜色：默认使用项目主题色；超过 4 个系列时合并成「其他」类别。
 6. 检查视口：手机视口下避免双轴或 5+ 系列；多图横排时给每图留足够宽度。
@@ -56,5 +62,6 @@ HTML 正文、KPI 和 slide-notes 字符串可写 `{{metric:revenue.value}}`、`
 ## 边界
 
 - 图表数据写在 HTML 的 `mls-echarts-spec` 块里，且必须与 Spec「展示内容」一致；改数据就要重提 Spec。
+- 图表中每一个数值都必须能追溯到 `research/numbers.md` 中的编号；没有编号或口径不一致的值不得进入图表。
 - 不允许 CDN；ECharts 由本地渲染器提供。
 - 视觉规则（字号、行长、留白、对比）见 `references/visual-rules.md`。

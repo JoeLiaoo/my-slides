@@ -6,6 +6,7 @@ import argparse
 
 from ..command_output import emit
 from ..project import ensure_project, project_root, require_v2_project
+from ..research import validate_number_list
 from ..unit_workflow import resolve_unit_selection, validate_unit_report, validate_unit_spec
 from ..wiki import validate_wiki
 
@@ -17,6 +18,9 @@ def run(args: argparse.Namespace) -> int:
     if args.kind == "wiki":
         errors = validate_wiki(base, cfg)
         data = {"valid": not errors, "errors": errors}
+    elif args.kind == "evidence-research":
+        errors = validate_number_list(base)
+        data = {"valid": not errors, "errors": errors, "numbers_file": str(base / "research" / "numbers.md")}
     else:
         units = resolve_unit_selection(
             base, cfg,
@@ -25,6 +29,8 @@ def run(args: argparse.Namespace) -> int:
         errors = []
         for unit in units:
             errors.extend(validate_unit_report(base, unit) if args.kind == "report" else validate_unit_spec(base, unit))
+        if args.kind == "spec" and any(unit.role == "content" for unit in units):
+            errors.extend(validate_number_list(base))
         data = {"valid": not errors, "errors": errors, "units": [unit.id for unit in units]}
     emit(
         args, data,
