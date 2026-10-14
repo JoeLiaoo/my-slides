@@ -6,6 +6,21 @@
 
 项目以 `my-slides/units.json` 中的小章节（单元）组织：每个小章节属于一个大章节，对应一份报告、一份 Spec 和若干页 HTML。审批、修改和增量构建都以小章节为单位。
 
+## 当前能力（#38 已合入）
+
+issue [#38](https://github.com/JoeLiaoo/my-slides/issues/38) 已合入并关闭。读者可直接用到：
+
+| 能力 | 怎么用 |
+| --- | --- |
+| 截图与视觉 QA | `slides check --browser --screenshots` 保存三视口逐页 PNG、contact sheet 与带指纹的 `measurements.json`；看图后用 `slides visual-review` 记录观察。手机视口图表内过小文字为 `warnings`（不挡交付）；桌面字号与 SVG 标签越界仍为硬错误。 |
+| 页内 metric 绑定 | Spec 可选 `metric-spec`；HTML / KPI / 讲稿用 `{{metric:id.field}}`，单系列图用 `metricRefs`。详见 skill `references/charts.md`。 |
+| 图表语义校验 | 拒绝重复类别/系列；时间顺序、构成比例、瀑布总计、零基线等规则在构建/检查中生效；图表可写 `summary` 供 SVG 可读名称。 |
+| 主题 token 与可访问性 | CSS 与离线 SVG 共用语义色 token；浏览器检查含文字对比度、图表说明，以及按钮 / 键盘 / 触摸导航。 |
+| 静态解释图试点 | 示例 `skills/my-slides-workflow/examples/technology/02-batching-static/`：静态 SVG + 窄屏文字顺序 + 文字对照；多视口实测已写在 `pilot-evaluation.md`。 |
+
+**未做、不承诺：** 受控 figure-spec、交互运行时、真人盲测读者理解。需要时再单独开 issue；普通报告继续用文字、表格、现有图表和（必要时）手工静态 SVG。
+
+
 ## 目标工作流
 
 ```text
@@ -108,7 +123,7 @@ my-slides slides check --all --browser --screenshots  # 保存三视口截图及
 my-slides slides visual-review --unit <id> --images contact-desktop.png contact-mobile-portrait.png contact-mobile-landscape.png --notes "观察与修订结论"
 ```
 
-也可用 `--changed` 或 `--all`。默认的 `slides check` 只做结构检查；加 `--browser` 才跑桌面/手机视口测量。
+也可用 `--changed` 或 `--all`。默认的 `slides check` 只做结构检查；加 `--browser` 才跑桌面/手机视口测量（溢出、字号、对比度、导航等）。再加 `--screenshots` 落盘证据；`visual-review` 只记 Agent 看图结论，不代替用户批准，也不改变 `export` 门槛。证据目录在 `my-slides/.state/visual/<deck-sha>/`。
 
 `my-slides next --json` 返回下一步命令、目标单元、原因和执行者（`agent` 或 `human`）。Agent 遇到 `actor: human` 必须停下，请用户自行审阅并执行 `confirm`。`approve` 只记录文件内容与依赖的待审版本；`confirm` 不提供 `--json` 或批量确认，要求在交互终端输入审阅者姓名与针对当前 SHA-256 的确认文字。状态文件记录姓名、本机账户与批准时间。申请后若文件或依赖变化，确认会拒绝，必须重新提交。完成报告确认后运行 `assemble`。
 

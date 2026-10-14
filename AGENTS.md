@@ -19,3 +19,25 @@ Read [README.md](./README.md) and [skills/my-slides-workflow/SKILL.md](./skills/
 - Prefer topic branches and pull requests into `main`.
 - GitHub Actions runs the full regression on PRs; run local tests (`./scripts/run-quick-tests.sh` or the full suite) while developing code changes.
 - Keep original investment project sources read-only; agents edit only `my-slides/` outputs inside user projects.
+
+## Skill templates (mandatory when editing the skill)
+
+The in-repo skill lives under `skills/my-slides-workflow/` (`SKILL.md`, `references/`, `examples/`). The wheel install mirrors the same trees under `src/my_slides/templates/`. After editing the skill tree, run:
+
+```bash
+python scripts/sync-skill-templates.py --force
+```
+
+CI and package builds require the mirrors to match. Do not edit only `templates/` — that path drifts and breaks installed projects. `scripts/sync-skill-templates.py --check` reports drift without writing.
+
+## Slides QA expectations
+
+When changing slide HTML, browser checks, charts, theme tokens, or visual evidence:
+
+- Structural `slides check` alone is not enough for delivery QA; document `--browser` / `--screenshots` / `visual-review` where agents need them (README, skill entry, `references/slides.md`, agent-help).
+- Keep phone chart-label undersize as warnings and desktop / SVG overflow as hard errors unless an explicit product decision changes that.
+- Prefer updating existing references (`references/slides.md`, `charts.md`, `visual-rules.md`) over adding a parallel doc tree.
+
+## Deferred product work (do not implement casually)
+
+figure-spec, interactive slide runtimes, and human reader-comprehension studies are **deferred** after issue #38. Do not add them in drive-by PRs. Open a dedicated issue with reuse evidence and acceptance criteria first. Static SVG pilots (see `examples/technology/02-batching-static/`) remain the allowed path for hard-to-explain mechanisms.
