@@ -109,6 +109,7 @@ def structural_check_deck(
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": [],
         "measured": False,
         "unit_ids": unit_ids,
         "sections": [{"id": unit_id, "pages": count} for unit_id, count in groups],
@@ -131,7 +132,17 @@ def check_deck(
 
     if not path.exists():
         raise ValueError(f"Slides 文件不存在：{path}")
+    # Pillow 仅在 --screenshots（evidence_dir 非空）时用于截图拼图；先于浏览器启动做检查，
+    # 让缺包时返回清晰提示，而不是看一段 ImportError 调用栈。
+    if evidence_dir is not None:
+        try:
+            from PIL import Image, ImageDraw  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "生成截图 contact sheet 需要 Pillow；请 pip install 'my-slides[browser]' 后重试"
+            ) from exc
     errors: list[str] = []
+    warnings: list[str] = []
     external_requests: list[str] = []
     measurements: dict[str, Any] = {}
     measured_units: list[str] = []
@@ -179,6 +190,7 @@ def check_deck(
                     "viewports": {},
                     "external_requests": external_requests,
                     "errors": errors,
+                    "warnings": warnings,
                     "measured": True,
                     "measured_units": [],
                     "cached": False,
@@ -200,6 +212,7 @@ def check_deck(
             page.evaluate("() => { const pages=[...document.querySelectorAll('.slide')]; pages.forEach((p,i)=>p.classList.toggle('active', i===0)); }")
             page.evaluate(_SETTLE_ANIMATIONS)
             viewport_errors: list[str] = []
+            viewport_warnings: list[str] = []
             per_slide: list[dict[str, Any]] = []
             for target in targets:
                 page.evaluate(
@@ -256,9 +269,11 @@ def check_deck(
                       const overflow = slide.scrollWidth > slide.clientWidth + 1 || slide.scrollHeight > slide.clientHeight + 1;
                       const chartOverflow = [];
                       const smallText = [];
+                      const chartSmallText = [];
                       const chartLabels = [];
                       const thresholds = {desktop: {heading: 18, body: 14, note: 11}, 'mobile-portrait': {heading: 12, body: 10, note: 8}, 'mobile-landscape': {heading: 11, body: 9, note: 7}};
                       const threshold = thresholds[window.__mlsViewport] || thresholds.desktop;
+                      const isMobileViewport = window.__mlsViewport === 'mobile-portrait' || window.__mlsViewport === 'mobile-landscape';
                       for (const element of slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,.mls-chart svg text')) {
                         const style = getComputedStyle(element);
                         if (style.display === 'none' || style.visibility === 'hidden') continue;
@@ -281,8 +296,15 @@ def check_deck(
                             chartLabels.push({text: text.slice(0, 60), reason: 'outside SVG bounds'});
                           }
                         }
-                        if (size < threshold[role] - .25 && !element.closest('[data-qa-small-text="allowed"]'))
-                          smallText.push({text: text.slice(0, 60), role, pixels: Math.round(size * 10) / 10});
+                        if (size < threshold[role] - .25 && !element.closest('[data-qa-small-text="allowed"]')) {
+                          // Mobile viewport + chart SVG text is a soft warning (review screenshot),
+                          // while desktop chart text below threshold is a hard error like HTML text.
+                          if (isChart && isMobileViewport) {
+                            chartSmallText.push({text: text.slice(0, 60), role, pixels: Math.round(size * 10) / 10});
+                          } else {
+                            smallText.push({text: text.slice(0, 60), role, pixels: Math.round(size * 10) / 10});
+                          }
+                        }
                       }
                       for (const container of slide.querySelectorAll('.chart-container')) {
                         const box = container.getBoundingClientRect();
@@ -329,7 +351,7 @@ def check_deck(
                         invisibleText,
                         overlaps,
                         clipped,
-                        chartOverflow, smallText, chartLabels
+                        chartOverflow, smallText, chartSmallText, chartLabels
                       };
                     }""",
                     target,
@@ -368,6 +390,10 @@ def check_deck(
                     viewport_errors.append(f"{prefix}: sibling text blocks overlap")
                 if metrics["smallText"]:
                     viewport_errors.append(f"{prefix}: text below readable size: {metrics['smallText'][:3]}")
+                if metrics["chartSmallText"]:
+                    viewport_warnings.append(
+                        f"{prefix}: chart text below readable size (review screenshot): {metrics['chartSmallText'][:3]}"
+                    )
                 if metrics["chartLabels"]:
                     viewport_errors.append(f"{prefix}: chart label extends beyond SVG: {metrics['chartLabels'][:3]}")
 
@@ -383,6 +409,7 @@ def check_deck(
 
             measurements[label] = {"slides": per_slide}
             errors.extend(viewport_errors)
+            warnings.extend(viewport_warnings)
         browser.close()
     if evidence_dir is not None:
         prior_manifest = evidence_dir / "measurements.json"
@@ -422,6 +449,7 @@ def check_deck(
         "viewports": measurements,
         "external_requests": external_requests,
         "errors": errors,
+        "warnings": warnings,
         "measured": True,
         "measured_units": measured_units,
         "cached": False,
@@ -500,6 +528,7 @@ def check_units_on_deck(
         expected_page_counts=expected_page_counts,
     )
     errors = list(structural["errors"])
+    warnings = list(structural.get("warnings", []))
     browser_result = None
     if browser:
         from .dependencies import fingerprint_file
@@ -508,6 +537,7 @@ def check_units_on_deck(
         browser_result = check_deck(path, unit_ids=unit_ids, evidence_dir=evidence_dir,
                                     spec_hashes={unit_id: fingerprint_file(unit_paths(base, unit_id).spec) for unit_id in unit_ids})
         errors.extend(browser_result["errors"])
+        warnings.extend(browser_result.get("warnings", []))
         record_unit_check_results(
             base,
             unit_ids,
@@ -517,6 +547,7 @@ def check_units_on_deck(
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": warnings,
         "structural": structural,
         "browser": browser_result,
         "selected_units": unit_ids,

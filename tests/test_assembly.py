@@ -195,10 +195,25 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn("third-party-notices", first.decode("utf-8"))
         checked = check_deck(output, unit_ids=["cover", "summary-01"])
         # The chart's 1100px SVG is unreadable when shrunk into a 390px viewport.
-        # The new visual gate must flag it, while the deck remains fully offline.
-        self.assertFalse(checked["valid"], checked)
-        self.assertTrue(any("text below readable size" in error for error in checked["errors"]), checked)
+        # Mobile viewport chart text is treated as a soft warning (review screenshots);
+        # desktop HTML text and chart labels outside SVG bounds stay hard errors.
+        self.assertTrue(checked["valid"], checked)
+        warnings = checked.get("warnings", [])
+        self.assertTrue(
+            any("chart text below readable size" in warning for warning in warnings),
+            warnings,
+        )
         self.assertEqual(checked["external_requests"], [])
+        # Evidence JSON must keep the per-slide chart-text measurements for offline review.
+        desktop_viewport = checked["viewports"]["desktop"]["slides"]
+        mobile_viewport = checked["viewports"]["mobile-portrait"]["slides"]
+        self.assertTrue(
+            any(
+                item.get("chartSmallText")
+                for item in mobile_viewport
+            ),
+            mobile_viewport,
+        )
         page.write_text(page.read_text(encoding="utf-8").replace("<h1>summary-01</h1>", "<h1>Revenue revised</h1>"), encoding="utf-8")
         output, errors, _ = build_units_deck(self.base, cfg, unit_ids=["summary-01"], write=True)
         self.assertEqual(errors, [], errors)

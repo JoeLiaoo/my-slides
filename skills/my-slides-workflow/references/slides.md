@@ -38,7 +38,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 - slide 嵌套：禁止 `<section class="slide">` 内再出现 `<section class="slide">`。
 - 单元 ID 错配：每个 slide 的 `data-unit-id` 必须等于 `units.json` 中该单元的 ID。
 - 图表 / 图标越界：某页用了 Spec 没声明的 echarts 图表类型或 lucide 图标。
-- 阅读字号：浏览器测标题/正文/注释和 SVG 图内文字的实际显示尺寸；桌面阈值分别为 18/14/11px，手机竖屏 12/10/8px，横屏 11/9/7px。确有必要的局部例外可用 `data-qa-small-text="allowed"`，需要在视觉审阅记录中说明。ECharts 若将字转成路径，程序无法读出这些字，必须看截图。
+- 阅读字号：浏览器测标题/正文/注释和 SVG 图内文字的实际显示尺寸；桌面阈值分别为 18/14/11px，手机竖屏 12/10/8px，横屏 11/9/7px。确有必要的局部例外可用 `data-qa-small-text="allowed"`，需要在视觉审阅记录中说明。ECharts 若将字转成路径，程序无法读出这些字，必须看截图。手机视口（竖屏 / 横屏）的图表内文字低于阈值会作为 `warnings` 提示，由人工看截图核对而不阻塞交付；桌面则视为硬错误（标题 / 正文 / 注释 / SVG 图内文字均不可低于阈值）；SVG 之外溢出图表边界的标签始终是错误。
 - slide-notes 缺失或重复。
 - `<style>` 中不配对或注入了外部资源。
 - CDN：把所有外部链接 / CDN 改成内嵌资源；白名单之外不允许任何外部 URL。

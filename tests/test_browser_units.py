@@ -72,6 +72,92 @@ class BrowserUnitChecks(unittest.TestCase):
         self.assertEqual(len(_deck_slides(text)), 6)
         self.assertNotEqual(text.count('class="slide '), 6)
 
+    @unittest.skipUnless(browser_status()["chromium_installed"], "Playwright Chromium unavailable")
+    def test_chart_svg_text_is_warning_in_mobile_and_error_on_desktop(self):
+        """A fixed-size SVG chart label passes desktop, becomes a warning on phone viewports."""
+        from my_slides.theme import render_document
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            deck = directory / "chart.html"
+            chart_svg = (
+                '<svg viewBox="0 0 1100 560" width="1100" height="560">'
+                '<text x="20" y="40" font-size="14">2024</text>'
+                '<text x="20" y="540" font-size="14">baseline</text>'
+                '</svg>'
+            )
+            slide = (
+                '<section class="slide" data-unit-id="summary" data-page-role="content" data-slide="0">'
+                '<h1>Revenue</h1>'
+                f'<div class="mls-chart">{chart_svg}</div>'
+                '</section>'
+            )
+            deck.write_text(render_document([slide], [], title="Chart QA", brand_color="#A6192E", has_assets=True), encoding="utf-8")
+            result = check_deck(deck, unit_ids=["summary"])
+
+            # Desktop chart text at the 1100px native size clears the 11px note threshold.
+            desktop_slides = result["viewports"]["desktop"]["slides"]
+            self.assertFalse(any(item.get("smallText") for item in desktop_slides), desktop_slides)
+            self.assertTrue(result["valid"], result["errors"])
+
+            # On phone viewports the same SVG renders tiny, so the gate records chartSmallText
+            # and surfaces it as a warning, never as an error.
+            for label in ("mobile-portrait", "mobile-landscape"):
+                slides = result["viewports"][label]["slides"]
+                self.assertTrue(
+                    any(item.get("chartSmallText") for item in slides),
+                    (label, slides),
+                )
+                self.assertFalse(
+                    any(item.get("smallText") for item in slides),
+                    (label, slides),
+                )
+            chart_warnings = [warning for warning in result["warnings"] if "chart text below readable size" in warning]
+            self.assertTrue(chart_warnings, result["warnings"])
+            self.assertNotIn(
+                "text below readable size",
+                "\n".join(result["errors"]),
+            )
+
+    def test_check_deck_raises_when_pillow_missing_for_screenshots(self, monkeypatch=None):
+        """Missing Pillow on the screenshots path returns a clear install hint, not ImportError."""
+        import sys as _sys
+        import types as _types
+
+        real_pil = _sys.modules.pop("PIL", None)
+        real_image = _sys.modules.pop("PIL.Image", None)
+        real_draw = _sys.modules.pop("PIL.ImageDraw", None)
+
+        class _StubPIL(_types.ModuleType):
+            def __getattr__(self, name):
+                raise ImportError("No module named 'PIL'")
+
+        stub = _StubPIL("PIL")
+        _sys.modules["PIL"] = stub
+        try:
+            from my_slides.browser import check_deck
+
+            with tempfile.TemporaryDirectory() as tmp:
+                directory = Path(tmp)
+                deck = directory / "index.html"
+                deck.write_text(render_document(
+                    ['<section class="slide" data-unit-id="x" data-page-role="content" data-slide="0"><h1>x</h1></section>'],
+                    [], title="X", brand_color="#A6192E", has_assets=False,
+                ), encoding="utf-8")
+                evidence = directory / "evidence"
+                with self.assertRaises(RuntimeError) as context:
+                    check_deck(deck, unit_ids=["x"], evidence_dir=evidence)
+                self.assertIn("Pillow", str(context.exception))
+                self.assertIn("my-slides[browser]", str(context.exception))
+        finally:
+            _sys.modules.pop("PIL", None)
+            if real_pil is not None:
+                _sys.modules["PIL"] = real_pil
+            if real_image is not None:
+                _sys.modules["PIL.Image"] = real_image
+            if real_draw is not None:
+                _sys.modules["PIL.ImageDraw"] = real_draw
+
 
 if __name__ == "__main__":
     unittest.main()
