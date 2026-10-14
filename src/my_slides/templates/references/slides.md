@@ -11,6 +11,12 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 5. 运行 `my-slides slides check --all --browser --screenshots`，会用 Playwright Chromium 测三视口并将每页 PNG、三个 contact sheet、`measurements.json` 存到 `my-slides/.state/visual/<deck-sha>/`。先打开全部 contact sheet；有问题的页打开 1× PNG，并对图表、表格和脚注放大至 2–4×。记录问题、修复和未解决项；修改后重新 build/check/看图。
 6. 实际看图后运行 `my-slides slides visual-review --unit <id> --images contact-desktop.png contact-mobile-portrait.png contact-mobile-landscape.png --notes "观察、修复、未解决项"`。这只是 Agent 审阅记录，不是用户批准。`status --json` 的 `slides.visual` 单独显示证据和审阅是否仍匹配当前 deck/Spec/规则。截图本身不代表视觉通过。
 
+## 制作复杂度与停止条件
+
+- 普通文字、表格和已有图表先做可审阅版本，检查后只改问题页。
+- 过程确实难用文字解释时才试一张静态 SVG，并写出适用范围、省略部分和读者要回答的问题。参考 `examples/technology/02-batching-static`；记录片段大小、制作和修订工时，不能将示意比例写成实测。
+- 重复使用并经读者试验确认价值后，再单独提出受控 figure-spec；需要调参解释时才独立验证交互。普通报告不自动进入 3D/WebGL 制作。每轮记录页数、定制资产、修订轮次；没有理解收益或发现字号难以修复时停下并回到文字/分步形式。
+
 ## HTML 写法
 
 - 根元素必须是 `<section class="slide">`（或 `<div class="slide">`）。同一小章节内不允许嵌套 slide。

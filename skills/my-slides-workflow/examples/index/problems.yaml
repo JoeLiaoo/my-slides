@@ -90,6 +90,23 @@
     - 瓶颈
     - 流程
 
+- id: technology-batching-static
+  category: technology
+  path: examples/technology/02-batching-static
+  title: 动态批处理静态解释图
+  summary: 五步静态 SVG + 窄屏文字顺序，说明排队和组合批次的取舍。
+  purpose: 技术机理 / 流程解释
+  inputs: 已批准的步骤、收益与代价（定性）
+  bounds: 不代表实测性能或比例
+  density: 低
+  layout: 五步流程 + 就近取舍文字
+  relation: 技术过程
+  signals:
+    - 批处理
+    - 排队
+    - 推理
+    - 调度
+
 - id: unit-economics-payback
   category: unit-economics
   path: examples/unit-economics/01-payback
