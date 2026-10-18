@@ -22,6 +22,8 @@ issue [#38](https://github.com/JoeLiaoo/my-slides/issues/38) 已合入并关闭�
 
 Spec 校验还会检查每页内容类型与示例库版式、整套 deck 的版式节奏与种类下限，以及数字 ID 是否跨页重复。每个数字只在最能支撑结论的一页出现；无合适数字时用表格或结构图。作者判断框仅用于章节收束页或标注的关键页。review 与 `slides visual-review` 按 `references/visual-rules.md` 检查版式多样性和单页信息密度。
 
+Issue #45 中“每页都必须有判断框和数字”的要求已被当前按需呈现规则取代；标准来源脚注与证据清单要求保留。详见 [Issue #45 处理说明](./docs/design/issue-45-resolution.md)。
+
 当前唯一内置主题是 `editorial-light`。主题 profile 约定字级、语义色、图表、脚注与版式节奏；`prepare spec` 和 `prepare slides` 会指出该 profile。主题只影响新产物的呈现，不改写已批准内容或 Spec。见 `skills/my-slides-workflow/references/editorial-light-theme.md`。
 
 
@@ -44,6 +46,8 @@ Spec 小章节（specs/units/<id>.md）→ 提交申请 → 在对话中按小�
 ## 管理单元
 
 用 `my-slides units add <id> --chapter <大章节> --title <小章节名>` 新增小章节，或用 `units move`、`units rename`、`units retitle` 调整清单；无需手工编辑 `units.json`。`retitle` 只改显示名，已有批准仍然有效。跨大章节移动要求用户重新确认报告，报告内容没变时保留 Spec 批准。结构变化后运行 `my-slides next --json`，按建议重建整套 Slides 并重新检查。
+
+`my-slides next --all` 可一次列出当前待办并按 Agent / 用户分组；`my-slides agent doctor` 检查项目内的工作流指引是否与当前包一致，不会覆盖用户修改。`my-slides clean` 默认只预览 30 天前的 `work/` 交接和 Wiki 快照；确认清单后添加 `--yes` 才删除。可用 `--older-than-days` 调整保留天数。
 
 ```text
 my-slides units add <id> --chapter <章节> [--title <小章节名>] [--after <id>]
