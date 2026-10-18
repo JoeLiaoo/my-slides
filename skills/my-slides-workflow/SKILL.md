@@ -12,6 +12,7 @@ Projects use `units.json` and unit directories (created by `my-slides init`). Ru
 Projects without `units.json` need `my-slides init` before other commands.
 
 `slides check` without `--browser` is structural only (unit set/order, cover). Add `--browser` after `my-slides browser install` for viewport QA.
+Use `my-slides next --no-browser` only when planning to stop at structural completion. It does not waive the browser check required by `export`.
 
 `prepare` updates fixed files in `my-slides/work/` (`wiki.md`, `wiki-question.md`, or `<kind>/<unit-id>.md`). Reuse the returned path; repeated preparation does not create new timestamped handoffs.
 

@@ -6,17 +6,14 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
-## [0.6.3] - Pending
+## [0.6.2] - Pending
 
 ### Added
 
 - Add `next --all` to list outstanding workflow actions grouped by Agent and user.
+- Add `next --no-browser` to report structural completion when viewport QA is intentionally deferred; export still requires browser checks.
 - Add `agent doctor` to report missing, outdated, unreadable, or symlinked workflow instructions without replacing user edits.
-- Add `clean` to preview old work handoffs and Wiki snapshots; deletion requires `--yes` and defaults to items older than 30 days.
-
-## [0.6.2] - Pending
-
-### Added
+- Add `clean` to preview old work handoffs and Wiki snapshots, including old files beside newer work; deletion requires `--yes` and defaults to items older than 30 days.
 
 - Add an executable editorial-light theme profile and surface it in Spec and Slides handoffs. The profile defines token, typography, evidence, and layout rules while leaving global visual rules authoritative.
 

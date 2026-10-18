@@ -34,6 +34,14 @@ class Issue28Phase5Tests(unittest.TestCase):
         self.assertEqual(data["steps"], data["by_actor"]["agent"] + data["by_actor"]["human"])
         self.assertTrue(all(step["actor"] == "agent" for step in data["by_actor"]["agent"]))
 
+    def test_next_all_no_browser_omits_viewport_task(self):
+        args = build_parser().parse_args(["next", "--all", "--no-browser", "--json", "--project", str(self.root)])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(next_step.run(args), 0)
+        commands = [step["command"] for step in json.loads(out.getvalue())["steps"]]
+        self.assertFalse(any("browser doctor" in command or "browser install" in command or "--browser" in command for command in commands))
+
     def test_agent_doctor_reports_current_then_outdated_install(self):
         install_agent_workflow(self.root)
         current = check_agent_workflow(self.root)
@@ -43,6 +51,16 @@ class Issue28Phase5Tests(unittest.TestCase):
         status = check_agent_workflow(self.root)
         self.assertFalse(status["ok"])
         self.assertEqual(status["files"][0]["status"], "outdated")
+
+    def test_agent_doctor_rejects_symlinked_parent(self):
+        install_agent_workflow(self.root)
+        installed = self.root / ".agents"
+        replacement = self.root / "moved-agents"
+        installed.rename(replacement)
+        installed.symlink_to(replacement, target_is_directory=True)
+        status = check_agent_workflow(self.root)
+        self.assertFalse(status["ok"])
+        self.assertEqual(status["files"][0]["status"], "unsafe_symlink")
 
     def test_clean_defaults_to_preview_and_yes_removes_only_expired_items(self):
         old_handoff = self.base / "work" / "reports" / "old.md"
@@ -67,6 +85,22 @@ class Issue28Phase5Tests(unittest.TestCase):
             clean.run(execute)
         self.assertFalse(old_handoff.parent.exists())
         self.assertFalse(old_snapshot.exists())
+
+    def test_clean_removes_old_file_beside_new_handoff(self):
+        handoffs = self.base / "work" / "reports"
+        handoffs.mkdir(parents=True)
+        old = handoffs / "old.md"
+        new = handoffs / "current.md"
+        old.write_text("expired", encoding="utf-8")
+        new.write_text("current", encoding="utf-8")
+        os.utime(old, (1_600_000_000, 1_600_000_000))
+        args = build_parser().parse_args(["clean", "--json", "--yes", "--project", str(self.root)])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            clean.run(args)
+        self.assertEqual(json.loads(out.getvalue())["deleted"], ["work/reports/old.md"])
+        self.assertFalse(old.exists())
+        self.assertTrue(new.exists())
 
 
 if __name__ == "__main__":

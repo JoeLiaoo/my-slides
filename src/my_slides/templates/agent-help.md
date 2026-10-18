@@ -25,6 +25,6 @@ My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claud
 
 生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` / `--screenshots` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查；加 `--browser` 才测溢出、字号、对比度与导航，`--screenshots` 另存视觉证据。截图与 `visual-review` 不改变 `export` 门槛。
 
-`my-slides agent doctor` 检查已安装的工作流指引，不会覆盖修改过的文件；`my-slides agent install` 只补装缺失文件。`my-slides clean` 默认只预览 30 天前的 `work/` 交接与 Wiki 快照；先检查清单，再显式加 `--yes` 删除。
+`my-slides next --no-browser` 可只按结构检查规划完成状态，正式 `export` 仍要求浏览器检查。`my-slides agent doctor` 检查已安装的工作流指引，不会覆盖修改过的文件；`my-slides agent install` 只补装缺失文件。`my-slides clean` 默认只预览 30 天前的 `work/` 交接与 Wiki 快照；先检查清单，再显式加 `--yes` 删除。
 
 其他入口：`my-slides --help` 查看命令列表；`my-slides <命令> --help` 查看参数；`my-slides help --json` 获取机器可读的本指南；`my-slides --version` 查看版本。

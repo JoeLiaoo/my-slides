@@ -164,6 +164,12 @@ def run(args: argparse.Namespace) -> int:
             return recommend(f"my-slides slides build --unit {unit.id}", "此单元 HTML 尚未按当前 Spec 和主题构建。", unit=unit.id)
     if not deck_path.is_file():
         return recommend("my-slides slides build --all", "全部单页均已构建，但正式整套尚未生成。", unit="all")
+    if getattr(args, "no_browser", False):
+        from ..browser import check_units_on_deck
+        structural = check_units_on_deck(base, deck_path, [unit.id for unit in units], browser=False)
+        if structural["errors"]:
+            return recommend("my-slides slides check --all", "结构检查需要修复：" + "；".join(structural["errors"][:3]), unit="all")
+        return recommend(None, "结构检查通过；浏览器检查未做（本次规划选择不要求）。", actor="none")
     if any(not rows[unit.id]["check_current"] for unit in units):
         browser = browser_status()
         if not browser["playwright"]:
@@ -232,7 +238,12 @@ def run_all(args: argparse.Namespace, root, base, cfg) -> int:
         for unit in units:
             if not rows[unit.id]["html_current"]: add(f"my-slides slides build --unit {unit.id}", "按当前 Spec 和主题重建页面。", unit.id)
         if not deck_path.is_file() and all(unit_paths(base, unit.id).page.is_file() for unit in units): add("my-slides slides build --all", "生成正式整套 Slides。", "all")
-    if any(not rows[unit.id]["check_current"] for unit in units):
+    if getattr(args, "no_browser", False) and deck_path.is_file() and all(rows[unit.id]["html_current"] for unit in units):
+        from ..browser import check_units_on_deck
+        structural = check_units_on_deck(base, deck_path, [unit.id for unit in units], browser=False)
+        if structural["errors"]:
+            add("my-slides slides check --all", "修复结构检查：" + "；".join(structural["errors"][:3]), "all")
+    elif not getattr(args, "no_browser", False) and any(not rows[unit.id]["check_current"] for unit in units):
         browser = browser_status()
         command = "my-slides browser doctor" if not browser["playwright"] else "my-slides browser install" if not browser["chromium_installed"] else "my-slides slides check --all --browser"
         add(command, "完成当前版本的桌面与手机浏览器检查。", "all")

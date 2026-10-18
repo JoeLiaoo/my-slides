@@ -27,10 +27,23 @@ def run(args: argparse.Namespace) -> int:
             return path.is_file()
         except OSError:
             return False
-    for parent in (base / "work", base / ".state" / "snapshots" / "wiki"):
+    def add_old_handoffs(path: Path) -> None:
+        if path.is_symlink():
+            return
+        if expired(path):
+            candidates.append(path)
+        elif path.is_dir():
+            for child in sorted(path.iterdir()):
+                add_old_handoffs(child)
+
+    work = base / "work"
+    if work.is_dir() and not work.is_symlink():
+        for path in sorted(work.iterdir()):
+            add_old_handoffs(path)
+    for parent in (base / ".state" / "snapshots" / "wiki",):
         if parent.is_symlink() or not parent.is_dir():
             continue
-        for path in parent.iterdir():
+        for path in sorted(parent.iterdir()):
             if path.is_symlink():
                 continue
             try:
@@ -43,7 +56,12 @@ def run(args: argparse.Namespace) -> int:
     deleted = []
     if getattr(args, "yes", False):
         for path in candidates:
-            if path.is_symlink():
+            # A file may have been refreshed between listing and deletion.
+            if not expired(path):
+                continue
+            try:
+                path.resolve(strict=True).relative_to(base.resolve())
+            except (OSError, ValueError):
                 continue
             if path.is_dir():
                 shutil.rmtree(path)

@@ -38,7 +38,7 @@ def check_agent_workflow(root: Path) -> dict[str, Any]:
     files = []
     for parent in (root / ".agents" / "skills", root / ".claude" / "skills"):
         destination = parent / "my-slides-workflow" / "SKILL.md"
-        if destination.is_symlink():
+        if any(path.is_symlink() for path in (parent.parent, parent, destination.parent, destination)):
             state = "unsafe_symlink"
         elif not destination.is_file():
             state = "missing"

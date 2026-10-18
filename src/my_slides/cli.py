@@ -244,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     next_command = sub.add_parser("next", help="查看下一步操作、目标单元和原因")
     next_command.add_argument("--project")
     next_command.add_argument("--all", action="store_true", help="列出当前全部待办，并按 Agent / 用户分组")
+    next_command.add_argument("--no-browser", action="store_true", help="仅以当前结构检查判断 Slides 是否完成；不改变交付门槛")
     next_command.add_argument("--json", action="store_true")
     clean = sub.add_parser("clean", help="预览或清理过期 work 交接文件与 Wiki 快照")
     clean.add_argument("--project")
