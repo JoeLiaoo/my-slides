@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.6.3] - Pending
+
+### Changed
+
+- Document the current selective judgment and evidence policy that supersedes the all-pages requirements proposed in issue #45.
+
 ## [0.6.2] - Pending
 
 ### Added

@@ -22,6 +22,8 @@ issue [#38](https://github.com/JoeLiaoo/my-slides/issues/38) 已合入并关闭�
 
 Spec 校验还会检查每页内容类型与示例库版式、整套 deck 的版式节奏与种类下限，以及数字 ID 是否跨页重复。每个数字只在最能支撑结论的一页出现；无合适数字时用表格或结构图。作者判断框仅用于章节收束页或标注的关键页。review 与 `slides visual-review` 按 `references/visual-rules.md` 检查版式多样性和单页信息密度。
 
+Issue #45 中“每页都必须有判断框和数字”的要求已被当前按需呈现规则取代；标准来源脚注与证据清单要求保留。详见 [Issue #45 处理说明](./docs/design/issue-45-resolution.md)。
+
 当前唯一内置主题是 `editorial-light`。主题 profile 约定字级、语义色、图表、脚注与版式节奏；`prepare spec` 和 `prepare slides` 会指出该 profile。主题只影响新产物的呈现，不改写已批准内容或 Spec。见 `skills/my-slides-workflow/references/editorial-light-theme.md`。
 
 
