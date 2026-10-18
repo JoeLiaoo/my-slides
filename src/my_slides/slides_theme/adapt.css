@@ -249,11 +249,11 @@ html, body {
 }
 
 .investment-risk__item[data-severity="high"] {
-  border-inline-start: 4px solid #a33b32;
+  border-inline-start: 4px solid var(--mls-risk-high, #a33b32);
 }
 
 .investment-risk__item[data-severity="watch"] {
-  border-inline-start: 4px solid #c18a2e;
+  border-inline-start: 4px solid var(--mls-risk-watch, #c18a2e);
 }
 
 @media (max-width: 600px) {
