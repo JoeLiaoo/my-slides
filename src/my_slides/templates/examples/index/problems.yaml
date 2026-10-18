@@ -73,6 +73,25 @@
     - 对比
     - 公司
 
+- id: investment-semantic-components
+  category: investment-components
+  path: examples/investment-components/01-semantic-components
+  title: 投资语义组件
+  summary: 三页可重建示例，覆盖有缺失数据的竞争比较、证据链投资判断和风险触发条件。
+  purpose: 投资分析中的结构化表达
+  inputs: 比较对象与同口径证据、核心判断与成立条件、风险与触发条件
+  bounds: 只呈现已提供的事实；较多维度拆页，不自动排名或编造概率
+  density: 中
+  layout: 语义组件并列与分区
+  relation: 对比 / 判断 / 风险
+  signals:
+    - 竞争比较
+    - 投资逻辑
+    - 投资判断
+    - 风险分析
+    - 成立条件
+    - 缺失数据
+
 - id: technology-funnel
   category: technology
   path: examples/technology/01-funnel

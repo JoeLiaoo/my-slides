@@ -1,0 +1,25 @@
+{
+  "unit_id": "investment-components",
+  "chapter": "投资分析",
+  "role": "content",
+  "as_of": "2026-01-31",
+  "fictional": true,
+  "comparison": {
+    "dimension": "付费客户数（家，截至 2025 年末）",
+    "companies": [
+      {"name": "公司 A", "value": 42, "source": "公司公开材料（虚构）"},
+      {"name": "星河云端智能科技（北京）有限公司", "value": null, "source": null}
+    ],
+    "net_revenue_retention": null
+  },
+  "thesis": {
+    "claim": "公司 A 有机会扩展到相邻工作流",
+    "evidence": "两个试点客户确认正在测试第二个流程",
+    "condition": "试点转为付费且支持成本可控",
+    "counter_evidence": null
+  },
+  "risks": [
+    {"name": "最大客户续约", "trigger": "2026 年 12 月续约", "impact": "收入占比未知"},
+    {"name": "集成延期", "trigger": "两个试点晚一个月上线", "impact": "收入影响待核实"}
+  ]
+}

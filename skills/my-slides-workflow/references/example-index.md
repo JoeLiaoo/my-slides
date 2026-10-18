@@ -16,6 +16,7 @@ Open when choosing a layout, a chart, or a Spec sketch. `prepare slides` reads t
 | Spec 版式名 | 示例来源 | 适用内容类型 | 主要结构 |
 | --- | --- | --- | --- |
 | KPI卡片 | `examples/investment-summary/01-cover-kpis/` | 判断/收束、案例 | 标题 + 3–5 个指标卡 |
+| 语义组件并列与分区 | `examples/investment-components/01-semantic-components/` | 对比、判断、风险 | 证据比较 / 判断与条件 / 风险与触发点 |
 | 哑铃对比 | `examples/competition/01-dumbbell/` | 对比 | 两期 / 多对象的同指标差异 |
 | 100%堆叠趋势 | `examples/market-trend/01-pivot-share-shift/` | 演进/时间线、趋势/图表 | 时间轴 + 份额迁移 |
 | 漏斗流程 | `examples/technology/01-funnel/` | 演进/时间线、案例 | 阶段转化 + 瓶颈 |
@@ -25,7 +26,7 @@ Open when choosing a layout, a chart, or a Spec sketch. `prepare slides` reads t
 
 同一版式连续最多两页；整套 deck 至少使用 `min(3, 总页数)` 种不同版式。完整 deck 达到三页后至少三种；更短的 deck 每页尽量不同。
 
-## 六个默认类别
+## 默认类别
 
 每个类别下面至少有 1 个可重建的最小例子（Wiki/sources → report 摘录 → Spec → HTML → check 备注）。所有数字都是**虚构的**，可在 `data.json` 里看到。
 
@@ -37,6 +38,7 @@ Open when choosing a layout, a chart, or a Spec sketch. `prepare slides` reads t
 | 技术机制 | `examples/technology/` | 因果 / 流程 | 漏斗 / 流程图 |
 | 商业化与单位经济 | `examples/unit-economics/` | 时间序列 + 对比 | LTV、CAC、回本周期 |
 | 财务情景与风险 | `examples/financial-scenario/` | 风险 / 情景 | 区间条 / 矩阵 |
+| 投资语义组件 | `examples/investment-components/` | 对比 / 判断 / 风险 | 证据比较 / 判断与条件 / 风险触发点 |
 
 ## 按沟通问题检索
 
@@ -47,6 +49,8 @@ Open when choosing a layout, a chart, or a Spec sketch. `prepare slides` reads t
 | 一句话说「投 / 不投」 | 决策判断 | KPI 3–5 个 | 0–1 个情景 | 极低 | 单段标题 + KPI 卡片 |
 | 行业拐点 + 占比迁移 | 拐点解释 | 5–8 年序列 + 份额 | 同口径、同范围 | 中 | 折线 + 堆叠条并列 |
 | 公司横评 / 排序 | 同业对比 | 3–6 家公司 + 2 指标 | 同期数据 | 中 | 哑铃 / 并列柱 |
+| 投资判断及成立条件 | 证据链判断 | 判断 + 支撑证据 + 成立条件 | 无证据时不作判断 | 低 | `examples/investment-components/01-semantic-components/` |
+| 风险触发与待核实事项 | 风险描述 | 风险 + 触发条件 + 已知影响 | 不虚构概率、评分或损失 | 低 | `examples/investment-components/01-semantic-components/` |
 | 业务机理 | 流程说明 | 3–6 步 | 单一链路 | 中 | 漏斗 / 流程图 |
 | 推理服务批处理 | 步骤和取舍 | 队列、批次、执行 | 定性机制、无性能数据 | 低 | 静态五步图；`examples/technology/02-batching-static` |
 | 单位经济（LTV/CAC/回本） | 单点判断 | 12–24 个月 | 客单价稳定 | 中 | 折线 + 关键阈值 |

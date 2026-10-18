@@ -60,8 +60,49 @@ class ExamplesIndexTests(unittest.TestCase):
             "technology-funnel",
             "unit-economics-payback",
             "financial-scenario-sensitivity",
+            "investment-semantic-components",
         }
         self.assertTrue(expected_categories.issubset(ids))
+
+    def test_investment_components_example_covers_three_semantics(self):
+        from importlib.resources import files
+
+        example = files("my_slides").joinpath(
+            "templates/examples/investment-components/01-semantic-components/page.html"
+        )
+        content = example.read_text(encoding="utf-8")
+        for component in (
+            "investment-comparison",
+            "investment-thesis",
+            "investment-risk",
+        ):
+            self.assertIn(component, content)
+        self.assertIn("星河云端智能科技（北京）有限公司", content)
+        self.assertIn("未披露", content)
+        self.assertNotIn("排名第一", content)
+
+    def test_investment_components_example_is_selected_for_risk_spec(self):
+        spec = """
+        ## Slide 1 — 风险触发与待核实事项
+        ### 目的
+        风险分析
+        ### 布局意图
+        #### 读者问题
+        哪些风险需要跟踪？
+        #### 唯一结论
+        触发条件和影响待核实
+        #### 关系类型
+        风险
+        #### 主视觉
+        并列风险组件
+        #### 阅读顺序
+        风险、触发、影响
+        #### 选这个形式的原因
+        风险触发条件
+        """
+        matches = select_examples(spec)
+        self.assertTrue(matches)
+        self.assertEqual(matches[0].id, "investment-semantic-components")
 
     def test_select_examples_matches_pivot_signals(self):
         spec = _spec(
