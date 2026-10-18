@@ -356,6 +356,10 @@ def prepare_unit_handoff(
         if kind == "report":
             lines.append("请撰写完整论证、证据与限定条件，并用普通 Markdown 链接引用 Wiki/资料。")
         elif kind == "spec":
+            lines.extend([
+                "当前主题：editorial-light。编排约定见已安装 skill 的 `references/editorial-light-theme.md`；",
+                "只加载此主题 profile，并继续遵守通用的 example-index、charts 和 visual-rules。",
+            ])
             lines.append(
                 "请按小章节写 Spec：文件顶部写一次“单元 ID”和“页面角色”；"
                 f"用连续的 ## Slide N — 标题描述每一页（封面只能一页，内容最多 {MAX_CONTENT_PAGES} 页）。"
@@ -372,6 +376,11 @@ def prepare_unit_handoff(
                 "每页设置 data-unit-id、data-page-role，并包含一个 slide-notes。"
                 "某一页的图表和图标只能使用该页 Spec 中声明的内容。"
             )
+            lines.extend([
+                "当前主题：editorial-light。按已安装 skill 的 `references/editorial-light-theme.md` 编排；",
+                "沿用项目 brand_color，不写页面级主题覆盖。通用版式规则见 `references/example-index.md` 和 `references/visual-rules.md`。",
+                "",
+            ])
             # Issue #38 PR 1 (06): surface 1–2 most relevant example paths.
             from .examples_index import format_matches, read_unit_spec_text, select_examples
             spec_path = paths.spec

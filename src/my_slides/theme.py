@@ -17,7 +17,7 @@ from typing import Any
 THEME_NAME = "editorial-light"
 SHELL_VERSION = "1"
 FONT_POLICY = "system-cjk-v1"
-ADAPTATION_VERSION = "2"
+ADAPTATION_VERSION = "3"
 TOKEN_VERSION = "1"
 UPSTREAM_COMMIT = "d8289f4c317905cc5d0ca265d32b791e6cb387b7"
 
@@ -115,6 +115,7 @@ def shell_css(brand_color: str) -> str:
             f":root {{ --brand: {brand_color}; --accent-blue: var(--brand); "
             f"--mls-text: {tokens['text']}; --mls-muted: {tokens['muted']}; --mls-divider: {tokens['divider']}; "
             + " ".join(f"--mls-series-{i}: {color};" for i, color in enumerate(tokens["series"], 1))
+            + f" --mls-risk-high: {tokens['risk_high']}; --mls-risk-watch: {tokens['risk_watch']};"
             + " --mls-note-size: 0.75rem; }",
         ]
     )
@@ -126,6 +127,7 @@ def shell_css(brand_color: str) -> str:
 def semantic_tokens(brand_color: str) -> dict[str, Any]:
     """The same literal values feed CSS and the server-side SVG renderer."""
     return {"text": "#27272a", "muted": "#52525b", "divider": "#e4e4e7",
+            "risk_high": "#a33b32", "risk_watch": "#c18a2e",
             "series": [brand_color, "#2563a6", "#4f7a64", "#d18a3a", "#8064a2"]}
 
 

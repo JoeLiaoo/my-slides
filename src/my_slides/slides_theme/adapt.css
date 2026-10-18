@@ -148,6 +148,127 @@ html, body {
   margin: 0;
 }
 
+/* Investment semantics: each block fits the data it contains. */
+.investment-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 2vw, 24px);
+  width: 100%;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.investment-comparison__item {
+  min-width: 0;
+  padding: clamp(14px, 2vw, 22px);
+  background: #fff;
+  border: 1px solid var(--mls-divider, #e4e4e7);
+  border-radius: 10px;
+}
+
+.investment-comparison__item h3,
+.investment-risk__item h3 {
+  margin: 0 0 10px;
+}
+
+.investment-comparison__item p,
+.investment-thesis p,
+.investment-risk__item p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.investment-comparison__item ul,
+.investment-thesis ul,
+.investment-risk__item ul {
+  margin: 10px 0 0;
+  padding-inline-start: 1.2em;
+}
+
+.investment-comparison__item li + li,
+.investment-thesis li + li,
+.investment-risk__item li + li {
+  margin-top: 6px;
+}
+
+.investment-comparison__dimension {
+  color: var(--mls-muted, #52525b);
+  font-size: 0.82em;
+  font-weight: 600;
+}
+
+.investment-comparison__unknown {
+  color: var(--mls-muted, #52525b);
+  font-style: italic;
+}
+
+.investment-thesis {
+  width: 100%;
+  min-width: 0;
+  padding: clamp(14px, 2vw, 22px);
+  border-inline-start: 4px solid var(--brand, #a6192e);
+  background: color-mix(in srgb, var(--brand, #a6192e) 7%, #fff);
+  border-radius: 0 10px 10px 0;
+}
+
+.investment-thesis__claim {
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.35 !important;
+}
+
+.investment-thesis__evidence,
+.investment-thesis__conditions {
+  margin-top: 14px !important;
+}
+
+.investment-thesis__label,
+.investment-risk__label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--mls-muted, #52525b);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.investment-risk {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.investment-risk__item {
+  min-width: 0;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--mls-divider, #e4e4e7);
+  border-radius: 8px;
+}
+
+.investment-risk__item[data-severity="high"] {
+  border-inline-start: 4px solid var(--mls-risk-high, #a33b32);
+}
+
+.investment-risk__item[data-severity="watch"] {
+  border-inline-start: 4px solid var(--mls-risk-watch, #c18a2e);
+}
+
+@media (max-width: 600px) {
+  .investment-comparison,
+  .investment-risk {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .investment-comparison__item,
+  .investment-risk__item {
+    padding: 12px;
+  }
+}
+
 #controls {
   position: fixed;
   z-index: 20;

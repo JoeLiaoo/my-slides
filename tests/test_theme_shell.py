@@ -66,6 +66,12 @@ class ThemeShellTests(unittest.TestCase):
         self.assertNotIn("fonts.googleapis", css)
         self.assertNotIn("@import", css)
         self.assertIn("PingFang SC", css)
+        self.assertIn(".investment-comparison", css)
+        self.assertIn(".investment-thesis", css)
+        self.assertIn(".investment-risk", css)
+        self.assertIn("--mls-risk-high: #a33b32", css)
+        self.assertIn("--mls-risk-watch: #c18a2e", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
 
     def test_preview_and_deck_share_shell(self):
         output, errors, _ = build_units_deck(self.base, self.cfg, all_units=True, write=True)
@@ -120,12 +126,19 @@ class ThemeShellTests(unittest.TestCase):
     def test_prepare_slides_handoff_lists_static_components(self):
         output = prepare_unit_handoff(self.base, self.root, self.units, "slides")[0]
         text = output.read_text(encoding="utf-8")
+        self.assertIn("references/editorial-light-theme.md", text)
         self.assertIn("stat-card", text)
         self.assertIn("vs-container", text)
         self.assertIn("table-wrap", text)
         self.assertIn("chart-container", text)
         self.assertIn("slides/previews/", text)
         self.assertNotIn("onclick", text)
+
+    def test_prepare_spec_handoff_points_to_current_theme_profile(self):
+        output = prepare_unit_handoff(self.base, self.root, self.units, "spec")[0]
+        text = output.read_text(encoding="utf-8")
+        self.assertIn("references/editorial-light-theme.md", text)
+        self.assertIn("只加载此主题 profile", text)
 
     def test_wheel_contains_theme_assets(self):
         uv = shutil.which("uv")
@@ -146,6 +159,7 @@ class ThemeShellTests(unittest.TestCase):
             with zipfile.ZipFile(wheels[0]) as archive:
                 names = archive.namelist()
         for suffix in (
+            "templates/references/editorial-light-theme.md",
             "slides_theme/upstream/viewport-base.css",
             "slides_theme/upstream/components.css",
             "slides_theme/upstream/editorial-light.css",
