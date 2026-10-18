@@ -47,7 +47,7 @@ Spec 小章节（specs/units/<id>.md）→ 提交申请 → 在对话中按小�
 
 用 `my-slides units add <id> --chapter <大章节> --title <小章节名>` 新增小章节，或用 `units move`、`units rename`、`units retitle` 调整清单；无需手工编辑 `units.json`。`retitle` 只改显示名，已有批准仍然有效。跨大章节移动要求用户重新确认报告，报告内容没变时保留 Spec 批准。结构变化后运行 `my-slides next --json`，按建议重建整套 Slides 并重新检查。
 
-`my-slides next --all` 可一次列出当前待办并按 Agent / 用户分组；`my-slides agent doctor` 检查项目内的工作流指引是否与当前包一致，不会覆盖用户修改。`my-slides clean` 默认只预览 30 天前的 `work/` 交接和 Wiki 快照；确认清单后添加 `--yes` 才删除。可用 `--older-than-days` 调整保留天数。
+`my-slides next --all` 可一次列出当前待办并按 Agent / 用户分组；仅计划做到结构检查时可加 `next --no-browser`，不会改变 `export` 的浏览器检查门槛。`my-slides agent doctor` 检查项目内的工作流指引是否与当前包一致，不会覆盖用户修改。`my-slides clean` 默认只预览 30 天前的 `work/` 交接和 Wiki 快照；新旧交接混放时仍能列出过期文件。确认清单后添加 `--yes` 才删除。可用 `--older-than-days` 调整保留天数。
 
 ```text
 my-slides units add <id> --chapter <章节> [--title <小章节名>] [--after <id>]

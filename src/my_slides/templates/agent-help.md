@@ -17,12 +17,14 @@ My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claud
 
 每个单元 ID 是一个小章节：一份报告、一份 Spec，以及与 Spec 页数相同的 HTML 页面。大章节来自 `project.yaml` 的 `chapters`。只改某一页版式时重建该小章节即可；改 Spec 才需要重新审批这个小章节。用 `--unit <id>` 修改单个小章节；批量处理受影响单元用 `--changed`，全部单元用 `--all`；同一大章节一起提交用 `approve --chapter`。这些选择参数适用于 prepare、validate、approve、slides build/check。默认在对话里审批：不能把「继续」「看起来不错」当成批准，也不能扩大用户点名的范围。`reject` 与 `revoke` 沿用同一套门：`approval_mode: terminal` 时 Agent 不得运行；任何模式下都不得借助伪终端、`script`、`expect`、tmux `send-keys` 或管道代填。用 `my-slides next --json` 获取下一条建议及原因。交接材料写入固定的 `my-slides/work/<阶段>/<id>.md`，再次 prepare 会覆盖同一文件。
 
-单元清单变更使用 `my-slides units add/move/rename/remove`，不要手工改 `units.json`。删除默认只预览影响，确认后使用 `--yes` 移入 `.state/trash/`，并保留输出的恢复命令。删除曾有报告或 Spec 批准记录的单元前，Agent 必须先征得用户明确同意；有未解决依赖或链接时命令会阻止删除。可用 `my-slides units trash list` 查看回收区，用 `my-slides units restore <trash-id>` 恢复原位置。章节调整需用户重新确认报告；未变的 Spec 批准保留。单元清单或身份变化后重建整套 Slides 并重新检查。
+单元清单变更使用 `my-slides units add/move/rename/remove`，不要手工改 `units.json`。删除默认只预览影响，确认后使用 `--yes` 移入 `.state/trash/`，并保留输出的恢复命令。删除曾有报告或 Spec 批准记录的单元前，Agent 必须先征得用户明确同意；有未解决依赖或链接时命令会阻止删除。可用 `my-slides units trash list` 查看回收区，用 `my-slides units restore <trash-id>` 恢复原位置。章节调整需用户重新确认报告；未变的 Spec 批准保留。单元清单或身份变化后重建整套 Slides 并重新检查。`my-slides next --all` 可汇总全部待办并按 Agent / 用户分组。
 
 大章节调整使用 `my-slides chapters list/add/rename/remove/move`，一次同步 `project.yaml`、`units.json`、`wiki/index.md`；重命名只改 `chapter` 字段，报告与 Spec 批准绑定的内容哈希与依赖指纹不变，无需重新批准，但需要按新顺序重建整套 Slides 并重新检查。删除仍被小章节引用的大章节会被命令拒绝。
 
 成品交付使用 `my-slides export [--output <目录>]`。该命令检查全部单元的报告、Spec、HTML 构建、浏览器检查是否都是最新版本，验证失败时列出未就绪的小章节；通过则复制 `slides/index.html` 为 `<项目名>-v<序号>-<日期>.html`，并在 `.state/deliveries.json` 记录交付时间、版本号、包含的单元与各单元 SHA-256。`status --json` 的 `delivery` 字段显示最近一次交付与自该交付以来变化单元。
 
 生成 Slides 前可运行 `my-slides renderer install` 安装本地 ECharts/Lucide 渲染依赖；使用 `--browser` / `--screenshots` 前可运行 `my-slides browser install`。`slides check` 不带 `--browser` 时只做结构检查；加 `--browser` 才测溢出、字号、对比度与导航，`--screenshots` 另存视觉证据。截图与 `visual-review` 不改变 `export` 门槛。
+
+`my-slides next --no-browser` 可只按结构检查规划完成状态，正式 `export` 仍要求浏览器检查。`my-slides agent doctor` 检查已安装的工作流指引，不会覆盖修改过的文件；`my-slides agent install` 只补装缺失文件。`my-slides clean` 默认只预览 30 天前的 `work/` 交接与 Wiki 快照；先检查清单，再显式加 `--yes` 删除。
 
 其他入口：`my-slides --help` 查看命令列表；`my-slides <命令> --help` 查看参数；`my-slides help --json` 获取机器可读的本指南；`my-slides --version` 查看版本。
