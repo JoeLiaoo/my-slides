@@ -7,7 +7,7 @@ import json
 import sys
 
 from . import format_version
-from .commands import agent, approve, assemble, browser, chapters, confirm, doctor, export, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
+from .commands import agent, approve, assemble, browser, chapters, clean, confirm, doctor, export, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
 from .commands.init import init_project
 from .commands.prepare import prepare
 
@@ -134,6 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_install = agent_sub.add_parser("install", help="安装项目级工作流技能，不覆盖现有文件")
     agent_install.add_argument("--project", help="项目目录，默认当前目录")
     agent_install.add_argument("--json", action="store_true")
+    agent_doctor = agent_sub.add_parser("doctor", help="检查已安装工作流指引是否缺失或与当前版本不同")
+    agent_doctor.add_argument("--project", help="项目目录，默认当前目录")
+    agent_doctor.add_argument("--json", action="store_true")
     slides = sub.add_parser("slides", help="合并并检查 HTML Slides")
     slides_sub = slides.add_subparsers(dest="slides_command", required=True)
     for name, help_text in (("build", "合并所选单元的 HTML 页面"), ("check", "检查所选单元和合并文件")):
@@ -240,7 +243,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     next_command = sub.add_parser("next", help="查看下一步操作、目标单元和原因")
     next_command.add_argument("--project")
+    next_command.add_argument("--all", action="store_true", help="列出当前全部待办，并按 Agent / 用户分组")
     next_command.add_argument("--json", action="store_true")
+    clean = sub.add_parser("clean", help="预览或清理过期 work 交接文件与 Wiki 快照")
+    clean.add_argument("--project")
+    clean.add_argument("--older-than-days", type=int, default=30, help="仅清理超过指定天数的内容，默认 30 天")
+    clean.add_argument("--yes", action="store_true", help="实际删除预览列出的内容；默认仅预览")
+    clean.add_argument("--json", action="store_true")
     return parser
 
 
@@ -273,6 +282,7 @@ def main() -> None:
         "renderer": renderer.run,
         "browser": browser.run,
         "agent": agent.run,
+        "clean": clean.run,
     }
     try:
         code = handlers[args.command](args)

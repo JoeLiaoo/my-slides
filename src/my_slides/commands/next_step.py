@@ -22,6 +22,8 @@ def run(args: argparse.Namespace) -> int:
     root = project_root(args.project)
     base, cfg = ensure_project(root)
     require_v2_project(base)
+    if getattr(args, "all", False):
+        return run_all(args, root, base, cfg)
 
     def recommend(command: str | None, reason: str, *, unit: str | None = None, actor: str = "agent") -> int:
         if command is not None and command.startswith("my-slides ") and not command.startswith("my-slides browser "):
@@ -170,3 +172,71 @@ def run(args: argparse.Namespace) -> int:
             return recommend("my-slides browser install", "所有页面已构建；安装 Chromium 后才能记录桌面和手机视口检查。")
         return recommend("my-slides slides check --all --browser", "正式整套尚未完成当前版本的浏览器检查。", unit="all")
     return recommend(None, "全部单元的报告、Spec、HTML 与浏览器检查均为当前版本。", actor="none")
+
+
+def run_all(args: argparse.Namespace, root, base, cfg) -> int:
+    """List outstanding work from the current files, grouped by who can act."""
+    steps = []
+    def add(command: str, reason: str, unit: str | None = None, actor: str = "agent"):
+        if command.startswith("my-slides ") and not command.startswith("my-slides browser "):
+            command += f" --project {shlex.quote(str(root))}"
+        steps.append({"command": command, "unit": unit, "actor": actor, "reason": reason})
+
+    _, pending, removed = scan_sources(root, base, cfg)
+    if pending or removed:
+        add("my-slides prepare wiki", f"有 {len(pending)} 份新增或变化资料、{len(removed)} 份已移除资料；先整理并复核 Wiki。")
+    wiki_errors = validate_wiki(base, cfg)
+    if wiki_errors:
+        add("my-slides validate wiki", "Wiki 有待修复问题：" + "；".join(wiki_errors[:3]))
+    units, errors = load_units_manifest(base, cfg.get("chapters", []))
+    if errors: raise ValueError("；".join(errors))
+    status = collect_units_status(base, chapters=cfg.get("chapters", []), project_root=root)
+    rows = {row["id"]: row for row in status["units"]}
+    chat_approval = approval_mode(cfg) == "chat"
+    for unit in units:
+        row = rows[unit.id]; paths = unit_paths(base, unit.id)
+        if not paths.report.is_file(): add(f"my-slides prepare report --unit {unit.id}", "创建报告交接并撰写。", unit.id); continue
+        report_errors = validate_unit_report(base, unit)
+        if report_errors: add(f"my-slides validate report --unit {unit.id}", "修复报告：" + "；".join(report_errors[:3]), unit.id); continue
+        if row["report_pending"]:
+            add(f"my-slides {'review' if chat_approval else 'confirm'} report --unit {unit.id}", "报告正在等待用户审阅并批准。", unit.id, "human"); continue
+        if row.get("report_latest_decision") == "rejected" and not row["report_current"]:
+            add(f"my-slides approve report --unit {unit.id}", "按用户驳回意见修改报告后重新提交。", unit.id); continue
+        if not row["report_current"]: add(f"my-slides approve report --unit {unit.id}", "提交当前报告供用户审批。", unit.id)
+    assembled, assembly_errors = assemble_report(base, units, write=False)
+    if assembly_errors: add("my-slides assemble", "修复报告组装问题：" + "；".join(assembly_errors[:3]))
+    elif not (base / "reports/report.md").is_file() or (base / "reports/report.md").read_text(encoding="utf-8") != assembled:
+        add("my-slides assemble", "组装当前已批准的报告单元。")
+    if any(unit.role == "content" for unit in units) and validate_number_list(base): add("my-slides prepare evidence-research", "整理并核验可追溯的公开数字。")
+    for unit in units:
+        row = rows[unit.id]; paths = unit_paths(base, unit.id)
+        if not paths.spec.is_file(): add(f"my-slides prepare spec --unit {unit.id}", "创建 Presentation Spec 交接并撰写。", unit.id); continue
+        spec_errors = validate_unit_spec(base, unit)
+        if spec_errors: add(f"my-slides validate spec --unit {unit.id}", "修复 Spec：" + "；".join(spec_errors[:3]), unit.id); continue
+        if row["spec_pending"]:
+            add(f"my-slides {'review' if chat_approval else 'confirm'} spec --unit {unit.id}", "Spec 正在等待用户审阅并批准。", unit.id, "human"); continue
+        if row.get("spec_latest_decision") == "rejected" and not row["spec_current"]:
+            add(f"my-slides approve spec --unit {unit.id}", "按用户驳回意见修改 Spec 后重新提交。", unit.id); continue
+        if not row["spec_current"]: add(f"my-slides approve spec --unit {unit.id}", "提交当前 Spec 供用户审批。", unit.id)
+    for unit in units:
+        if not unit_paths(base, unit.id).page.is_file(): add(f"my-slides prepare slides --unit {unit.id}", "创建页面交接并按 Spec 制作 HTML。", unit.id)
+    deck_path = base / "slides/index.html"; state_path = base / ".state/slides.json"; deck_state = {}
+    if state_path.is_file():
+        try:
+            import json
+            deck_state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError): pass
+    if deck_path.is_file() and deck_state.get("unit_manifest_sha256") != fingerprint_json([unit.to_dict() for unit in units]):
+        add("my-slides slides build --all", "按当前清单重新构建整套 Slides。", "all")
+    else:
+        for unit in units:
+            if not rows[unit.id]["html_current"]: add(f"my-slides slides build --unit {unit.id}", "按当前 Spec 和主题重建页面。", unit.id)
+        if not deck_path.is_file() and all(unit_paths(base, unit.id).page.is_file() for unit in units): add("my-slides slides build --all", "生成正式整套 Slides。", "all")
+    if any(not rows[unit.id]["check_current"] for unit in units):
+        browser = browser_status()
+        command = "my-slides browser doctor" if not browser["playwright"] else "my-slides browser install" if not browser["chromium_installed"] else "my-slides slides check --all --browser"
+        add(command, "完成当前版本的桌面与手机浏览器检查。", "all")
+    grouped = {actor: [step for step in steps if step["actor"] == actor] for actor in ("agent", "human")}
+    human = "工作流已完成。" if not steps else "全部待办：\n" + "\n".join(f"[{actor}] {step['command']} — {step['reason']}" for actor in ("agent", "human") for step in grouped[actor])
+    emit(args, {"project": str(root), "steps": steps, "by_actor": grouped}, human)
+    return 0
