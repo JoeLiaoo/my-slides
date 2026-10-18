@@ -5,6 +5,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 ## 工作流
 
 1. `my-slides prepare slides --unit <id>` → 交接材料写入 `my-slides/work/slides/<id>.md`，**会按 Spec 主题从 example 索引中挑出 1–2 条最相关的参考案例路径与摘要**（不是把整个示例库倾倒到上下文里）。
+   当前内置主题为 `editorial-light`；遵守 `references/editorial-light-theme.md`，并继续使用 `example-index.md` 与 `visual-rules.md` 的通用规则。
 2. 写 `slides/pages/<id>.html`：每个 Spec 页对应一个 `<section class="slide">`。
 3. `my-slides slides build --unit <id>`：把 `<style>` 包裹在 `@scope` 内，加入壳、字体、导航，输出 `slides/previews/<id>.html`。
 4. `my-slides slides check --unit <id>`：结构检查（页数 = Spec 页数，每页有 `slide-notes` JSON，图表 / 图标范围合规）。

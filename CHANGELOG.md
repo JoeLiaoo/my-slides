@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.6.2] - Pending
+
+### Added
+
+- Add an executable editorial-light theme profile and surface it in Spec and Slides handoffs. The profile defines token, typography, evidence, and layout rules while leaving global visual rules authoritative.
+
 ## [0.6.1] - Pending
 
 ### Added
