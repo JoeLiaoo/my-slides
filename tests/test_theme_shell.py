@@ -66,6 +66,10 @@ class ThemeShellTests(unittest.TestCase):
         self.assertNotIn("fonts.googleapis", css)
         self.assertNotIn("@import", css)
         self.assertIn("PingFang SC", css)
+        self.assertIn(".investment-comparison", css)
+        self.assertIn(".investment-thesis", css)
+        self.assertIn(".investment-risk", css)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", css)
 
     def test_preview_and_deck_share_shell(self):
         output, errors, _ = build_units_deck(self.base, self.cfg, all_units=True, write=True)

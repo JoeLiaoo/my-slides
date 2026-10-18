@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.6.1] - Pending
+
+### Added
+
+- Add reusable editorial-light HTML/CSS patterns for competition comparison, investment thesis, and risk analysis. They preserve missing evidence as unknown and adapt to narrow screens.
+
 ## [0.6.0] - Pending
 
 ### Breaking Changes
