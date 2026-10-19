@@ -149,11 +149,10 @@ class AssemblyTests(unittest.TestCase):
         paths = unit_paths(self.base, "summary-01")
         chart = {"type": "bar", "title": "合成需求量", "categories": ["2024", "2025"],
                  "values": [10, 14], "unit": "份"}
-        paths.spec.write_text(
-            _spec_pages("summary-01", "content", ["证据表", "数量变化", "价值流", "技术依赖"])
-            + "\n```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n",
-            encoding="utf-8",
-        )
+        spec = _spec_pages("summary-01", "content", ["证据表", "数量变化", "价值流", "技术依赖"])
+        spec = spec.replace("## Slide 3 —", "```echarts-spec\n" + json.dumps(chart, ensure_ascii=False)
+                            + "\n```\n\n## Slide 3 —", 1)
+        paths.spec.write_text(spec, encoding="utf-8")
         approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
         chart_json = json.dumps(chart, ensure_ascii=False)
         diagram = ('<svg viewBox="0 0 420 140" role="img" aria-labelledby="title desc">'
