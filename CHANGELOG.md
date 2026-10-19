@@ -16,6 +16,7 @@ No unreleased changes.
 ### Fixed
 
 - Namespace inline SVG IDs and internal references in assembled decks so repeated diagram markers, titles, and clips do not collide.
+- Keep hand-authored static SVG diagrams independent of the optional ECharts/Lucide renderer and its license files.
 
 ## [0.6.3] - Pending
 

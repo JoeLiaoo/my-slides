@@ -337,7 +337,7 @@ def compile_unit_page(
             [payload.get("css") or ""],
             title=unit.title or unit.id,
             brand_color=brand_color,
-            has_assets="mls-chart" in preview_html or "mls-icon" in preview_html or "<svg" in preview_html,
+            has_assets="mls-chart" in preview_html or "mls-icon" in preview_html,
             kind="preview",
         )
         _atomic_write(paths.preview, preview)
@@ -468,7 +468,7 @@ def build_units_deck(
         assembled_units += 1
         if payload.get("css"):
             css_blocks.append(payload["css"])
-        if "mls-echarts" in unit_html or "<svg" in unit_html:
+        if "mls-chart" in unit_html or "mls-icon" in unit_html:
             has_assets = True
 
     if build_errors or assembled_units != len(all_manifest):

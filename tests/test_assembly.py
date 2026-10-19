@@ -97,6 +97,30 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn('data-unit-id="summary-01"', html)
         self.assertIn("cover", plan["rebuild"] + plan["reused"])
 
+    def test_two_static_diagrams_assemble_without_cross_references(self):
+        self._seed()
+        page = unit_paths(self.base, "summary-01").page
+        diagram = ('<svg viewBox="0 0 100 50" role="img" aria-labelledby="title desc">'
+                   '<title id="title">价值流</title><desc id="desc">已批准的关系</desc>'
+                   '<defs><marker id="arrow" markerWidth="6" markerHeight="6" '
+                   'refX="3" refY="3" orient="auto"><path d="M0 0L6 3L0 6"/></marker></defs>'
+                   '<path d="M5 25H95" marker-end="url(#arrow)"/></svg>')
+        page.write_text(_page("summary-01", "content").replace(
+            '<script type="application/json" class="slide-notes">',
+            diagram + diagram + '<p>两个方向均为合成示例。</p>'
+            '<script type="application/json" class="slide-notes">',
+        ), encoding="utf-8")
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, plan = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [], errors)
+        html = output.read_text(encoding="utf-8")
+        for index in (0, 1):
+            prefix = f"mls-summary-01-p1-svg{index}-"
+            self.assertIn(f'id="{prefix}arrow"', html)
+            self.assertIn(f'marker-end="url(#{prefix}arrow)"', html)
+            self.assertIn(f'aria-labelledby="{prefix}title {prefix}desc"', html)
+        self.assertEqual(plan["rebuild"], ["cover", "summary-01"])
+
     def test_legacy_spec_without_reviewer_cannot_build(self):
         from my_slides.state import read_unit_state, write_unit_state
 
