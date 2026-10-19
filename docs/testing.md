@@ -2,7 +2,7 @@
 
 ## GitHub Actions
 
-[CI 工作流](../.github/workflows/ci.yml)在 PR、推送到 `main` 和手动触发时运行 `./scripts/run-full-tests.sh`。它使用 Ubuntu、Python 3.11 和 Node 22，先安装 `.[browser]` 与 Playwright 的 Chromium 系统依赖，再由脚本安装锁定的渲染器、Chromium 并执行完整测试。缺少可选依赖会使完整测试失败。
+[CI 工作流](../.github/workflows/ci.yml)在 PR、推送到 `main` 和手动触发时，在 Ubuntu 24.04、macOS 15、原生 Windows 2025 上运行等价于 `./scripts/run-full-tests.sh` 的跨平台 Python 命令。它使用 Python 3.11、Node 22，先安装 `.[browser]`（仅 Linux 安装 Chromium 系统依赖），再安装锁定的渲染器、Chromium 并执行完整测试。`MY_SLIDES_FULL_TESTS=1` 使缺少可选依赖的情况失败。实际设备的 Agent 工作流及 Safari / Edge 交叉离线打开仍须单独记录。
 
 本地开发可以使用以下脚本。
 

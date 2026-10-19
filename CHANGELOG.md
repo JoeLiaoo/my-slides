@@ -6,6 +6,17 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.6.4] - Pending
+
+### Added
+
+- Add a focused static diagram guide with three relationship types and a reproducible synthetic investment example.
+- Run the complete renderer and browser regression on native macOS and Windows CI alongside Linux.
+
+### Fixed
+
+- Namespace inline SVG IDs and internal references in assembled decks so repeated diagram markers, titles, and clips do not collide.
+
 ## [0.6.3] - Pending
 
 ### Changed

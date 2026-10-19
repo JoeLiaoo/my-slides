@@ -107,7 +107,9 @@ class SlideFragmentParser(HTMLParser):
         "x", "y", "x1", "y1", "x2", "y2", "points", "preserveaspectratio", "clip-path",
         "fill-rule", "clip-rule", "font-size", "font-family", "font-weight", "text-anchor",
         "dominant-baseline", "gradientunits", "gradienttransform", "offset", "stop-color",
-        "stop-opacity", "xlink:href", "href", "aria-hidden", "aria-label", "aria-labelledby",
+        "stop-opacity", "xlink:href", "href", "marker-start", "marker-mid", "marker-end",
+        "markerwidth", "markerheight", "refx", "refy", "orient",
+        "aria-hidden", "aria-label", "aria-labelledby", "aria-describedby",
         "focusable", "overflow", "vector-effect", "style",
     })
     URL_ATTRS = frozenset({

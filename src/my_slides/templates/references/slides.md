@@ -16,6 +16,7 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 
 - 普通文字、表格和已有图表先做可审阅版本，检查后只改问题页。
 - 过程确实难用文字解释时才试一张静态 SVG，并写出适用范围、省略部分和读者要回答的问题。参考 `examples/technology/02-batching-static`；记录片段大小、制作和修订工时，不能将示意比例写成实测。
+- 产业链 / 价值流、架构 / 依赖、流程 / 反馈按需读 `references/static-diagrams.md`。每个节点与箭头必须能回溯到已批准 Spec；同页多幅 SVG 可重用局部 ID，组装时自动隔离，但单幅图内不能重复 ID。
 - 重复使用并经读者试验确认价值后，再单独提出受控 figure-spec；需要调参解释时才独立验证交互。普通报告不自动进入 3D/WebGL 制作。每轮记录页数、定制资产、修订轮次；没有理解收益或发现字号难以修复时停下并回到文字/分步形式。
 
 ## HTML 写法
@@ -57,5 +58,5 @@ Open when converting an approved Spec into HTML (`slides/pages/<id>.html`) or wh
 ## 边界
 
 - `slides build` 只处理已批准 Spec；未批准的 Spec 不会进入 deck。
-- `slides check --browser` 跳过渲染器/浏览器缺失的环境并标记 skip；CI 完整门禁要求 `scripts/run-full-tests.sh`。
+- `slides check --browser` 在一般本地环境可标记缺失依赖为 skip；CI 在 Linux、macOS 与 Windows 设置 `MY_SLIDES_FULL_TESTS=1`，缺失依赖会使完整门禁失败。
 - 撤回报告会让下游 Spec 与 HTML/检查一起失效；需要走完报告 → Spec → 重建 → 重新检查。

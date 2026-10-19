@@ -176,7 +176,7 @@ my-slides slides check --all
 
 ## 测试
 
-PR、推送到 `main` 和手动触发时，[GitHub Actions 工作流](.github/workflows/ci.yml)会在 Ubuntu 上运行完整回归（Python 3.11、Node 22、渲染器和 Chromium）。本地也可运行：
+PR、推送到 `main` 和手动触发时，[GitHub Actions 工作流](.github/workflows/ci.yml)会在 Ubuntu 24.04、macOS 15 和原生 Windows 2025 上运行完整回归（Python 3.11、Node 22、渲染器和 Playwright Chromium）。本地也可运行：
 
 ```bash
 # 快速（缺渲染器/浏览器时相关用例会 skip）
@@ -192,6 +192,17 @@ Windows PowerShell 快速跑：
 $env:PYTHONPATH = "src"
 python -m unittest discover -s tests -v
 ```
+
+macOS Terminal 与 Windows PowerShell 均可用 `python -m pip install -e '.[browser]'` 安装（macOS 如只有 `python3` 则替换命令名）；安装 Node 22 后执行以下完整门禁，无需 WSL、Git Bash 或符号链接：
+
+```text
+python -m my_slides.cli renderer install
+python -m my_slides.cli browser install
+python -m my_slides.cli agent doctor
+python -m unittest discover -s tests -v
+```
+
+完整门禁前将 `MY_SLIDES_FULL_TESTS` 设为 `1`（PowerShell：`$env:MY_SLIDES_FULL_TESTS = "1"`；macOS：`export MY_SLIDES_FULL_TESTS=1`）；首次安装浏览器需联网。以上步骤在 CI 分别按原生平台执行；实际 Mac／Windows 设备的 Agent 生成和跨平台离线互通仍需另外验收。
 
 说明见 [`docs/testing.md`](docs/testing.md)。实施计划见 [`docs/plans/local-investment-wiki-slides.md`](docs/plans/local-investment-wiki-slides.md)。
 
