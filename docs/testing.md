@@ -46,7 +46,7 @@ python -m pip install -e '.[browser]'
 | `… --browser --screenshots` | 同上，另需 Pillow（`.[browser]`） | 另存逐页 PNG、三份 contact sheet、带 deck/Spec/规则指纹的 `measurements.json` 到 `.state/visual/<deck-sha>/` |
 | `slides visual-review …` | 已有截图路径 | 记录 Agent 看图结论；`status --json` 的 `slides.visual` 单独追踪，不代替用户批准，不改变 `export` 门槛 |
 
-手机视口图表内过小文字记为 `warnings`；桌面字号与 SVG 标签越界仍为硬错误。缺 Pillow 时 `--screenshots` 立即 `RuntimeError` 提示安装 `my-slides[browser]`。
+手机视口 ECharts 图表内过小文字记为 `warnings`；静态 SVG 的过小文字、桌面字号与 SVG 标签越界是硬错误。缺 Pillow 时 `--screenshots` 立即 `RuntimeError` 提示安装 `my-slides[browser]`。
 
 快速套件默认不装浏览器；缺依赖时带 `--browser` 的用例会 skip。PR 的完整门禁和本地完整回归都使用 `./scripts/run-full-tests.sh`。
 

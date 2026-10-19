@@ -157,7 +157,7 @@ class AssemblyTests(unittest.TestCase):
         paths.spec.write_text(spec, encoding="utf-8")
         approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
         chart_json = json.dumps(chart, ensure_ascii=False)
-        diagram = ('<svg viewBox="0 0 420 140" style="width:min(80vw,900px);height:auto" '
+        diagram = ('<svg viewBox="0 0 420 140" style="width:min(70vw,75vh,800px);height:auto" '
                    'role="img" aria-labelledby="title desc">'
                    '<title id="title">合成关系</title><desc id="desc">节点和方向来自合成 Spec。</desc>'
                    '<defs><marker id="arrow" markerWidth="8" markerHeight="8" '
@@ -192,11 +192,11 @@ class AssemblyTests(unittest.TestCase):
         self.assertIn('id="mls-summary-01-p3-svg0-arrow"', html)
         self.assertIn('id="mls-summary-01-p4-svg0-arrow"', html)
         checked = check_deck(output, unit_ids=["cover", "summary-01"], evidence_dir=self.root / "evidence")
+        if os.environ.get("MY_SLIDES_CI_EVIDENCE_DIR"):
+            shutil.copytree(self.root / "evidence", Path(os.environ["MY_SLIDES_CI_EVIDENCE_DIR"]), dirs_exist_ok=True)
         self.assertTrue(checked["valid"], checked)
         self.assertEqual(checked["external_requests"], [])
         self.assertTrue(checked["evidence"]["screenshots"])
-        if os.environ.get("MY_SLIDES_CI_EVIDENCE_DIR"):
-            shutil.copytree(self.root / "evidence", Path(os.environ["MY_SLIDES_CI_EVIDENCE_DIR"]), dirs_exist_ok=True)
 
     def test_legacy_spec_without_reviewer_cannot_build(self):
         from my_slides.state import read_unit_state, write_unit_state
