@@ -47,6 +47,11 @@ class DiagramSvgTests(unittest.TestCase):
         self.assertFalse(parser.errors, parser.errors)
         self.assertIn('marker-end="url(#arrow)"', str(parser.slides))
 
+    def test_marker_cannot_load_external_resource(self):
+        parser = SlideFragmentParser()
+        parser.feed('<section class="slide"><svg><path marker-end="url(https://example.org/arrow.svg)"/></svg></section>')
+        self.assertTrue(any("本地 marker" in error for error in parser.errors), parser.errors)
+
 
 if __name__ == "__main__":
     unittest.main()

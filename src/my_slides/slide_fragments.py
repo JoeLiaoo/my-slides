@@ -173,6 +173,10 @@ class SlideFragmentParser(HTMLParser):
                     continue
                 cleaned.append((name, value))
                 continue
+            if lower in {"marker-start", "marker-mid", "marker-end"}:
+                if not re.fullmatch(r"\s*(?:none|url\(\s*#[A-Za-z_][\w.:-]*\s*\))\s*", value or "", flags=re.I):
+                    self.errors.append(f"章节片段的 {name} 只能引用当前 SVG 的本地 marker")
+                    continue
             if lower in self.URL_ATTRS:
                 if value and not self.is_allowed_url(value):
                     self.errors.append(f"章节片段包含不安全链接属性 {name}：{value}")
