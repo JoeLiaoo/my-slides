@@ -121,6 +121,25 @@ class AssemblyTests(unittest.TestCase):
             self.assertIn(f'aria-labelledby="{prefix}title {prefix}desc"', html)
         self.assertEqual(plan["rebuild"], ["cover", "summary-01"])
 
+    def test_static_diagram_builds_in_unicode_spaced_parenthesized_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            self.root = Path(temporary) / "中文 项目 (A)"
+            self.root.mkdir()
+            self.base = self.root / "my-slides"
+            init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+            self._seed()
+            page = unit_paths(self.base, "summary-01").page
+            page.write_text(_page("summary-01", "content").replace(
+                '<script type="application/json" class="slide-notes">',
+                '<svg viewBox="0 0 100 50" role="img" aria-labelledby="label">'
+                '<title id="label">项目路径</title><text x="5" y="25">中文</text></svg>'
+                '<script type="application/json" class="slide-notes">',
+            ), encoding="utf-8")
+            cfg = {"project": "中文 项目 (A)", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+            output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+            self.assertEqual(errors, [], errors)
+            self.assertIn('id="mls-summary-01-p1-svg0-label"', output.read_text(encoding="utf-8"))
+
     @unittest.skipUnless(renderer_status()["ready"] and browser_status()["chromium_installed"],
                          "pinned renderer and Chromium are required")
     def test_synthetic_investment_case_table_chart_and_two_diagrams(self):
