@@ -1,6 +1,8 @@
 import argparse
 import json
+import os
 import re
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -186,6 +188,8 @@ class AssemblyTests(unittest.TestCase):
         self.assertTrue(checked["valid"], checked)
         self.assertEqual(checked["external_requests"], [])
         self.assertTrue(checked["evidence"]["screenshots"])
+        if os.environ.get("MY_SLIDES_CI_EVIDENCE_DIR"):
+            shutil.copytree(self.root / "evidence", Path(os.environ["MY_SLIDES_CI_EVIDENCE_DIR"]), dirs_exist_ok=True)
 
     def test_legacy_spec_without_reviewer_cannot_build(self):
         from my_slides.state import read_unit_state, write_unit_state
