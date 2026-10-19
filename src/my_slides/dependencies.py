@@ -32,15 +32,21 @@ def content_fingerprint(data: bytes | str) -> str:
     """
     import hashlib
 
+    def normalize_newlines(text: str) -> str:
+        # Windows text-mode writes can turn an existing CRLF into CRCRLF.
+        # Treat both forms as one logical newline for approval/cache hashes.
+        import re
+        return re.sub(r"\r+\n|\r", "\n", text)
+
     if isinstance(data, str):
-        payload = data.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+        payload = normalize_newlines(data).encode("utf-8")
     else:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
             payload = data
         else:
-            payload = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+            payload = normalize_newlines(text).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
 

@@ -17,6 +17,7 @@ No unreleased changes.
 
 - Namespace inline SVG IDs and internal references in assembled decks so repeated diagram markers, titles, and clips do not collide.
 - Keep hand-authored static SVG diagrams independent of the optional ECharts/Lucide renderer and its license files.
+- Normalize Windows checkout line endings in bundled theme assets and text fingerprints so hashes and approvals agree across macOS and Windows.
 
 ## [0.6.3] - Pending
 

@@ -68,6 +68,7 @@ class DependencyStateTests(unittest.TestCase):
         second = fingerprint_file(path)
         self.assertEqual(first, second)
         self.assertEqual(content_fingerprint("a\r\nb"), content_fingerprint("a\nb"))
+        self.assertEqual(content_fingerprint("a\r\r\nb"), content_fingerprint("a\nb"))
 
     def test_wiki_change_only_affects_linked_units(self):
         wiki_w = self.base / "wiki" / "linked.md"
