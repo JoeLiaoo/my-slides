@@ -157,13 +157,20 @@ class AssemblyTests(unittest.TestCase):
         paths.spec.write_text(spec, encoding="utf-8")
         approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
         chart_json = json.dumps(chart, ensure_ascii=False)
-        diagram = ('<svg viewBox="0 0 420 140" role="img" aria-labelledby="title desc">'
+        diagram = ('<svg viewBox="0 0 420 140" style="width:min(80vw,900px);height:auto" '
+                   'role="img" aria-labelledby="title desc">'
                    '<title id="title">合成关系</title><desc id="desc">节点和方向来自合成 Spec。</desc>'
                    '<defs><marker id="arrow" markerWidth="8" markerHeight="8" '
-                   'refX="4" refY="4" orient="auto"><path d="M0 0L8 4L0 8"/></marker></defs>'
-                   '<text x="30" y="65" font-size="20">上游</text>'
-                   '<path d="M110 60H260" marker-end="url(#arrow)"/>'
-                   '<text x="280" y="65" font-size="20">下游</text></svg>')
+                   'refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" '
+                   'fill="#A6192E"/></marker></defs>'
+                   '<rect x="18" y="26" width="112" height="80" rx="12" fill="#fff" '
+                   'stroke="#A6192E" stroke-width="2"/>'
+                   '<rect x="290" y="26" width="112" height="80" rx="12" fill="#fff" '
+                   'stroke="#A6192E" stroke-width="2"/>'
+                   '<text x="45" y="74" font-size="20" fill="#171923">上游</text>'
+                   '<path d="M140 66H278" fill="none" stroke="#A6192E" '
+                   'stroke-width="3" marker-end="url(#arrow)"/>'
+                   '<text x="317" y="74" font-size="20" fill="#171923">下游</text></svg>')
         def slide(title, content):
             return ('<section class="slide" data-unit-id="summary-01" data-page-role="content">'
                     f'<h1>{title}</h1>{content}'
