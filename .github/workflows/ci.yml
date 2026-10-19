@@ -30,9 +30,8 @@ jobs:
       - name: Check PR version and changelog
         if: github.event_name == 'pull_request'
         env:
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           MY_SLIDES_ALLOW_MAJOR_VERSION: ${{ contains(github.event.pull_request.labels.*.name, 'version:major') }}
-        run: python scripts/check_pr_version.py --base-ref "origin/${BASE_BRANCH}"
+        run: python scripts/check_pr_version.py --base-ref origin/main
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
