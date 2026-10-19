@@ -121,6 +121,54 @@ class AssemblyTests(unittest.TestCase):
             self.assertIn(f'aria-labelledby="{prefix}title {prefix}desc"', html)
         self.assertEqual(plan["rebuild"], ["cover", "summary-01"])
 
+    @unittest.skipUnless(renderer_status()["ready"] and browser_status()["chromium_installed"],
+                         "pinned renderer and Chromium are required")
+    def test_synthetic_investment_case_table_chart_and_two_diagrams(self):
+        from my_slides.browser import check_deck
+
+        units = self._seed()
+        paths = unit_paths(self.base, "summary-01")
+        chart = {"type": "bar", "title": "合成需求量", "categories": ["2024", "2025"],
+                 "values": [10, 14], "unit": "份"}
+        paths.spec.write_text(
+            _spec_pages("summary-01", "content", ["证据表", "数量变化", "价值流", "技术依赖"])
+            + "\n```echarts-spec\n" + json.dumps(chart, ensure_ascii=False) + "\n```\n",
+            encoding="utf-8",
+        )
+        approve_unit_spec(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
+        chart_json = json.dumps(chart, ensure_ascii=False)
+        diagram = ('<svg viewBox="0 0 420 140" role="img" aria-labelledby="title desc">'
+                   '<title id="title">合成关系</title><desc id="desc">节点和方向来自合成 Spec。</desc>'
+                   '<defs><marker id="arrow" markerWidth="8" markerHeight="8" '
+                   'refX="4" refY="4" orient="auto"><path d="M0 0L8 4L0 8"/></marker></defs>'
+                   '<text x="30" y="65" font-size="20">上游</text>'
+                   '<path d="M110 60H260" marker-end="url(#arrow)"/>'
+                   '<text x="280" y="65" font-size="20">下游</text></svg>')
+        def slide(title, content):
+            return ('<section class="slide" data-unit-id="summary-01" data-page-role="content">'
+                    f'<h1>{title}</h1>{content}'
+                    '<p class="note">虚构案例；图解不代表市场份额、因果强度或实测性能。</p>'
+                    '<script type="application/json" class="slide-notes">'
+                    '{"source":"合成 Spec","limitations":"仅示意已批准的关系"}'
+                    '</script></section>')
+        paths.page.write_text("\n".join([
+            slide("证据表", '<table><tr><th>对象</th><th>已知</th></tr><tr><td>平台</td><td>合成案例</td></tr></table>'),
+            slide("数量变化", '<script type="application/json" class="mls-echarts-spec">'+chart_json+'</script>'),
+            slide("价值流", '<figure>'+diagram+'<figcaption>上游 → 下游：仅为流程示意。</figcaption></figure>'),
+            slide("技术依赖", '<figure>'+diagram+'<figcaption>上游 → 下游：仅为依赖示意。</figcaption></figure>'),
+        ]), encoding="utf-8")
+        cfg = {"project": "Demo", "chapters": ["投资概要"], "brand_color": "#A6192E"}
+        output, errors, _ = build_units_deck(self.base, cfg, all_units=True, write=True)
+        self.assertEqual(errors, [], errors)
+        html = output.read_text(encoding="utf-8")
+        self.assertEqual(html.count('class="mls-chart"'), 1)
+        self.assertIn('id="mls-summary-01-p3-svg0-arrow"', html)
+        self.assertIn('id="mls-summary-01-p4-svg0-arrow"', html)
+        checked = check_deck(output, unit_ids=["cover", "summary-01"], evidence_dir=self.root / "evidence")
+        self.assertTrue(checked["valid"], checked)
+        self.assertEqual(checked["external_requests"], [])
+        self.assertTrue(checked["evidence"]["screenshots"])
+
     def test_legacy_spec_without_reviewer_cannot_build(self):
         from my_slides.state import read_unit_state, write_unit_state
 
