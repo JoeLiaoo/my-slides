@@ -65,6 +65,47 @@ _ASSET_MARKER_RE = re.compile(
     flags=re.DOTALL,
 )
 
+_INLINE_SVG_RE = re.compile(r"<svg\b[^>]*>.*?</svg>", flags=re.I | re.S)
+_SVG_ID_RE = re.compile(r'''(?<![\w:-])id=(['"])([^'"\s]+)\1''', flags=re.I)
+
+
+def namespace_inline_svg_ids(source: str, unit_id: str, page_number: int) -> str:
+    """Keep author-provided SVG IDs local to a page in an assembled deck.
+
+    Diagram Design emits standalone SVGs, whose common IDs (title, desc, arrow,
+    gradients) otherwise collide when multiple diagrams share one document.
+    The fragment parser has already restricted tags and attributes before this
+    function runs. Only references inside the same SVG are rewritten.
+    """
+    def namespace(match: re.Match[str]) -> str:
+        svg = match.group(0)
+        index = namespace.index
+        namespace.index += 1
+        ids = [m.group(2) for m in _SVG_ID_RE.finditer(svg)]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"{unit_id} 第 {page_number} 页第 {index + 1} 幅 SVG 含重复 id")
+        prefix = f"mls-{unit_id}-p{page_number}-svg{index}-"
+        mapping = {identifier: prefix + identifier for identifier in ids}
+        svg = _SVG_ID_RE.sub(lambda m: f'id={m.group(1)}{mapping[m.group(2)]}{m.group(1)}', svg)
+
+        def replace_url(m: re.Match[str]) -> str:
+            return f"url(#{mapping.get(m.group(1), m.group(1))})"
+
+        svg = re.sub(r"url\(\s*['\"]?#([^)'\"\s]+)['\"]?\s*\)", replace_url, svg)
+
+        def replace_href(m: re.Match[str]) -> str:
+            return f'{m.group(1)}={m.group(2)}#{mapping.get(m.group(3), m.group(3))}{m.group(2)}'
+
+        svg = re.sub(r'''(?<![\w:-])(href|xlink:href)=(['"])#([^'"\s]+)\2''', replace_href, svg, flags=re.I)
+
+        def replace_aria(m: re.Match[str]) -> str:
+            return f'{m.group(1)}={m.group(2)}{" ".join(mapping.get(token, token) for token in m.group(3).split())}{m.group(2)}'
+
+        return re.sub(r'''\b(aria-labelledby|aria-describedby)=(['"])([^'"]+)\2''', replace_aria, svg, flags=re.I)
+
+    namespace.index = 0
+    return _INLINE_SVG_RE.sub(namespace, source)
+
 
 def _stamp_slide_root(source: str, unit_id: str, page_number: int) -> str:
     source = re.sub(r'\sdata-unit-id=["\'][^"\']*["\']', "", source, count=1)
@@ -118,6 +159,7 @@ def _render_slide_html(
         source = bind_text(source, metrics, escape=True)
         for index, note in enumerate(notes):
             source = source.replace(f"__MLS_NOTES_{index}__", note)
+    source = namespace_inline_svg_ids(source, unit_id, page_number)
     return _stamp_slide_root(source, unit_id, page_number)
 
 
@@ -228,6 +270,7 @@ def compute_unit_cache_key(
             "brand": brand_color,
             "renderer": renderer_status().get("packages"),
             "renderer_code": fingerprint_file(Path(__file__).parent / "renderer" / "render.mjs"),
+            "svg_assembly_code": fingerprint_file(Path(__file__)),
             "theme": theme_cache_fields(),
             "assets": [asset["spec"] for asset in assets_to_render],
         }
@@ -294,7 +337,7 @@ def compile_unit_page(
             [payload.get("css") or ""],
             title=unit.title or unit.id,
             brand_color=brand_color,
-            has_assets="mls-chart" in preview_html or "mls-icon" in preview_html or "<svg" in preview_html,
+            has_assets="mls-chart" in preview_html or "mls-icon" in preview_html,
             kind="preview",
         )
         _atomic_write(paths.preview, preview)
@@ -425,7 +468,7 @@ def build_units_deck(
         assembled_units += 1
         if payload.get("css"):
             css_blocks.append(payload["css"])
-        if "mls-echarts" in unit_html or "<svg" in unit_html:
+        if "mls-chart" in unit_html or "mls-icon" in unit_html:
             has_assets = True
 
     if build_errors or assembled_units != len(all_manifest):

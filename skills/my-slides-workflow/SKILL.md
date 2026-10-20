@@ -33,6 +33,7 @@ This skill entry stays short. Read the references below only when the step you'r
 | Choose a chart type or sanity-check data | `references/charts.md` |
 | Pick a layout / find a reference example | `references/example-index.md` |
 | Author in the bundled editorial-light theme | `references/editorial-light-theme.md` |
+| Decide whether to draw a value flow, dependency, or process diagram | `references/static-diagrams.md` |
 | Review layout variety and page density before delivering | `references/visual-rules.md` |
 
 The reference set is fixed and shared between the in-repo `skills/my-slides-workflow/` and the packaged `src/my_slides/templates/` mirror. `scripts/sync-skill-templates.py` is the single point that keeps both copies in step; CI and the package build rely on it. Do not hand-edit `templates/` only — that path falls out of sync and breaks the wheel install.

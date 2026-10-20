@@ -295,17 +295,18 @@ def check_deck(
                       const thresholds = {desktop: {heading: 18, body: 14, note: 11}, 'mobile-portrait': {heading: 12, body: 10, note: 8}, 'mobile-landscape': {heading: 11, body: 9, note: 7}};
                       const threshold = thresholds[window.__mlsViewport] || thresholds.desktop;
                       const isMobileViewport = window.__mlsViewport === 'mobile-portrait' || window.__mlsViewport === 'mobile-landscape';
-                      for (const element of slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,.mls-chart svg text')) {
+                      for (const element of slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,blockquote,figcaption,svg text')) {
                         const style = getComputedStyle(element);
                         if (style.display === 'none' || style.visibility === 'hidden') continue;
                         const text = element.textContent?.trim();
                         const box = element.getBoundingClientRect();
                         if (!text || box.width < 1 || box.height < 1) continue;
                         const isChart = Boolean(element.closest('.mls-chart'));
+                        const isSvgText = Boolean(element.ownerSVGElement);
                         const role = /^H[1-6]$/.test(element.tagName) ? 'heading' :
-                          (element.matches('figcaption,.footnote,.source,.note') || isChart ? 'note' : 'body');
+                          (element.matches('figcaption,.footnote,.source,.note') || isSvgText ? 'note' : 'body');
                         let size = parseFloat(style.fontSize);
-                        if (isChart) {
+                        if (isSvgText) {
                           // SVG font-size is in user coordinates; the screen scale comes from the SVG viewBox.
                           const svg = element.ownerSVGElement;
                           const view = svg?.viewBox?.baseVal;

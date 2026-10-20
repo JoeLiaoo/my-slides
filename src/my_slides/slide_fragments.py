@@ -107,7 +107,9 @@ class SlideFragmentParser(HTMLParser):
         "x", "y", "x1", "y1", "x2", "y2", "points", "preserveaspectratio", "clip-path",
         "fill-rule", "clip-rule", "font-size", "font-family", "font-weight", "text-anchor",
         "dominant-baseline", "gradientunits", "gradienttransform", "offset", "stop-color",
-        "stop-opacity", "xlink:href", "href", "aria-hidden", "aria-label", "aria-labelledby",
+        "stop-opacity", "xlink:href", "href", "marker-start", "marker-mid", "marker-end",
+        "markerwidth", "markerheight", "refx", "refy", "orient",
+        "aria-hidden", "aria-label", "aria-labelledby", "aria-describedby",
         "focusable", "overflow", "vector-effect", "style",
     })
     URL_ATTRS = frozenset({
@@ -171,6 +173,10 @@ class SlideFragmentParser(HTMLParser):
                     continue
                 cleaned.append((name, value))
                 continue
+            if lower in {"marker-start", "marker-mid", "marker-end"}:
+                if not re.fullmatch(r"\s*(?:none|url\(\s*#[A-Za-z_][\w.:-]*\s*\))\s*", value or "", flags=re.I):
+                    self.errors.append(f"章节片段的 {name} 只能引用当前 SVG 的本地 marker")
+                    continue
             if lower in self.URL_ATTRS:
                 if value and not self.is_allowed_url(value):
                     self.errors.append(f"章节片段包含不安全链接属性 {name}：{value}")

@@ -2,7 +2,7 @@
 
 ## GitHub Actions
 
-[CI 工作流](../.github/workflows/ci.yml)在 PR、推送到 `main` 和手动触发时运行 `./scripts/run-full-tests.sh`。它使用 Ubuntu、Python 3.11 和 Node 22，先安装 `.[browser]` 与 Playwright 的 Chromium 系统依赖，再由脚本安装锁定的渲染器、Chromium 并执行完整测试。缺少可选依赖会使完整测试失败。
+[CI 工作流](../.github/workflows/ci.yml)在 PR、推送到 `main` 和手动触发时，在 Ubuntu 24.04、macOS 15、原生 Windows 2025 上运行等价于 `./scripts/run-full-tests.sh` 的跨平台 Python 命令。它使用 Python 3.11、Node 22，先安装 `.[browser]`（仅 Linux 安装 Chromium 系统依赖），再安装锁定的渲染器、Chromium 并执行完整测试。`MY_SLIDES_FULL_TESTS=1` 使缺少可选依赖的情况失败。实际设备的 Agent 工作流及 Safari / Edge 交叉离线打开仍须单独记录。
 
 本地开发可以使用以下脚本。
 
@@ -46,7 +46,7 @@ python -m pip install -e '.[browser]'
 | `… --browser --screenshots` | 同上，另需 Pillow（`.[browser]`） | 另存逐页 PNG、三份 contact sheet、带 deck/Spec/规则指纹的 `measurements.json` 到 `.state/visual/<deck-sha>/` |
 | `slides visual-review …` | 已有截图路径 | 记录 Agent 看图结论；`status --json` 的 `slides.visual` 单独追踪，不代替用户批准，不改变 `export` 门槛 |
 
-手机视口图表内过小文字记为 `warnings`；桌面字号与 SVG 标签越界仍为硬错误。缺 Pillow 时 `--screenshots` 立即 `RuntimeError` 提示安装 `my-slides[browser]`。
+手机视口 ECharts 图表内过小文字记为 `warnings`；静态 SVG 的过小文字、桌面字号与 SVG 标签越界是硬错误。缺 Pillow 时 `--screenshots` 立即 `RuntimeError` 提示安装 `my-slides[browser]`。
 
 快速套件默认不装浏览器；缺依赖时带 `--browser` 的用例会 skip。PR 的完整门禁和本地完整回归都使用 `./scripts/run-full-tests.sh`。
 

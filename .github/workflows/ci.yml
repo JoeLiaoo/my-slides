@@ -12,9 +12,15 @@ permissions:
 
 jobs:
   full-tests:
-    name: Full regression (Python 3.11, Node 22)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Full regression (${{ matrix.os }}, Python 3.11, Node 22)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,19 +32,36 @@ jobs:
       - name: Check PR version and changelog
         if: github.event_name == 'pull_request'
         env:
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           MY_SLIDES_ALLOW_MAJOR_VERSION: ${{ contains(github.event.pull_request.labels.*.name, 'version:major') }}
-        run: python scripts/check_pr_version.py --base-ref "origin/${BASE_BRANCH}"
+        run: python scripts/check_pr_version.py --base-ref origin/main
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Install Python and browser system dependencies
+        run: python -m pip install -e '.[browser]'
+      - name: Install Linux browser system dependencies
+        if: runner.os == 'Linux'
+        run: python -m playwright install-deps chromium
+      - name: Install pinned renderer and Chromium
+        env:
+          PYTHONPATH: src
         run: |
-          python -m pip install -e '.[browser]'
-          python -m playwright install-deps chromium
+          python -m my_slides.cli renderer install
+          python -m my_slides.cli browser install
       - name: Run full regression
-        run: ./scripts/run-full-tests.sh
+        env:
+          PYTHONPATH: src
+          MY_SLIDES_FULL_TESTS: '1'
+          MY_SLIDES_CI_EVIDENCE_DIR: ${{ github.workspace }}/diagram-evidence
+        run: python -m unittest discover -s tests -v
+      - name: Preserve synthetic diagram screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diagram-evidence-${{ matrix.os }}
+          path: diagram-evidence/
+          if-no-files-found: warn
 
   release-tag:
     name: Tag release on main

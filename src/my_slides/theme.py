@@ -35,7 +35,9 @@ def _resource(relative: str) -> bytes:
     resource = files("my_slides").joinpath("slides_theme")
     for part in relative.split("/"):
         resource = resource.joinpath(part)
-    return resource.read_bytes()
+    # Git for Windows may check out these text assets as CRLF. The manifest
+    # records the LF source bytes, so normalize before verifying or hashing.
+    return resource.read_bytes().replace(b"\r\n", b"\n")
 
 
 def _text(relative: str) -> str:
