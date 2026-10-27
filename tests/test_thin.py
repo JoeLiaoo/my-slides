@@ -24,8 +24,7 @@ class ThinWorkspaceTests(unittest.TestCase):
         self.temp.cleanup()
 
     def args(self, **extra):
-        return argparse.Namespace(project=str(self.root), json=True, target=None, legacy=False,
-                                  force=False, source_dir=None, **extra)
+        return argparse.Namespace(project=str(self.root), json=True, target=None, **extra)
 
     def config(self, present):
         self.base.mkdir(exist_ok=True)
@@ -244,16 +243,23 @@ class ThinWorkspaceTests(unittest.TestCase):
         self.assertEqual(result["targets"]["beautiful"]["status"], "pending_agent")
         check.assert_not_called()
 
-    def test_legacy_flags_require_explicit_legacy_mode(self):
-        args = self.args()
-        args.force = True
-        with self.assertRaisesRegex(ValueError, "--legacy"):
-            thin.init(args)
-        self.assertFalse(self.base.exists())
-        args.legacy = True
-        with patch("my_slides.commands.init.init_project", return_value=0) as legacy:
-            self.assertEqual(thin.init(args), 0)
-        legacy.assert_called_once_with(args)
+    def test_cli_exposes_only_thin_commands_and_rejects_legacy_flags(self):
+        from my_slides.cli import build_parser
+
+        parser = build_parser()
+        actions = next(action for action in parser._actions if isinstance(action, argparse._SubParsersAction))
+        self.assertEqual(set(actions.choices), {"init", "present", "help"})
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                parser.parse_args(["init", "--legacy"])
+        self.assertEqual(error.exception.code, 2)
+
+    def test_init_can_add_config_alongside_archived_legacy_files(self):
+        self.base.mkdir()
+        (self.base / "project.yaml").write_text("archived: true\n", encoding="utf-8")
+        self.assertEqual(thin.init(self.args()), 0)
+        self.assertEqual((self.base / "project.yaml").read_text(encoding="utf-8"), "archived: true\n")
+        self.assertTrue((self.base / "project.json").is_file())
 
     def test_cli_discovers_thin_project_from_nested_unicode_directory(self):
         self.config({"beautiful": {"provider": "beautiful-article", "output": "my-slides/a.html"}})

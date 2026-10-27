@@ -1,8 +1,6 @@
 {
   "project": "Aurora Logistics",
-  "unit_id": "cover-kpis",
-  "chapter": "投资概要",
-  "role": "cover",
+  "page_id": "cover-kpis",
   "as_of": "2024-12-31",
   "currency": "CNY",
   "verdict": "推荐跟投，规模不超过基金组合的 4%",

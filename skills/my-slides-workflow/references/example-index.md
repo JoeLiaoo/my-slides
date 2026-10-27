@@ -16,13 +16,12 @@ Open when choosing a layout for a page. Examples live under `examples/` (or `src
 examples/<category>/<id>/
 ├── README.md         # 用途、匹配的沟通问题、复用方法
 ├── data.json         # 虚构数据
-├── wiki.md           # 假想的 wiki 索引片段
-├── report-excerpt.md # 假想的报告段落（论证与边界）
+├── article.md        # 虚构的共享正文（论证与边界）
 ├── page.html         # Design 页面
 └── check-notes.md    # 期望通过的检查与视觉自检
 ```
 
-复用时把 `page.html` 复制为 `slides/<单元 ID>.html`，把 `<section id>` 改成单元 ID，再按已批准报告替换内容。
+复用时把 `page.html` 复制进目标 deck 的 `slides/`，按 Design skill 修改页面 ID，再依据项目 `article.md` 替换内容。
 
 ## 按沟通问题选版式
 

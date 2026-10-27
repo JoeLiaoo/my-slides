@@ -17,7 +17,7 @@ Read [README.md](./README.md) and [skills/my-slides-workflow/SKILL.md](./skills/
 ## Contributing (brief)
 
 - Prefer topic branches and pull requests into `main`.
-- GitHub Actions runs the Python test suite on PRs; the Design+Slides engine integration tests skip there because the engine lives in a private repo. Run `./scripts/run-quick-tests.sh` while developing, and `./scripts/run-full-tests.sh` (requires `MY_SLIDES_DESIGN_ROOT`) before changing anything that talks to the Design engine.
+- GitHub Actions runs the Python thin-workspace suite on PRs. Run `./scripts/run-quick-tests.sh` while developing. `./scripts/run-full-tests.sh` checks `MY_SLIDES_DESIGN_ROOT` readiness, skill mirrors, and the same suite before changing Design integration.
 - Keep original investment project sources read-only; agents edit only `my-slides/` outputs inside user projects.
 
 ## Skill templates (mandatory when editing the skill)
@@ -32,10 +32,10 @@ CI and package builds require the mirrors to match. Do not edit only `templates/
 
 ## Slides QA expectations
 
-Slides are Design+Slides pages (issue #58). When changing the deck sync, Design checks, examples, or page-writing guidance:
+Slides are Design+Slides pages (issue #58). When changing Design checks, examples, or page-writing guidance:
 
 - Page format is owned by Design's own slides skill (`<MY_SLIDES_DESIGN_ROOT>/skills/slides/`); my-slides references add only investment-specific rules. Do not copy Design's format rules into this repo.
-- `slides check` (Design structure) is required; `--browser` (Design render check) needs the host running. Visual quality is reviewed by the user on 5173 — do not claim automated visual QA.
+- `my-slides present` reports slides success only after Design `check deck --strict`; the Design render check needs the host running. Visual quality is reviewed by the user on 5173 — do not claim automated visual QA.
 - Every example `page.html` must pass the Design check with `--strict`.
 - Prefer updating existing references (`references/slides.md`, `charts.md`, `visual-rules.md`) over adding a parallel doc tree.
 

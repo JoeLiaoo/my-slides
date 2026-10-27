@@ -32,7 +32,7 @@ class SyncSkillTemplatesTests(unittest.TestCase):
     def test_check_fails_when_drifted(self):
         # Force sync first, then introduce drift in the packaged mirror.
         self.run_sync("--force")
-        packaged = REPO_ROOT / "src" / "my_slides" / "templates" / "references" / "wiki.md"
+        packaged = REPO_ROOT / "src" / "my_slides" / "templates" / "references" / "slides.md"
         backup = packaged.read_text(encoding="utf-8")
         try:
             packaged.write_text(backup + "\nExtra drift.\n", encoding="utf-8")

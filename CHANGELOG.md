@@ -6,6 +6,17 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.9.0] - Pending
+
+### Breaking Changes
+
+- Remove `init --legacy`, `--force`, and `--source-dir`. Remove the Wiki/Report/units workflow and its `project.yaml`, `units.json`, `reports/units`, and `.state` approval paths. Existing projects must move their article into `article.md` and add `project.json`; use an older package version to operate the old workflow.
+- Remove the legacy `sources`, `prepare`, `validate`, `approve`, `review`, `confirm`, `reject`, `withdraw`, `revoke`, `assemble`, `units`, `chapters`, `slides`, `export`, `doctor`, `status`, `next`, `agent`, and `clean` commands. The CLI now exposes only `init`, `present`, `help`, and `--version`.
+
+### Changed
+
+- Update README, Agent help, skill references, and migration guidance for the thin workspace. Keep Design `check --strict` behind `present`, with rendering and visual review handled separately.
+
 ## [0.8.0] - Pending
 
 ### Breaking Changes

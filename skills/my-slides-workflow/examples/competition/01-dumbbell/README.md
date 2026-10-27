@@ -10,8 +10,7 @@
 
 ```text
 data.json         虚构市占率数据
-wiki.md           假想 wiki 索引片段
-report-excerpt.md 报告「同业对比」段落摘录
+article.md        虚构正文「同业对比」段落
 page.html         Design 页面：标题 + 内联 SVG 哑铃图 + 来源脚注 + 讲稿
 check-notes.md    期望通过的检查与视觉自检
 ```

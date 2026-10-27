@@ -1,4 +1,4 @@
-"""Local investment wiki and presentation workflow."""
+"""Thin research article presentation workspace."""
 
 from __future__ import annotations
 
