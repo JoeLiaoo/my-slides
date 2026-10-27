@@ -6,6 +6,21 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.8.0] - Pending
+
+### Breaking Changes
+
+- `init` now creates the versioned `my-slides/project.json` thin workspace by default; use `init --legacy` only for the retained 0.7 unit workflow. New projects no longer require Wiki, Report, units, numbers, or report approval before presentation. Existing `project.yaml` projects are not converted in place, and their approvals do not approve a new article.
+
+### Added
+
+- Add `present [--target beautiful|slides]` with independent target results and explicit Agent handoff. A missing provider or input returns a nonzero status, while a Design structure check reports only that check's success. Preserve existing output files on failures.
+- Document the new project contract, content ownership, safe migration, and RSI acceptance criteria.
+
+### Fixed
+
+- Reject redirected workspaces, linked output trees, and blank article inputs. Isolate target read errors and Design timeouts, and explicitly report unknown article-to-output consistency without claiming automatic freshness tracking.
+
 ## [0.7.0] - Pending
 
 Slides are now authored and reviewed in Design+Slides (issue #58). The engine is located through `MY_SLIDES_DESIGN_ROOT`; the user reviews and hand-edits pages on the Design host at `127.0.0.1:5173`.
