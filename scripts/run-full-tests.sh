@@ -1,28 +1,29 @@
 #!/usr/bin/env bash
-# Full regression for my-slides, used locally and in GitHub Actions.
+# Full local regression: also runs the Design+Slides engine integration tests.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export PYTHONPATH="${PYTHONPATH:-}:$ROOT/src"
-export MY_SLIDES_FULL_TESTS=1
+# Ask Python for the path form and separator so Git Bash on Windows works too.
+SRC="$(python3 -c 'import os; print(os.path.abspath("src"))')"
+SEP="$(python3 -c 'import os; print(os.pathsep)')"
+export PYTHONPATH="$SRC${PYTHONPATH:+$SEP$PYTHONPATH}"
 
-if [[ -z "${MY_SLIDES_RENDERER_HOME:-}" ]]; then
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    export MY_SLIDES_RENDERER_HOME="${HOME}/Library/Application Support/MySlides/renderer"
-  else
-    export MY_SLIDES_RENDERER_HOME="${LOCALAPPDATA:-${HOME}/.local/share}/MySlides/renderer"
-  fi
-fi
+echo "==> Checking Design+Slides engine (MY_SLIDES_DESIGN_ROOT)"
+python3 -c 'import json, sys
+from my_slides.design_engine import design_status
+status = design_status()
+print(json.dumps(status, ensure_ascii=False, indent=2))
+sys.exit(0 if status["ready"] else 1)' || {
+  echo "Design+Slides engine not ready: set MY_SLIDES_DESIGN_ROOT, then npm install && npm run build in it." >&2
+  exit 1
+}
 
-echo "==> Installing pinned renderer (ECharts / Lucide)"
-python3 -m my_slides.cli renderer install
+echo "==> Checking skill template mirrors"
+python3 scripts/sync-skill-templates.py --check
 
-echo "==> Installing Playwright Chromium"
-python3 -m my_slides.cli browser install
-
-echo "==> Running full unittest suite (skips become failures via MY_SLIDES_FULL_TESTS=1)"
+echo "==> Running full unittest suite"
 python3 -m unittest discover -s tests -v
 
 echo "==> Full local tests passed."
