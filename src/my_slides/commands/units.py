@@ -23,13 +23,12 @@ def _remove_human(plan: dict, *, executed: bool) -> str:
     missing = [item["path"] for item in plan.get("artifacts", []) if not item["exists"]]
     if missing:
         lines.append("当前不存在、不会移动：" + "、".join(missing))
-    for kind in ("report", "spec"):
-        approval = plan["approvals"][kind]
-        label = "当前有效" if approval["current"] else ("已有历史批准，当前已失效" if approval["has_record"] else "未批准")
-        if approval["pending"]:
-            label += "，有待确认申请"
-        by = f"（审批人：{approval['approved_by']}）" if approval.get("approved_by") else ""
-        lines.append(f"{kind}：{label}{by}")
+    approval = plan["approvals"]["report"]
+    label = "当前有效" if approval["current"] else ("已有历史批准，当前已失效" if approval["has_record"] else "未批准")
+    if approval["pending"]:
+        label += "，有待确认申请"
+    by = f"（审批人：{approval['approved_by']}）" if approval.get("approved_by") else ""
+    lines.append(f"report：{label}{by}")
     deps = plan["dependencies"]
     lines.append("本单元声明依赖：" + ("、".join(deps["declared"]) or "无"))
     lines.append("依赖此单元的单元：" + ("、".join(deps["dependent_units"]) or "无"))
@@ -39,7 +38,7 @@ def _remove_human(plan: dict, *, executed: bool) -> str:
     elif executed:
         lines.append(f"已移入回收区：{plan['trash_id']}")
         lines.append(f"恢复命令：{plan['restore_command']}")
-        lines.append("请重新组装报告，并重建整套 Slides、重新检查。")
+        lines.append("请重新组装报告，并运行 slides build --all 同步 Design deck 后重新检查。")
         lines.append("受影响输出：" + "；".join(plan.get("affected_outputs", [])))
     else:
         lines.append("当前仅为预览，没有更改文件。确认后添加 --yes 执行。")
@@ -64,7 +63,7 @@ def run(args: argparse.Namespace) -> int:
     if operation == "add":
         data = add_unit(base, args.id, args.chapter, chapters, after=args.after, role=args.role, title=args.title)
         label = f"{args.chapter} / {args.title}" if args.title else args.chapter
-        emit(args, data, f"已新增小章节 {args.id}（{label}）；请填写报告、Spec 和 HTML。一个小章节可以包含多页。")
+        emit(args, data, f"已新增小章节 {args.id}（{label}）；请先填写报告，批准后再写 Design 页面。一个小章节可以包含多页。")
         return 0
     if operation == "remove":
         plan = remove_unit(base, args.id, chapters, project_root=root) if args.yes else remove_plan(base, args.id, chapters, project_root=root)
@@ -75,19 +74,21 @@ def run(args: argparse.Namespace) -> int:
     if operation == "move":
         data = move_unit(base, args.id, chapters, after=args.after, before=args.before, chapter=args.chapter)
         context = f"；报告需用户确认：{data['report_reconfirmation']}" if data.get("report_reconfirmation") else ""
-        emit(args, data, f"已移动 {args.id}；请按需重新确认报告并重新组装报告，再重建整套 Slides 并重新检查{context}。")
+        emit(args, data, f"已移动 {args.id}；请按需重新确认报告并重新组装报告，再运行 slides build --all 同步页序并重新检查{context}。")
         return 0
     if operation == "rename":
         data = rename_unit(base, args.old_id, args.new_id, chapters)
-        emit(args, data, f"已将 {args.old_id} 重命名为 {args.new_id}；请重新组装报告，并重建整套 Slides、重新检查。")
+        emit(args, data, f"已将 {args.old_id} 重命名为 {args.new_id}（Design 页面同步改名）；请重新组装报告，并重新检查 Slides。")
         return 0
     if operation == "retitle":
         data = retitle_unit(base, args.id, args.title, chapters)
-        emit(args, data, f"已将 {args.id} 的显示名改为「{data['unit'].get('title', '')}」。报告和 Spec 批准保持有效；请重建整套 Slides。")
+        emit(args, data, f"已将 {args.id} 的显示名改为「{data['unit'].get('title', '')}」。报告批准保持有效；请运行 slides build --all 同步章节分节。")
         return 0
     if operation == "restore":
         data = restore_unit(base, args.trash_id, chapters)
-        human = f"已恢复单元 {data['unit']['id']} 至原章节与位置。报告批准：{'有效' if data['approvals']['report'] else '需重新确认'}；Spec 批准：{'有效' if data['approvals']['spec'] else '需重新确认'}。"
+        human = f"已恢复单元 {data['unit']['id']} 至原章节与位置。报告批准：{'有效' if data['approvals']['report'] else '需重新确认'}。"
+        if data.get("deck_sync_error"):
+            human += "\n" + data["deck_sync_error"]
         emit(args, data, human)
         return 0
     if operation == "trash" and args.trash_command == "list":

@@ -1,4 +1,4 @@
-"""Show a pending report or Spec in a form an agent can paste into chat."""
+"""Show a pending report in a form an agent can paste into chat."""
 
 from __future__ import annotations
 
@@ -11,12 +11,9 @@ from ..project import ensure_project, project_root, require_v2_project
 
 def _human(packet: dict) -> str:
     lines = [f"待审批：{packet['kind']} / {packet['target']}"]
-    if packet.get("visual_rubric"):
-        lines.append("\n" + packet["visual_rubric"])
     for unit in packet["units"]:
         title = f"{unit['chapter']} / {unit['title']}" if unit.get("title") else unit["chapter"]
-        pages = f"\n页数：{unit['pages']}" if unit.get("pages") else ""
-        lines.append(f"\n{title}（{unit['id']}）\n文件：{unit['path']}{pages}\n变更：{unit['changes']['summary']}")
+        lines.append(f"\n{title}（{unit['id']}）\n文件：{unit['path']}\n变更：{unit['changes']['summary']}")
         if unit["changes"].get("diff"):
             lines.append("具体差异：\n" + unit["changes"]["diff"])
         lines.append("待审正文：\n" + str(unit.get("content") or "").rstrip())

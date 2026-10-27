@@ -12,7 +12,7 @@ from typing import Any
 
 from .dependencies import fingerprint_json
 from .project import now
-from .state import refresh_unit_currency
+from .state import refresh_unit_currency, require_approval_kind
 from .units import Unit, UnitsError, load_units_manifest, unit_paths
 
 
@@ -56,48 +56,35 @@ def revoke_phrase(kind: str, target: str, digest: str) -> str:
 def approval_binding(unit: Unit, kind: str, state: dict[str, Any]) -> dict[str, str]:
     """Fields a confirmation phrase must match, beyond the body hash.
 
-    Chapter, report dependency fingerprint, and the Spec's bound report version
-    are included so an older phrase cannot approve a moved section or a request
-    resubmitted after dependencies changed.
+    Chapter and the report dependency fingerprint are included so an older
+    phrase cannot approve a moved section or a request resubmitted after
+    dependencies changed.
     """
     pending = state[kind].get("pending_approval")
     if not isinstance(pending, dict):
         pending = {}
-    binding = {
+    return {
         "chapter": unit.chapter,
         "content_sha256": str(state[kind].get("content_sha256") or ""),
         "id": unit.id,
+        "input_fingerprint": str(pending.get("input_fingerprint") or state[kind].get("input_fingerprint") or ""),
     }
-    if kind == "report":
-        binding["input_fingerprint"] = str(pending.get("input_fingerprint") or state["report"].get("input_fingerprint") or "")
-    else:
-        binding["report_input_fingerprint"] = str(
-            pending.get("report_input_fingerprint") or state["spec"].get("report_input_fingerprint") or ""
-        )
-        binding["report_sha256"] = str(pending.get("report_sha256") or state["spec"].get("report_sha256") or "")
-    return binding
 
 
 def revoke_binding(unit: Unit, kind: str, state: dict[str, Any]) -> dict[str, str]:
     """Fields a revoke phrase must match: the CURRENT approved version.
 
     Uses ``approved_sha256`` (not the on-disk content hash) so the phrase
-    remains valid until the user replaces the approval. For a Spec, the
-    bound report version is also included so an approval made against a
-    different report cannot be revoked later.
+    remains valid until the user replaces the approval.
     """
     bucket = state[kind]
-    binding: dict[str, str] = {
+    return {
         "chapter": unit.chapter,
         "id": unit.id,
         "approved_sha256": str(bucket.get("approved_sha256") or ""),
         "approved_at": str(bucket.get("approved_at") or ""),
         "approved_by": str(bucket.get("approved_by") or ""),
     }
-    if kind == "spec":
-        binding["report_sha256"] = str(state["spec"].get("report_sha256") or "")
-        binding["report_input_fingerprint"] = str(state["spec"].get("report_input_fingerprint") or "")
-    return binding
 
 
 def bindings_digest(bindings: list[dict[str, str]], *, chapter_scope: bool) -> str:
@@ -135,51 +122,11 @@ def _unified_diff(previous: str, current: str, label: str) -> tuple[str, bool]:
     return "\n".join([*diff[:DIFF_LINE_LIMIT], notice]), True
 
 
-def _spec_change_diff(previous: str, current: str) -> tuple[str, list[str], bool]:
-    from .unit_workflow import split_spec_pages
-
-    old_preamble, old_pages = split_spec_pages(previous)
-    new_preamble, new_pages = split_spec_pages(current)
-    old_map = {page["number"]: page["body"] for page in old_pages}
-    new_map = {page["number"]: page["body"] for page in new_pages}
-    notes: list[str] = []
-    chunks: list[str] = []
-    truncated = False
-    if old_preamble.strip() != new_preamble.strip():
-        notes.append("文首：修改")
-        text, cut = _unified_diff(old_preamble, new_preamble, "文首")
-        chunks.append(text)
-        truncated = truncated or cut
-    for number in sorted(set(old_map) | set(new_map)):
-        old_body = old_map.get(number)
-        new_body = new_map.get(number)
-        if old_body is None and new_body is not None:
-            notes.append(f"第 {number} 页：新增")
-            text, cut = _unified_diff("", new_body, f"第 {number} 页")
-        elif new_body is None and old_body is not None:
-            notes.append(f"第 {number} 页：删除")
-            text, cut = _unified_diff(old_body, "", f"第 {number} 页")
-        elif old_body != new_body:
-            notes.append(f"第 {number} 页：修改")
-            text, cut = _unified_diff(old_body or "", new_body or "", f"第 {number} 页")
-        else:
-            continue
-        chunks.append(text)
-        truncated = truncated or cut
-    return "\n".join(chunk for chunk in chunks if chunk), notes, truncated
-
-
 def describe_changes(kind: str, previous: str | None, current: str) -> dict[str, Any]:
     if previous is None:
         return {"summary": "没有可对比的已批准副本", "pages": [], "diff": "", "truncated": False}
     if previous == current:
         return {"summary": "与上次批准的内容相同", "pages": [], "diff": "", "truncated": False}
-    if kind == "spec":
-        diff, pages, truncated = _spec_change_diff(previous, current)
-        summary = "；".join(pages) if pages else "Spec 有变化"
-        if truncated:
-            summary += "（差异已截断）"
-        return {"summary": summary, "pages": pages, "diff": diff, "truncated": truncated}
     diff, truncated = _unified_diff(previous, current, "报告")
     summary = "报告正文有变化"
     if truncated:
@@ -219,8 +166,7 @@ def review_packet(
     chapter: str | None,
     project_root: Path,
 ) -> dict[str, Any]:
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     units, target = select_review_units(base, cfg, unit_id=unit_id, chapter=chapter)
     rows: list[dict[str, Any]] = []
     entries: list[dict[str, str]] = []
@@ -228,7 +174,7 @@ def review_packet(
         state = refresh_unit_currency(base, unit, project_root=project_root)
         if not state[kind]["pending_current"]:
             raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请；请先提交审批")
-        path = unit_paths(base, unit.id).report if kind == "report" else unit_paths(base, unit.id).spec
+        path = unit_paths(base, unit.id).report
         current = path.read_text(encoding="utf-8")
         previous_sha = state[kind].get("approved_sha256")
         previous = None
@@ -236,9 +182,6 @@ def review_packet(
             copy = approved_copy_path(base, kind, unit.id, previous_sha)
             if copy.is_file():
                 previous = copy.read_text(encoding="utf-8")
-        from .unit_workflow import split_spec_pages
-
-        _preamble, pages = split_spec_pages(current) if kind == "spec" else ("", [])
         binding = approval_binding(unit, kind, state)
         entries.append(binding)
         rows.append({
@@ -247,7 +190,6 @@ def review_packet(
             "title": unit.title,
             "path": path.relative_to(base).as_posix(),
             "sha256": binding["content_sha256"],
-            "pages": len(pages) if kind == "spec" else None,
             "content": current,
             "changes": describe_changes(kind, previous, current),
         })
@@ -263,11 +205,6 @@ def review_packet(
         "digest": digest,
         "units": rows,
         "reviewed_at": now(),
-        "visual_rubric": (
-            "Spec 视觉检查：逐页核对内容类型与版式是否匹配、同一版式连续不超过 2 页、"
-            "整套版式种类达下限；记录 deck 版式多样性 1–5 分和每页信息密度 1–5 分。"
-            "参照 references/visual-rules.md：3 分及以上为交付线。"
-        ) if kind == "spec" else None,
     }
 
 

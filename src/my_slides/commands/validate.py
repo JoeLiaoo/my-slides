@@ -1,4 +1,4 @@
-"""Validate Wiki pages or selected report and Spec units."""
+"""Validate Wiki pages, the evidence number list, or selected report units."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 from ..command_output import emit
 from ..project import ensure_project, project_root, require_v2_project
 from ..research import validate_number_list
-from ..unit_workflow import resolve_unit_selection, validate_deck_spec, validate_unit_report, validate_unit_spec
+from ..unit_workflow import resolve_unit_selection, validate_unit_report
 from ..wiki import validate_wiki
 
 
@@ -26,13 +26,7 @@ def run(args: argparse.Namespace) -> int:
             base, cfg,
             unit_ids=args.units, changed=args.changed, all_units=args.all_units,
         )
-        errors = []
-        for unit in units:
-            errors.extend(validate_unit_report(base, unit) if args.kind == "report" else validate_unit_spec(base, unit))
-        if args.kind == "spec":
-            errors.extend(validate_deck_spec(base))
-        if args.kind == "spec" and any(unit.role == "content" for unit in units):
-            errors.extend(validate_number_list(base))
+        errors = [error for unit in units for error in validate_unit_report(base, unit)]
         data = {"valid": not errors, "errors": errors, "units": [unit.id for unit in units]}
     emit(
         args, data,

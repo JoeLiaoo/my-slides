@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .dependencies import UNIT_DEPS_FILENAME, build_unit_dependency_graph, fingerprint_file, load_explicit_unit_deps
+from .design_deck import SLIDE_ID_RE, deck_dir, page_unit, publish_deck_files, remap_unit_pages, sync_deck, unit_pages
 from .project import now
 from .state import read_unit_state, refresh_unit_currency, write_unit_state
 from .units import (
@@ -87,9 +88,6 @@ def _unit_artifacts(base: Path, unit_id: str) -> list[Path]:
     paths = unit_paths(base, unit_id)
     candidates = [
         paths.report,
-        paths.spec,
-        paths.page,
-        paths.preview,
         paths.state,
         paths.report.with_name(f"{unit_id}.{UNIT_DEPS_FILENAME}"),
     ]
@@ -107,17 +105,22 @@ def _unit_artifacts(base: Path, unit_id: str) -> list[Path]:
     return existing
 
 
-def _invalidate_deck_checks(base: Path, units: list[Unit]) -> None:
-    """Force every unit's browser result stale after a structural inventory change."""
-    for unit in units:
-        path = unit_paths(base, unit.id).state
-        _ensure_within_workspace(base, path)
+def _page_artifacts(base: Path, unit_id: str) -> list[Path]:
+    """Design pages owned by the unit; they travel with it on remove and restore."""
+    pages = [deck_dir(base) / "slides" / f"{page}.html" for page in unit_pages(base, unit_id)]
+    for path in pages:
         if path.is_symlink():
-            raise UnitsError(f"不支持单元状态文件为符号链接：{path}")
-        state = read_unit_state(base, unit.id)
-        state["check"]["input_fingerprint"] = None
-        state["check"]["current"] = False
-        write_unit_state(base, unit.id, state)
+            raise UnitsError(f"不支持页面文件为符号链接：{path}")
+        _ensure_within_workspace(base, path)
+    return pages
+
+
+def _is_unit_page_path(base: Path, relative: str, unit_id: str) -> bool:
+    prefix = (deck_dir(base) / "slides").relative_to(base).as_posix() + "/"
+    if not relative.startswith(prefix) or not relative.endswith(".html"):
+        return False
+    page = relative[len(prefix):-len(".html")]
+    return bool(SLIDE_ID_RE.fullmatch(page)) and page_unit(page, {unit_id}) == unit_id
 
 
 def _snapshot_unit_states(base: Path, units: list[Unit]) -> dict[Path, bytes | None]:
@@ -153,15 +156,7 @@ def _unit_refs(
         if unit_id in dependencies:
             dependents.append(source)
 
-    target_paths = {
-        path.resolve()
-        for path in (
-            unit_paths(base, unit_id).report,
-            unit_paths(base, unit_id).spec,
-            unit_paths(base, unit_id).page,
-            unit_paths(base, unit_id).preview,
-        )
-    }
+    target_paths = {unit_paths(base, unit_id).report.resolve()}
     markdown_links: list[str] = []
     external_markdown_links: list[str] = []
     scan_root = (project_root or base.parent).resolve()
@@ -221,15 +216,14 @@ def remove_plan(
         blockers.append("仍有单元声明依赖此单元")
     if refs["markdown_references"]:
         blockers.append("仍有 Markdown 链接指向此单元")
-    artifacts = _unit_artifacts(base, unit_id)
+    pages = _page_artifacts(base, unit_id)
+    artifacts = _unit_artifacts(base, unit_id) + pages
     paths = unit_paths(base, unit_id)
     expected = [
         (paths.report, "report"),
-        (paths.spec, "spec"),
-        (paths.page, "page"),
-        (paths.preview, "preview"),
         (paths.state, "state"),
         (paths.report.with_name(f"{unit_id}.{UNIT_DEPS_FILENAME}"), "dependency"),
+        *((path, "page") for path in pages),
     ]
     return {
         "operation": "remove",
@@ -242,7 +236,6 @@ def remove_plan(
         ],
         "approvals": {
             "report": {"current": bool(state["report"].get("current")), "pending": bool(state["report"].get("pending_current")), "has_record": bool(state["report"].get("approved_sha256")), "approved_by": state["report"].get("approved_by")},
-            "spec": {"current": bool(state["spec"].get("current")), "pending": bool(state["spec"].get("pending_current")), "has_record": bool(state["spec"].get("approved_sha256")), "approved_by": state["spec"].get("approved_by")},
         },
         "dependencies": {
             "declared": load_explicit_unit_deps(base, unit_id),
@@ -253,8 +246,8 @@ def remove_plan(
         "blocked": bool(blockers),
         "blockers": blockers,
         "deck_requires_rebuild": True,
-        "affected_outputs": ["reports/report.md（原文件保留，但内容可能过期）", "slides/index.html（原文件保留，但需要重建并重查）"],
-        "requires_user_consent": bool(state["report"].get("approved_sha256") or state["spec"].get("approved_sha256")),
+        "affected_outputs": ["reports/report.md（原文件保留，但内容可能过期）", "design/deck（本单元页面移入回收区，deck.json 同步去掉这些页）"],
+        "requires_user_consent": bool(state["report"].get("approved_sha256")),
         "trash_location": f"{TRASH_DIR.as_posix()}/<timestamp>-{unit_id}",
     }
 
@@ -277,23 +270,28 @@ def remove_unit(
         raise UnitsError("删除会使单元清单无效：" + "；".join(errors))
     manifest_path = base / "units.json"
     manifest_backup = manifest_path.read_bytes()
-    state_backups = _snapshot_unit_states(base, units)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     trash_id = f"{stamp}-{unit_id}"
     trash = _trash_root(base) / trash_id
     artifacts = _unit_artifacts(base, unit_id)
+    pages = _page_artifacts(base, unit_id)
+    page_batch = remap_unit_pages(base, unit_id, None)
     data_dir = trash / "data"
     data_dir.mkdir(parents=True, exist_ok=False)
     moved: list[tuple[Path, Path]] = []
     records = []
     try:
-        for source in artifacts:
+        for source in artifacts + pages:
             relative = source.relative_to(base).as_posix()
             target = data_dir / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            source.replace(target)
-            moved.append((target, source))
+            # 页面由 Design 宿主发布删除，这里只留副本；其它产物直接移走。
+            if source in pages:
+                target.write_bytes(source.read_bytes())
+            else:
+                source.replace(target)
+                moved.append((target, source))
             records.append({"original_path": relative, "trash_path": target.relative_to(trash).as_posix(), "sha256": fingerprint_file(target)})
         _atomic_json(
             trash / "manifest.json",
@@ -306,7 +304,8 @@ def remove_unit(
             },
         )
         _write_manifest_atomic(base, units, chapters)
-        _invalidate_deck_checks(base, units)
+        if page_batch:
+            publish_deck_files(base, page_batch)
     except Exception:
         for source, destination in reversed(moved):
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -314,7 +313,6 @@ def remove_unit(
                 source.replace(destination)
         shutil.rmtree(trash, ignore_errors=True)
         manifest_path.write_bytes(manifest_backup)
-        _restore_unit_states(state_backups)
         raise
     result = dict(plan)
     result.update({
@@ -402,9 +400,6 @@ def restore_unit(base: Path, trash_id: str, chapters: list[str]) -> dict[str, An
         path.relative_to(base).as_posix()
         for path in (
             unit_paths(base, unit.id).report,
-            unit_paths(base, unit.id).spec,
-            unit_paths(base, unit.id).page,
-            unit_paths(base, unit.id).preview,
             unit_paths(base, unit.id).state,
             unit_paths(base, unit.id).report.with_name(f"{unit.id}.{UNIT_DEPS_FILENAME}"),
         )
@@ -417,7 +412,7 @@ def restore_unit(base: Path, trash_id: str, chapters: list[str]) -> dict[str, An
         if not isinstance(record, dict) or not isinstance(record.get("original_path"), str) or not isinstance(record.get("trash_path"), str):
             raise UnitsError(f"回收记录中的产物条目无效：{trash_id}")
         original_relative = str(record["original_path"])
-        if original_relative not in allowed_paths:
+        if original_relative not in allowed_paths and not _is_unit_page_path(base, original_relative, unit.id):
             raise UnitsError(f"回收记录含有非单元产物路径：{original_relative}")
         original = _safe_project_path(base, original_relative)
         source = trash / str(record["trash_path"])
@@ -430,6 +425,9 @@ def restore_unit(base: Path, trash_id: str, chapters: list[str]) -> dict[str, An
         if source.is_symlink() or not source.is_file():
             raise UnitsError(f"回收文件缺失：{record['trash_path']}")
         moves.append((source, original))
+    deck_slides = deck_dir(base) / "slides"
+    page_moves = [(source, original) for source, original in moves if original.parent == deck_slides]
+    moves = [move for move in moves if move not in page_moves]
     completed: list[tuple[Path, Path]] = []
     units_manifest = base / "units.json"
     units_manifest_backup = units_manifest.read_bytes()
@@ -439,6 +437,11 @@ def restore_unit(base: Path, trash_id: str, chapters: list[str]) -> dict[str, An
             source.replace(destination)
             completed.append((destination, source))
         _write_manifest_atomic(base, restored_units, chapters)
+        if page_moves:
+            publish_deck_files(base, {
+                original.relative_to(deck_dir(base)).as_posix(): source.read_text(encoding="utf-8")
+                for source, original in page_moves
+            })
         state = refresh_unit_currency(base, unit, project_root=base.parent)
         data["restored_at"] = now()
         _atomic_json(manifest_path, data)
@@ -449,14 +452,21 @@ def restore_unit(base: Path, trash_id: str, chapters: list[str]) -> dict[str, An
                 destination.replace(source)
         units_manifest.write_bytes(units_manifest_backup)
         raise
-    _invalidate_deck_checks(base, restored_units)
+    deck_sync_error = None
+    if page_moves:
+        try:
+            sync_deck(base, {"chapters": chapters}, [])
+        except ValueError as exc:
+            deck_sync_error = f"页面已恢复，但 deck.json 页序未更新：{exc}；请运行 my-slides slides build --all"
     return {
         "restored": True,
         "trash_id": trash_id,
         "unit": unit.to_dict(),
         "position": position,
-        "approvals": {"report": state["report"]["current"], "spec": state["spec"]["current"]},
-        "invalidated": [kind for kind in ("report", "spec") if not state[kind]["current"]],
+        "approvals": {"report": state["report"]["current"]},
+        "invalidated": [] if state["report"]["current"] else ["report"],
+        "restored_pages": [original.stem for _source, original in page_moves],
+        "deck_sync_error": deck_sync_error,
     }
 
 
@@ -504,9 +514,6 @@ def add_unit(
     paths = unit_paths(base, unit_id)
     targets = [
         paths.report,
-        paths.spec,
-        paths.page,
-        paths.preview,
         paths.state,
         paths.report.with_name(f"{unit_id}.{UNIT_DEPS_FILENAME}"),
     ]
@@ -516,31 +523,16 @@ def add_unit(
         _ensure_within_workspace(base, path)
     manifest_path = base / "units.json"
     manifest_backup = manifest_path.read_bytes()
-    state_backups = _snapshot_unit_states(base, proposed)
-    created: list[Path] = []
     try:
-        for path in targets[:3]:
-            path.parent.mkdir(parents=True, exist_ok=True)
+        paths.report.parent.mkdir(parents=True, exist_ok=True)
         heading = section_title or unit_id
         paths.report.write_text(f"# {heading}\n\n<!-- TODO: 撰写 {chapter} / {heading} 的报告内容。 -->\n", encoding="utf-8")
-        created.append(paths.report)
-        paths.spec.write_text(
-            f"# {heading}\n\n单元 ID：{unit_id}\n页面角色：content\n\n"
-            "## Slide 1 — 标题\n\n<!-- TODO: 为这个小章节的每一页填写 Spec；需要更多页时继续增加 ## Slide 2 — 标题。 -->\n",
-            encoding="utf-8",
-        )
-        created.append(paths.spec)
-        paths.page.write_text(f'<section class="slide" data-unit-id="{unit_id}" data-page-role="content">\n  <!-- TODO: 实现页面。 -->\n</section>\n', encoding="utf-8")
-        created.append(paths.page)
         _write_manifest_atomic(base, proposed, chapters)
-        _invalidate_deck_checks(base, proposed)
     except Exception:
         manifest_path.write_bytes(manifest_backup)
-        _restore_unit_states(state_backups)
-        for path in created:
-            path.unlink(missing_ok=True)
+        paths.report.unlink(missing_ok=True)
         raise
-    return {"added": True, "unit": new_unit.to_dict(), "position": index, "files": [p.relative_to(base).as_posix() for p in targets[:3]]}
+    return {"added": True, "unit": new_unit.to_dict(), "position": index, "files": [paths.report.relative_to(base).as_posix()]}
 
 
 def retitle_unit(base: Path, unit_id: str, title: str, chapters: list[str]) -> dict[str, Any]:
@@ -559,16 +551,7 @@ def retitle_unit(base: Path, unit_id: str, title: str, chapters: list[str]) -> d
     errors = validate_units(proposed, chapters)
     if errors:
         raise UnitsError("修改标题会使单元清单无效：" + "；".join(errors))
-    manifest_path = base / "units.json"
-    manifest_backup = manifest_path.read_bytes()
-    state_backups = _snapshot_unit_states(base, proposed)
-    try:
-        _write_manifest_atomic(base, proposed, chapters)
-        _invalidate_deck_checks(base, proposed)
-    except Exception:
-        manifest_path.write_bytes(manifest_backup)
-        _restore_unit_states(state_backups)
-        raise
+    _write_manifest_atomic(base, proposed, chapters)
     return {
         "retitled": True,
         "unchanged": False,
@@ -638,7 +621,6 @@ def move_unit(
     state_backups = _snapshot_unit_states(base, remaining)
     try:
         _write_manifest_atomic(base, remaining, chapters)
-        _invalidate_deck_checks(base, remaining)
         state = read_unit_state(base, unit_id)
         reconfirmation_from = None
         if old.chapter != destination_chapter:
@@ -668,12 +650,8 @@ def move_unit(
             pending = state["report"].get("pending_approval")
             if isinstance(pending, dict) and pending.get("review_context"):
                 state["report"]["pending_approval"] = None
-        state["check"]["input_fingerprint"] = None
-        state["check"]["current"] = False
         write_unit_state(base, unit_id, state)
         refreshed = refresh_unit_currency(base, moved, project_root=base.parent)
-        if "单元顺序或章节发生变化，需重新构建整套 Slides 并检查" not in refreshed["reasons"]:
-            refreshed["reasons"].append("单元顺序或章节发生变化，需重新构建整套 Slides 并检查")
         write_unit_state(base, unit_id, refreshed)
     except Exception:
         manifest_path.write_bytes(manifest_backup)
@@ -686,24 +664,12 @@ def move_unit(
         "to": {"chapter": destination_chapter, "position": next(i for i, unit in enumerate(remaining) if unit.id == unit_id)},
         "cross_chapter": old.chapter != destination_chapter,
         "report_reconfirmation": (refreshed["report"].get("reconfirmation_context") if refreshed["report"].get("reconfirmation_required") else None),
-        "spec_approval_preserved": bool(refreshed["spec"].get("current")),
         "deck_requires_rebuild": True,
     }
 
 
-def _rewrite_identity_text(text: str, old: str, new: str, *, kind: str) -> str:
-    if kind == "spec":
-        text = re.sub(r"^#\s+" + re.escape(old) + r"\s*$", f"# {new}", text, count=1, flags=re.MULTILINE)
-        text = re.sub(r"^(##\s+Slide\s+\d+\s+[—-]\s*)" + re.escape(old) + r"\s*$", rf"\g<1>{new}", text, flags=re.MULTILINE)
-        text = re.sub(r"^(页面 ID\s*[：:]\s*)" + re.escape(old) + r"(\s*)$", rf"\g<1>{new}\2", text, flags=re.MULTILINE)
-        text = re.sub(r"^(单元 ID\s*[：:]\s*)" + re.escape(old) + r"(\s*)$", rf"\g<1>{new}\2", text, flags=re.MULTILINE)
-    elif kind == "report":
-        text = re.sub(r"^#\s+" + re.escape(old) + r"\s*$", f"# {new}", text, count=1, flags=re.MULTILINE)
-    elif kind == "page":
-        text = re.sub(r'(?<=data-unit-id=")[^" ]+(?=")', lambda m: new if m.group(0) == old else m.group(0), text)
-        text = re.sub(r"(?<=data-unit-id=')[^' ]+(?=')", lambda m: new if m.group(0) == old else m.group(0), text)
-        text = re.sub(r'(?<=id=")[^" ]+(?=")', lambda m: new if m.group(0) == old else m.group(0), text)
-    return text
+def _rewrite_report_heading(text: str, old: str, new: str) -> str:
+    return re.sub(r"^#\s+" + re.escape(old) + r"\s*$", f"# {new}", text, count=1, flags=re.MULTILINE)
 
 
 def _renamed_link_target(raw: str, source: Path, old_path: Path, new_path: Path) -> str | None:
@@ -756,9 +722,6 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
     _unit_artifacts(base, old_id)
     rename_map = {
         old_paths.report: new_paths.report,
-        old_paths.spec: new_paths.spec,
-        old_paths.page: new_paths.page,
-        old_paths.preview: new_paths.preview,
         old_paths.state: new_paths.state,
         old_paths.report.with_name(f"{old_id}.{UNIT_DEPS_FILENAME}"): new_paths.report.with_name(f"{new_id}.{UNIT_DEPS_FILENAME}"),
     }
@@ -766,6 +729,9 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
         _ensure_within_workspace(base, target)
         if target.exists() or target.is_symlink():
             raise UnitsError(f"重命名目标已存在，不会覆盖：{target.relative_to(base)}")
+    if unit_pages(base, new_id):
+        raise UnitsError(f"Design deck 中已有 {new_id} 的页面，不会覆盖")
+    page_batch = remap_unit_pages(base, old_id, new_id)
 
     rewrites: dict[Path, bytes] = {}
     for path in base.rglob("*.md"):
@@ -783,11 +749,9 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
         except (OSError, UnicodeDecodeError):
             continue
         after = before
-        if path == old_paths.spec:
-            after = _rewrite_identity_text(after, old_id, new_id, kind="spec")
-        elif path == old_paths.report:
-            after = _rewrite_identity_text(after, old_id, new_id, kind="report")
-        for old_path, new_path in ((old_paths.report, new_paths.report), (old_paths.spec, new_paths.spec), (old_paths.page, new_paths.page)):
+        if path == old_paths.report:
+            after = _rewrite_report_heading(after, old_id, new_id)
+        for old_path, new_path in ((old_paths.report, new_paths.report),):
             # Mask code so examples remain byte-for-byte untouched, then replace links from right to left.
             masked = re.sub(r"```.*?```", lambda match: re.sub(r"[^\n]", " ", match.group(0)), after, flags=re.DOTALL)
             masked = re.sub(r"`[^`\n]+`", lambda match: " " * len(match.group(0)), masked)
@@ -850,9 +814,6 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
             path.write_bytes(content)
         for source, destination in rename_map.items():
             if source.is_file():
-                if source == old_paths.page:
-                    changed_files.append((source, source.read_bytes()))
-                    source.write_text(_rewrite_identity_text(source.read_text(encoding="utf-8"), old_id, new_id, kind="page"), encoding="utf-8")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 source.replace(destination)
                 moved_files.append((destination, source))
@@ -864,22 +825,17 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
             unit_now = new if target_id == new_id else previous
             current = refresh_unit_currency(base, unit_now, project_root=base.parent)
             before = approval_snapshots[previous.id]
-            for kind in ("report", "spec"):
-                if before[kind].get("current"):
-                    if kind == "report":
-                        current[kind]["approved_sha256"] = current[kind].get("content_sha256")
-                        current[kind]["approved_input_fingerprint"] = current[kind].get("input_fingerprint")
-                    else:
-                        current[kind]["approved_sha256"] = current[kind].get("content_sha256")
-                        current[kind]["report_sha256"] = current["report"].get("approved_sha256")
-                        current[kind]["report_input_fingerprint"] = current["report"].get("approved_input_fingerprint")
-                # Preserve audit data and make all generated HTML/check state stale.
-            current["html"]["current"] = False
-            current["check"]["current"] = False
+            if before["report"].get("current"):
+                current["report"]["approved_sha256"] = current["report"].get("content_sha256")
+                current["report"]["approved_input_fingerprint"] = current["report"].get("input_fingerprint")
+                current["report"]["current"] = True
+                current["reasons"] = []
             if previous.id == old_id:
                 current["unit_id"] = new_id
                 current.setdefault("identity_migrations", []).append({"from": old_id, "to": new_id, "at": now()})
             write_unit_state(base, target_id, current)
+        if page_batch:
+            publish_deck_files(base, page_batch)
     except Exception:
         for destination, source in reversed(moved_files):
             source.parent.mkdir(parents=True, exist_ok=True)
@@ -894,7 +850,6 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
                 path.unlink(missing_ok=True)
         _restore_unit_states(state_backups)
         raise
-    _invalidate_deck_checks(base, proposed)
     return {
         "renamed": True,
         "from": old.to_dict(),
@@ -902,6 +857,7 @@ def rename_unit(base: Path, old_id: str, new_id: str, chapters: list[str]) -> di
         "rewritten_markdown": [path.relative_to(base).as_posix() for path in rewrites],
         "rewritten_dependencies": [path.relative_to(base).as_posix() for path in dep_rewrites],
         "report_approval_preserved": bool(approval_snapshots[old_id]["report"].get("current")),
-        "spec_approval_preserved": bool(approval_snapshots[old_id]["spec"].get("current")),
+        "renamed_pages": [rel[len("slides/"):-len(".html")] for rel, content in page_batch.items()
+                          if rel.startswith("slides/") and content is not None],
         "deck_requires_rebuild": True,
     }

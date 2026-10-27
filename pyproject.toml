@@ -4,14 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "my-slides"
-version = "0.6.4"
-description = "Local agent workflow for investment project wikis, reports, and HTML slides"
+version = "0.7.0"
+description = "Local agent workflow for investment project wikis, reports, and Design+Slides decks"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
-
-[project.optional-dependencies]
-browser = ["playwright>=1.52,<2", "Pillow>=11,<13"]
 
 [project.scripts]
 my-slides = "my_slides.cli:main"
@@ -34,10 +31,4 @@ my_slides = [
   "templates/examples/**/*.json",
   "templates/examples/**/*.yaml",
   "templates/examples/**/*.html",
-  "renderer/*.mjs",
-  "renderer/*.json",
-  "slides_theme/*.css",
-  "slides_theme/*.md",
-  "slides_theme/*.json",
-  "slides_theme/upstream/*",
 ]

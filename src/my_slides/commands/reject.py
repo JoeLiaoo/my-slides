@@ -1,4 +1,4 @@
-"""Reject a pending report or Spec approval request.
+"""Reject a pending report approval request.
 
 The user mirrors the same gate as ``confirm``. Chat approval mode requires
 ``--via chat`` together with a matching ``--phrase`` and ``--user-reply``;
@@ -59,7 +59,7 @@ def run(args: argparse.Namespace) -> int:
     request = state[args.kind].get("pending_approval")
     if not state[args.kind]["pending_current"] or not isinstance(request, dict):
         raise ValueError(f"{unit.id}：没有有效的 {args.kind} 待审批申请，或申请后内容/依赖已变化；请重新提交审批")
-    artifact = unit_paths(base, unit.id).report if args.kind == "report" else unit_paths(base, unit.id).spec
+    artifact = unit_paths(base, unit.id).report
     digest = request["content_sha256"]
     print(f"待驳回：{args.kind} / {unit.id}\n文件：{artifact}\n内容 SHA-256：{digest}\n申请时间：{request['requested_at']}\n原因：{reason}")
     reviewer = input("审批人姓名：").strip()

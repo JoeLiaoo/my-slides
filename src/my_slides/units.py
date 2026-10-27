@@ -48,9 +48,6 @@ class UnitPaths:
     """Resolved paths for one unit inside a my-slides workspace."""
 
     report: Path
-    spec: Path
-    page: Path
-    preview: Path
     state: Path
 
 
@@ -139,9 +136,6 @@ def unit_paths(base: Path, unit_id: str) -> UnitPaths:
         raise UnitsError(f"非法单元 ID：{unit_id}")
     return UnitPaths(
         report=base / "reports" / "units" / f"{unit_id}.md",
-        spec=base / "specs" / "units" / f"{unit_id}.md",
-        page=base / "slides" / "pages" / f"{unit_id}.html",
-        preview=base / "slides" / "previews" / f"{unit_id}.html",
         state=base / ".state" / "units" / f"{unit_id}.json",
     )
 
@@ -151,16 +145,7 @@ def assembled_report_path(base: Path) -> Path:
 
 
 def ensure_v2_directories(base: Path) -> None:
-    for relative in (
-        "reports/units",
-        "specs/units",
-        "slides/pages",
-        "slides/previews",
-        ".state/units",
-        ".state/cache",
-        ".state/revisions",
-        ".state/deliveries",
-    ):
+    for relative in ("reports/units", ".state/units"):
         (base / relative).mkdir(parents=True, exist_ok=True)
 
 
@@ -273,38 +258,27 @@ def list_units_status(base: Path, chapters: list[str]) -> dict[str, Any]:
             "missing": [],
             "message": "当前为 v1 章节格式；旧版章节迁移已不支持，请重新 my-slides init 创建 v2 项目",
         }
+    from .design_deck import unit_pages
+
     units, _ = load_units_manifest(base, chapters)
     known_ids = {unit.id for unit in units}
     missing: list[dict[str, str]] = []
     rows: list[dict[str, Any]] = []
     for unit in units:
-        paths = unit_paths(base, unit.id)
-        presence = {
-            "report": paths.report.is_file(),
-            "spec": paths.spec.is_file(),
-            "page": paths.page.is_file(),
-        }
-        path_map = {"report": paths.report, "spec": paths.spec, "page": paths.page}
-        for kind, present in presence.items():
-            if not present:
-                missing.append({
-                    "id": unit.id,
-                    "artifact": kind,
-                    "path": path_map[kind].relative_to(base).as_posix(),
-                })
+        report = unit_paths(base, unit.id).report
+        if not report.is_file():
+            missing.append({"id": unit.id, "artifact": "report", "path": report.relative_to(base).as_posix()})
         rows.append({
             "id": unit.id,
             "chapter": unit.chapter,
             "title": unit.title,
             "role": unit.role,
-            "artifacts": presence,
+            "artifacts": {"report": report.is_file()},
+            "pages": unit_pages(base, unit.id),
         })
     orphaned: list[dict[str, str]] = []
     artifact_dirs = (
         (base / "reports" / "units", "report"),
-        (base / "specs" / "units", "spec"),
-        (base / "slides" / "pages", "page"),
-        (base / "slides" / "previews", "preview"),
         (base / ".state" / "units", "state"),
     )
     for directory, kind in artifact_dirs:

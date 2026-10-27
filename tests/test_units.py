@@ -46,12 +46,8 @@ class UnitsFormatTests(unittest.TestCase):
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             body = (reports or {}).get(unit.id, f"# {unit.id}\n\nUnit body for {unit.chapter}.\n")
             paths.report.write_text(body, encoding="utf-8")
-            paths.spec.write_text(f"## Slide 1 — {unit.id}\n页面 ID：{unit.id}\n页面角色：{unit.role}\n", encoding="utf-8")
-            paths.page.write_text(f'<section class="slide" id="{unit.id}" data-page-role="{unit.role}"></section>', encoding="utf-8")
 
     def test_detect_format_version_defaults_to_v1(self):
         self.init_without_units()
@@ -80,8 +76,8 @@ class UnitsFormatTests(unittest.TestCase):
         self.assertEqual(detect_format_version(self.base), "v2")
         paths = unit_paths(self.base, "industry-demand-01")
         self.assertEqual(paths.report, self.base / "reports" / "units" / "industry-demand-01.md")
-        self.assertEqual(paths.spec, self.base / "specs" / "units" / "industry-demand-01.md")
-        self.assertEqual(paths.page, self.base / "slides" / "pages" / "industry-demand-01.html")
+        self.assertEqual(paths.state, self.base / ".state" / "units" / "industry-demand-01.json")
+        self.assertFalse(hasattr(paths, "spec"))
 
     def test_assemble_report_rewrites_relative_links(self):
         units = [
@@ -112,12 +108,17 @@ class UnitsFormatTests(unittest.TestCase):
             Unit(id="summary-01", chapter=self.chapters[0], role="content"),
         ]
         self.write_v2(units)
-        unit_paths(self.base, "summary-01").page.unlink()
+        unit_paths(self.base, "summary-01").report.unlink()
+        slides = self.base / "design" / "deck" / "slides"
+        slides.mkdir(parents=True)
+        (slides / "cover.html").write_text('<section id="cover"></section>', encoding="utf-8")
         status = list_units_status(self.base, self.chapters)
         self.assertEqual(status["format_version"], "v2")
         self.assertEqual(len(status["missing"]), 1)
         self.assertEqual(status["missing"][0]["id"], "summary-01")
-        self.assertEqual(status["missing"][0]["artifact"], "page")
+        self.assertEqual(status["missing"][0]["artifact"], "report")
+        pages = {row["id"]: row["pages"] for row in status["units"]}
+        self.assertEqual(pages, {"cover": ["cover"], "summary-01": []})
 
     def test_cli_units_list_refuses_v1_without_units_json(self):
         self.init_without_units()

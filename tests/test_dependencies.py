@@ -22,7 +22,6 @@ from my_slides.state import (
     read_unit_state,
     refresh_unit_currency,
 )
-from my_slides.unit_workflow import approve_unit_spec
 from my_slides.units import Unit, UnitsError, unit_paths, write_units_manifest
 import argparse
 
@@ -37,7 +36,6 @@ class DependencyStateTests(unittest.TestCase):
         units = self.base / "units.json"
         if units.exists():
             units.unlink()
-        (self.base / "slides" / "chapters").mkdir(parents=True, exist_ok=True)
 
 
     def tearDown(self):
@@ -48,15 +46,8 @@ class DependencyStateTests(unittest.TestCase):
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             paths.report.write_text(
                 (reports or {}).get(unit.id, f"# {unit.id}\n\nBody for {unit.chapter}.\n"),
-                encoding="utf-8",
-            )
-            paths.spec.write_text(f"## Slide 1 — {unit.id}\n页面 ID：{unit.id}\n页面角色：{unit.role}\n", encoding="utf-8")
-            paths.page.write_text(
-                f'<section class="slide" id="{unit.id}" data-page-role="{unit.role}"></section>',
                 encoding="utf-8",
             )
 
@@ -224,8 +215,8 @@ class DependencyStateTests(unittest.TestCase):
         mark_report_approved(self.base, units[0], project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
         self.assertTrue(read_unit_state(self.base, "cover")["report"]["current"])
 
-    def test_reapprove_unchanged_report_after_deps_change_keeps_spec_stale(self):
-        """Spec/HTML must stay stale when only dependencies changed and report body is re-approved."""
+    def test_reapprove_unchanged_report_after_deps_change(self):
+        """A dependency change invalidates the approval until the same body is approved again."""
         wiki = self.base / "wiki" / "linked.md"
         wiki.write_text("# Linked\n", encoding="utf-8")
         units = [
@@ -239,45 +230,16 @@ class DependencyStateTests(unittest.TestCase):
                 "uses-w": "# A\n\nSee [W](../../wiki/linked.md) for the cited evidence.\n",
             },
         )
-        paths = unit_paths(self.base, "uses-w")
-        paths.spec.write_text(
-            "## Slide 1 — uses-w\n页面 ID：uses-w\n页面角色：content\n"
-            "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-            "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-            "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n",
-            encoding="utf-8",
-        )
-        paths.page.write_text(
-            '<section class="slide" data-unit-id="uses-w" data-page-role="content">'
-            "<h1>uses-w</h1>"
-            '<script type="application/json" class="slide-notes">'
-            '{"title":"uses-w","script":"Hi","notes":[]}</script></section>',
-            encoding="utf-8",
-        )
-        mark_report_approved(self.base, units[1], project_root=self.root, when="t0", approved_by="Fixture Reviewer", approved_account="fixture")
-        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root, approved_by="Fixture Reviewer", approved_account="fixture")
-        # Simulate a prior HTML build bound to that Spec.
-        state = read_unit_state(self.base, "uses-w")
-        state["html"] = {
-            "content_sha256": fingerprint_file(paths.page),
-            "spec_sha256": state["spec"]["approved_sha256"],
-            "build_sha256": fingerprint_file(paths.page),
-            "cache_key": "test-key",
-            "current": True,
-        }
-        from my_slides.state import write_unit_state
-
-        write_unit_state(self.base, "uses-w", state)
+        approver = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t0", **approver)
         wiki.write_text("# Linked\n\nUpdated fact.\n", encoding="utf-8")
         refreshed = refresh_unit_currency(self.base, units[1], project_root=self.root)
         self.assertFalse(refreshed["report"]["current"])
-        self.assertFalse(refreshed["spec"]["current"])
-        # Re-approve same report body against new deps — must not revive Spec/HTML.
-        mark_report_approved(self.base, units[1], project_root=self.root, when="t2", approved_by="Fixture Reviewer", approved_account="fixture")
+        self.assertIn("报告内容或本地依赖已变化，需重新审阅", refreshed["reasons"])
+        mark_report_approved(self.base, units[1], project_root=self.root, when="t2", **approver)
         again = refresh_unit_currency(self.base, units[1], project_root=self.root)
         self.assertTrue(again["report"]["current"])
-        self.assertFalse(again["spec"]["current"], again)
-        self.assertFalse(again["html"]["current"], again)
+        self.assertEqual(again["reasons"], [])
 
 
 if __name__ == "__main__":

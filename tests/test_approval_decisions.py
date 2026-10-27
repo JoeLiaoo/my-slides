@@ -14,11 +14,6 @@ from my_slides.commands.init import init_project
 from my_slides.state import read_unit_state, refresh_unit_currency
 from my_slides.units import Unit, unit_paths, write_units_manifest
 
-HEADINGS = (
-    "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-    "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-    "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-)
 
 
 class ApprovalDecisionsTests(unittest.TestCase):
@@ -36,14 +31,7 @@ class ApprovalDecisionsTests(unittest.TestCase):
         write_units_manifest(self.base, self.units)
         for unit in self.units:
             report = f"# {unit.title}\n\nEnough report text for {unit.id} to pass validation.\n"
-            spec = (
-                f"单元 ID：{unit.id}\n页面角色：{unit.role}\n\n"
-                f"## Slide 1 — 其一\n{HEADINGS}\n## Slide 2 — 其二\n{HEADINGS}\n"
-            )
-            if unit.role == "cover":
-                spec = f"单元 ID：{unit.id}\n页面角色：cover\n\n## Slide 1 — 封面\n{HEADINGS}\n"
             unit_paths(self.base, unit.id).report.write_text(report, encoding="utf-8")
-            unit_paths(self.base, unit.id).spec.write_text(spec, encoding="utf-8")
 
     def tearDown(self):
         self.temp.cleanup()
@@ -301,43 +289,12 @@ class ApprovalDecisionsTests(unittest.TestCase):
 
     # -- revoke --------------------------------------------------------------
 
-    def test_revoke_report_invalidates_spec_html_and_checks(self):
-        # Approve report and spec first.
+    def test_revoke_report_drops_approval_and_keeps_archive(self):
         self.request("cover")
         report_phrase = self.review_phrase(unit="cover")
         self.confirm_chat("report", report_phrase)
-        self.request("cover", kind="spec")
-        spec_phrase = self.review_phrase(unit="cover", kind="spec")
-        self.confirm_chat("spec", spec_phrase, reply="Spec 批准")
-        self.assertTrue(read_unit_state(self.base, "cover")["spec"]["current"])
-        # Build HTML so we can confirm revoke marks it invalid.
-        paths = unit_paths(self.base, "cover")
-        paths.page.parent.mkdir(parents=True, exist_ok=True)
-        paths.page.write_text(
-            '<section class="slide" data-unit-id="cover" data-page-role="cover"></section>',
-            encoding="utf-8",
-        )
-        # Mark html/check current so we can confirm the revoke resets them.
-        state = read_unit_state(self.base, "cover")
-        from my_slides.dependencies import fingerprint_file
-        state["html"]["build_sha256"] = fingerprint_file(paths.page)
-        state["html"]["spec_sha256"] = state["spec"]["approved_sha256"]
-        from my_slides.theme import shell_fingerprint
-        state["html"]["shell_fingerprint"] = shell_fingerprint()
-        state["html"]["current"] = True
-        state["check"]["result"] = "pass"
-        from my_slides.state import check_input_fingerprint, write_unit_state
-        state["check"]["input_fingerprint"] = check_input_fingerprint(
-            state["html"]["build_sha256"], state["spec"]["approved_sha256"], deck_sha=None,
-        )
-        state["check"]["current"] = True
-        write_unit_state(self.base, "cover", state)
-        state = refresh_unit_currency(self.base, self.units[0], project_root=self.root)
-        self.assertTrue(state["html"]["current"])
-        # Revoke the report approval via chat using the current binding.
         from my_slides.approval_review import bindings_digest, revoke_binding, revoke_phrase
-        from my_slides.state import refresh_unit_currency as _refresh
-        state = _refresh(self.base, self.units[0], project_root=self.root)
+        state = refresh_unit_currency(self.base, self.units[0], project_root=self.root)
         binding = revoke_binding(self.units[0], "report", state)
         digest = bindings_digest([binding], chapter_scope=False)
         phrase = revoke_phrase("report", self.units[0].id, digest)
@@ -354,15 +311,9 @@ class ApprovalDecisionsTests(unittest.TestCase):
         self.assertIsNone(state["report"]["approved_sha256"])
         self.assertEqual(state["report"]["latest_decision"], "rejected")
         self.assertEqual(state["report"]["latest_rejection"]["reason"], "结论口径变了")
-        self.assertFalse(state["spec"]["current"])
-        self.assertIsNone(state["spec"]["approved_sha256"])
-        self.assertFalse(state["html"]["current"])
-        self.assertFalse(state["check"]["current"])
         # Approved copy is preserved in archive.
         archive_dir = self.base / ".state" / "approved" / "report" / "cover"
         self.assertTrue(any(archive_dir.glob("*.md")))
-        spec_archive = self.base / ".state" / "approved" / "spec" / "cover"
-        self.assertTrue(any(spec_archive.glob("*.md")))
 
     # -- reject -> restore -> next does not loop on the rejected reason -----
 
@@ -510,17 +461,8 @@ class ApprovalDecisionsTests(unittest.TestCase):
         self.request("cover")
         report_phrase = self.review_phrase(unit="cover")
         self.confirm_chat("report", report_phrase, reply="首次批准")
-        # Approve a Spec that is bound to the same report version.
-        self.request("cover", kind="spec")
-        spec_phrase = self.review_phrase(unit="cover", kind="spec")
-        self.confirm_chat("spec", spec_phrase, reply="Spec 批准")
-        state = read_unit_state(self.base, "cover")
-        report_v1_sha = state["report"]["approved_sha256"]
-        spec_sha = state["spec"]["approved_sha256"]
-        bound_report_sha = state["spec"]["report_sha256"]
-        self.assertEqual(report_v1_sha, bound_report_sha)
+        report_v1_sha = read_unit_state(self.base, "cover")["report"]["approved_sha256"]
         self.assertIsNotNone(report_v1_sha)
-        self.assertIsNotNone(spec_sha)
         # Edit the report and submit a new request, then revoke-style decline it.
         report_file = unit_paths(self.base, "cover").report
         report_file.write_text(report_file.read_text(encoding="utf-8") + "\n补充一段。\n", encoding="utf-8")
@@ -531,8 +473,6 @@ class ApprovalDecisionsTests(unittest.TestCase):
         # The previously approved versions survive.
         state = read_unit_state(self.base, "cover")
         self.assertEqual(state["report"]["approved_sha256"], report_v1_sha)
-        self.assertEqual(state["spec"]["approved_sha256"], spec_sha)
-        self.assertEqual(state["spec"]["report_sha256"], report_v1_sha)
         self.assertIsNone(state["report"]["pending_approval"])
         self.assertEqual(state["report"]["latest_decision"], "rejected")
         # The new content is not yet current because the edit broke binding.
@@ -567,7 +507,7 @@ class ApprovalDecisionsTests(unittest.TestCase):
 
     # -- backward compatibility ----------------------------------------------
 
-    def test_legacy_state_file_loads_without_new_fields(self):
+    def test_legacy_state_file_drops_spec_pipeline_and_keeps_report(self):
         # Simulate a state file written before the rejection fields existed.
         legacy = {
             "unit_id": "cover",
@@ -593,9 +533,13 @@ class ApprovalDecisionsTests(unittest.TestCase):
         self.assertIsNone(state["report"]["latest_rejection"])
         self.assertEqual(state["report"]["decision_history"], [])
         # refresh still computes current flags.
+        self.assertEqual(state["report"]["approved_sha256"], "legacy-sha")
+        self.assertEqual(state["report"]["approved_by"], "Legacy User")
+        for retired in ("spec", "html", "check"):
+            self.assertNotIn(retired, state)
         refreshed = refresh_unit_currency(self.base, self.units[0], project_root=self.root)
         self.assertIn("report", refreshed)
-        self.assertIn("spec", refreshed)
+        self.assertNotIn("spec", refreshed)
 
 
 if __name__ == "__main__":

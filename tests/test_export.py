@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
+import io
 import json
 import os
 import subprocess
@@ -9,64 +11,27 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from my_slides.commands import export as export_command
 from my_slides.commands.init import init_project
 from my_slides.delivery import (
     DELIVERY_FILENAME_RE,
     export_delivery,
-    last_delivery,
     list_deliveries,
     units_changed_since,
 )
+from my_slides.design_deck import deck_dir, sync_deck
 from my_slides.project import read_config, template_chapters
-from my_slides.state import read_unit_state, write_unit_state
+from my_slides.unit_workflow import approve_unit_report
 from my_slides.units import Unit, unit_paths, write_units_manifest
 
 
-def _spec_text(unit: Unit) -> str:
-    return (
-        f"## Slide 1 — {unit.id}\n单元 ID：{unit.id}\n页面角色：{unit.role}\n"
-        "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-        "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-        "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-    )
-
-
-def _approve_everything(base: Path, units: list[Unit], project_root: Path) -> None:
-    """Mark report, Spec, HTML, and browser check current for every unit."""
-    from my_slides.dependencies import fingerprint_file
-    from my_slides.state import check_input_fingerprint
-    from my_slides.theme import shell_fingerprint
-    from my_slides.unit_workflow import approve_unit_report, approve_unit_spec
-
-    deck_path = base / "slides" / "index.html"
-    deck_sha = fingerprint_file(deck_path) if deck_path.is_file() else None
-    for unit in units:
-        approve_unit_report(
-            base, unit, when="2024-01-01T00:00:00",
-            approved_by="Reviewer", approved_account="reviewer", project_root=project_root,
-        )
-        approve_unit_spec(
-            base, unit, when="2024-01-01T00:00:00",
-            approved_by="Reviewer", approved_account="reviewer", project_root=project_root,
-        )
-        state = read_unit_state(base, unit.id)
-        paths = unit_paths(base, unit.id)
-        page_sha = fingerprint_file(paths.page)
-        spec_sha = state["spec"]["approved_sha256"]
-        state["html"] = {
-            "content_sha256": page_sha,
-            "spec_sha256": spec_sha,
-            "build_sha256": page_sha,
-            "shell_fingerprint": shell_fingerprint(),
-            "current": True,
-        }
-        state["check"] = {
-            "result": "pass",
-            "input_fingerprint": check_input_fingerprint(page_sha, spec_sha, deck_sha=deck_sha),
-            "current": True,
-        }
-        write_unit_state(base, unit.id, state)
+def fake_engine_export(command: list[str], projects_root: Path, **_: object) -> tuple[int, dict]:
+    """Stand-in for the Design agent CLI: write the --out file like a real export."""
+    out = Path(command[command.index("--out") + 1])
+    out.write_text("<!doctype html><html><body>deck</body></html>", encoding="utf-8")
+    return 0, {"ok": True, "code": "exported", "path": str(out), "sourceVersion": "v-test"}
 
 
 class ExportDeliveryTests(unittest.TestCase):
@@ -76,6 +41,12 @@ class ExportDeliveryTests(unittest.TestCase):
         self.base = self.root / "my-slides"
         self.chapters = template_chapters()
         init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        offline = patch("my_slides.design_deck.host_reachable", return_value=False)
+        engine = patch("my_slides.delivery.run_agent", side_effect=fake_engine_export)
+        offline.start()
+        self.engine = engine.start()
+        self.addCleanup(offline.stop)
+        self.addCleanup(engine.stop)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -96,30 +67,28 @@ class ExportDeliveryTests(unittest.TestCase):
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             paths.report.write_text(
                 f"# {unit.id}\n\nDetailed, evidence-backed analysis for {unit.id}. " * 3,
                 encoding="utf-8",
             )
-            paths.spec.write_text(_spec_text(unit), encoding="utf-8")
-            paths.page.write_text(
-                f'<section class="slide" id="{unit.id}" data-unit-id="{unit.id}" '
-                f'data-page-role="{unit.role}"></section>',
-                encoding="utf-8",
-            )
         return units
 
-    def _deck(self, content: str = "<!doctype html><html><body>deck</body></html>") -> None:
-        self.base.joinpath("slides").mkdir(parents=True, exist_ok=True)
-        (self.base / "slides" / "index.html").write_text(content, encoding="utf-8")
+    def _approve(self, units: list[Unit]) -> None:
+        for unit in units:
+            approve_unit_report(
+                self.base, unit, when="2024-01-01T00:00:00",
+                approved_by="Reviewer", approved_account="reviewer", project_root=self.root,
+            )
 
-    def test_export_records_named_file_and_appends_to_deliveries(self) -> None:
+    def _ready(self) -> list[Unit]:
         units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
-        cfg = read_config(self.base / "project.yaml")
+        self._approve(units)
+        sync_deck(self.base, read_config(self.base / "project.yaml"), units)
+        return units
 
+    def test_export_records_named_file_and_page_hashes(self) -> None:
+        self._ready()
+        cfg = read_config(self.base / "project.yaml")
         record = export_delivery(self.base, cfg, project_root=self.root)
         today = datetime.date.today().strftime("%Y-%m-%d")
         match = DELIVERY_FILENAME_RE.fullmatch(record["file"])
@@ -127,96 +96,91 @@ class ExportDeliveryTests(unittest.TestCase):
         self.assertEqual(match.group("date"), today)
         self.assertEqual(match.group("sequence"), "1")
         self.assertTrue((self.root / record["file"]).is_file())
+        command = self.engine.call_args.args[0]
+        self.assertEqual(command[:4], ["export", "deck", "--format", "html"])
 
         deliveries = list_deliveries(self.base)
         self.assertEqual(len(deliveries), 1)
-        self.assertEqual(deliveries[0]["date"], today)
-        self.assertEqual(deliveries[0]["sequence"], 1)
+        self.assertEqual(deliveries[0]["presentation"], "design")
         self.assertEqual({item["id"] for item in deliveries[0]["units"]}, {"cover", "alpha"})
+        alpha = next(item for item in deliveries[0]["units"] if item["id"] == "alpha")
+        self.assertEqual(list(alpha["pages"]), ["alpha"])
+        self.assertTrue(deliveries[0]["deck_fingerprint"])
 
     def test_export_increments_sequence_within_same_day(self) -> None:
-        units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
+        self._ready()
         cfg = read_config(self.base / "project.yaml")
-
         first = export_delivery(self.base, cfg, project_root=self.root)
         second = export_delivery(self.base, cfg, project_root=self.root)
         self.assertEqual(first["sequence"], 1)
         self.assertEqual(second["sequence"], 2)
         self.assertNotEqual(first["file"], second["file"])
 
-    def test_export_refuses_when_state_not_current(self) -> None:
-        units = self._seed()
-        self._deck()
+    def test_export_refuses_unapproved_report_or_unit_without_page(self) -> None:
+        units = self._ready()
         cfg = read_config(self.base / "project.yaml")
-        with self.assertRaisesRegex(ValueError, "交付前需要补齐"):
+        report = unit_paths(self.base, "alpha").report
+        report.write_text(report.read_text(encoding="utf-8") + "\n未审批的修改。\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "报告未获得当前有效批准：alpha"):
             export_delivery(self.base, cfg, project_root=self.root)
+        self._approve(units)
+        (deck_dir(self.base) / "slides" / "alpha.html").unlink()
+        with self.assertRaisesRegex(ValueError, "alpha 还没有页面"):
+            export_delivery(self.base, cfg, project_root=self.root)
+        self.engine.assert_not_called()
 
     def test_export_refuses_when_deck_missing(self) -> None:
         units = self._seed()
-        _approve_everything(self.base, units, self.root)
+        self._approve(units)
         cfg = read_config(self.base / "project.yaml")
-        with self.assertRaisesRegex(ValueError, "slides/index.html"):
+        with self.assertRaisesRegex(ValueError, "slides build --all"):
             export_delivery(self.base, cfg, project_root=self.root)
 
-    def test_export_honors_output_dir(self) -> None:
-        units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
+    def test_export_failure_explains_host_requirement(self) -> None:
+        self._ready()
+        self.engine.side_effect = None
+        self.engine.return_value = (2, {"ok": False, "code": "host_unavailable", "message": "fetch failed"})
         cfg = read_config(self.base / "project.yaml")
+        with self.assertRaisesRegex(ValueError, "导出需要宿主在运行"):
+            export_delivery(self.base, cfg, project_root=self.root)
+        self.assertEqual(list_deliveries(self.base), [])
 
+    def test_export_command_honors_output_dir(self) -> None:
+        self._ready()
         target = self.root / "exports"
-        record = export_delivery(self.base, cfg, project_root=self.root, output_dir=target)
-        self.assertTrue((target / record["file"]).is_file())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = export_command.run(argparse.Namespace(project=str(self.root), output=str(target), json=True))
+        self.assertEqual(code, 0)
+        self.assertTrue((target / json.loads(out.getvalue())["file"]).is_file())
 
-    def test_status_shows_last_delivery_and_changes_since(self) -> None:
-        units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
+    def test_status_shows_report_and_page_changes_since_delivery(self) -> None:
+        units = self._ready()
         cfg = read_config(self.base / "project.yaml")
         export_delivery(self.base, cfg, project_root=self.root)
-
-        # Change a unit and re-check that status reports it as changed since delivery.
         report = unit_paths(self.base, "alpha").report
         report.write_text(report.read_text(encoding="utf-8") + "\n追加一句话。\n", encoding="utf-8")
-        _approve_everything(self.base, units, self.root)
+        self._approve(units)
+        page = deck_dir(self.base) / "slides" / "cover.html"
+        page.write_text(page.read_text(encoding="utf-8").replace("[待写：封面副标题]", "副标题"), encoding="utf-8")
 
         result = self.cli("status", "--project", str(self.root), "--json")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["delivery"]["has_delivery"])
-        self.assertEqual(payload["delivery"]["last_delivery"]["sequence"], 1)
-        changed_units = [item["unit"] for item in payload["delivery"]["changed_since"]]
-        self.assertIn("alpha", changed_units)
-        self.assertNotIn("cover", changed_units)
+        self.assertTrue(payload["delivery"]["deck_changed"])
+        changed = {item["unit"]: item["reason"] for item in payload["delivery"]["changed_since"]}
+        self.assertIn("报告正文", changed["alpha"])
+        self.assertIn("Design 页面", changed["cover"])
 
     def test_units_changed_since_lists_missing_units(self) -> None:
-        units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
+        units = self._ready()
         cfg = read_config(self.base / "project.yaml")
         export_delivery(self.base, cfg, project_root=self.root)
-        # Drop alpha; report it as missing from delivery.
-        remaining = [unit for unit in units if unit.id == "cover"]
-        write_units_manifest(self.base, remaining)
+        write_units_manifest(self.base, [unit for unit in units if unit.id == "cover"])
         delta = units_changed_since(self.base, self.root)
         self.assertEqual(delta["missing_units"], ["alpha"])
-
-    def test_cli_two_exports_are_distinguishable(self) -> None:
-        units = self._seed()
-        self._deck()
-        _approve_everything(self.base, units, self.root)
-        first = self.cli("export", "--project", str(self.root), "--json")
-        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
-        second = self.cli("export", "--project", str(self.root), "--json")
-        self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
-        first_payload = json.loads(first.stdout)
-        second_payload = json.loads(second.stdout)
-        self.assertNotEqual(first_payload["file"], second_payload["file"])
-        self.assertNotEqual(first_payload["sequence"], second_payload["sequence"])
-        self.assertTrue((self.root / first_payload["file"]).is_file())
-        self.assertTrue((self.root / second_payload["file"]).is_file())
+        self.assertEqual(delta["unchanged_units"], ["cover"])
 
     def test_status_without_delivery_reports_no_history(self) -> None:
         self._seed()
@@ -224,6 +188,7 @@ class ExportDeliveryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         payload = json.loads(result.stdout)
         self.assertFalse(payload["delivery"]["has_delivery"])
+        self.assertFalse(payload["slides"]["deck_exists"])
 
 
 if __name__ == "__main__":

@@ -8,11 +8,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from my_slides.commands.init import init_project
 from my_slides.dependencies import load_explicit_unit_deps
+from my_slides.design_deck import deck_dir, sync_deck
 from my_slides.project import template_chapters
-from my_slides.state import refresh_unit_currency, read_unit_state, write_unit_state
+from my_slides.state import refresh_unit_currency
 from my_slides.unit_management import (
     add_unit,
     list_trash,
@@ -22,20 +24,11 @@ from my_slides.unit_management import (
     rename_unit,
     restore_unit,
 )
-from my_slides.unit_workflow import approve_unit_report, approve_unit_spec, confirm_unit_approval
+from my_slides.unit_workflow import approve_unit_report, confirm_unit_approval
 from my_slides.units import Unit, list_units_status, unit_paths, write_units_manifest
 
 
 APPROVER = {"approved_by": "Reviewer", "approved_account": "reviewer"}
-
-
-def spec_text(unit: Unit) -> str:
-    return (
-        f"## Slide 1 — {unit.id}\n页面 ID：{unit.id}\n页面角色：{unit.role}\n"
-        "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-        "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-        "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-    )
 
 
 class UnitManagementTests(unittest.TestCase):
@@ -45,6 +38,9 @@ class UnitManagementTests(unittest.TestCase):
         self.base = self.root / "my-slides"
         self.chapters = template_chapters()
         init_project(argparse.Namespace(project=str(self.root), source_dir=None, force=False, json=False))
+        offline = patch("my_slides.design_deck.host_reachable", return_value=False)
+        offline.start()
+        self.addCleanup(offline.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -55,20 +51,24 @@ class UnitManagementTests(unittest.TestCase):
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             paths.report.write_text(f"# {unit.id}\n\n" + f"Detailed, evidence-backed analysis for {unit.id}. " * 3, encoding="utf-8")
-            paths.spec.write_text(spec_text(unit), encoding="utf-8")
-            paths.page.write_text(
-                f'<section class="slide" id="{unit.id}" data-unit-id="{unit.id}" data-page-role="{unit.role}"></section>',
-                encoding="utf-8",
-            )
         return units
 
-    def approve(self, unit: Unit, *, spec: bool = True):
+    def approve(self, unit: Unit):
         approve_unit_report(self.base, unit, when="t1", project_root=self.root, **APPROVER)
-        if spec:
-            approve_unit_spec(self.base, unit, when="t2", project_root=self.root, **APPROVER)
+
+    def build_deck(self, units: list[Unit]) -> Path:
+        """Approve every unit, sync the Design deck, and give alpha a second page."""
+        for unit in units:
+            self.approve(unit)
+        sync_deck(self.base, {"chapters": self.chapters, "project": "demo"}, units)
+        slides = deck_dir(self.base) / "slides"
+        (slides / "alpha_2.html").write_text('<section id="alpha_2" style="padding:0">第二页</section>\n', encoding="utf-8")
+        sync_deck(self.base, {"chapters": self.chapters, "project": "demo"}, [])
+        return slides
+
+    def deck_json(self) -> dict:
+        return json.loads((deck_dir(self.base) / "deck.json").read_text(encoding="utf-8"))
 
     def cli(self, *arguments: str) -> subprocess.CompletedProcess:
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
@@ -106,7 +106,6 @@ class UnitManagementTests(unittest.TestCase):
         restored = restore_unit(self.base, removed["trash_id"], self.chapters)
         self.assertEqual(restored["position"], 1)
         self.assertTrue(restored["approvals"]["report"])
-        self.assertTrue(restored["approvals"]["spec"])
         self.assertEqual([row["id"] for row in list_units_status(self.base, self.chapters)["units"]], ["cover", "alpha", "beta"])
         self.assertEqual(list_trash(self.base), [])
 
@@ -136,7 +135,7 @@ class UnitManagementTests(unittest.TestCase):
             rename_unit(self.base, "alpha", "renamed-alpha", self.chapters)
         self.assertIn("my-slides/reports/units/alpha.md", source.read_text(encoding="utf-8"))
 
-    def test_cross_chapter_move_reconfirms_only_report_and_keeps_unchanged_spec(self):
+    def test_cross_chapter_move_reconfirms_only_report(self):
         units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 1, "content")])
         self.approve(units[1])
         moved = move_unit(self.base, "alpha", self.chapters, after="beta", chapter=self.chapters[1])
@@ -144,7 +143,6 @@ class UnitManagementTests(unittest.TestCase):
         state = refresh_unit_currency(self.base, Unit(id="alpha", chapter=self.chapters[1], role="content"), project_root=self.root)
         self.assertFalse(state["report"]["current"])
         self.assertTrue(state["report"]["pending_current"])
-        self.assertTrue(state["spec"]["current"])
         confirmed = confirm_unit_approval(
             self.base,
             Unit(id="alpha", chapter=self.chapters[1], role="content"),
@@ -155,7 +153,6 @@ class UnitManagementTests(unittest.TestCase):
             project_root=self.root,
         )
         self.assertTrue(confirmed["report"]["current"])
-        self.assertTrue(confirmed["spec"]["current"])
 
     def test_cross_chapter_move_does_not_create_context_only_approval_for_unapproved_report(self):
         units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 1, "content")])
@@ -190,18 +187,13 @@ class UnitManagementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标章节"):
             move_unit(self.base, "beta", self.chapters, before="cover")
 
-    def test_same_chapter_reorder_preserves_approvals_but_invalidates_checks(self):
+    def test_same_chapter_reorder_preserves_approvals(self):
         units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 0, "content")])
         self.approve(units[1])
-        state = read_unit_state(self.base, "alpha")
-        state["check"].update({"result": "pass", "input_fingerprint": "old-check", "current": True})
-        write_unit_state(self.base, "alpha", state)
         move_unit(self.base, "alpha", self.chapters, after="beta")
         after = refresh_unit_currency(self.base, units[1], project_root=self.root)
         self.assertTrue(after["report"]["current"])
-        self.assertTrue(after["spec"]["current"])
-        self.assertFalse(after["check"]["current"])
-        self.assertIsNone(after["check"]["input_fingerprint"])
+        self.assertEqual(after["reasons"], [])
 
     def test_rename_rewrites_identity_links_and_dependencies_and_rebinds_approvals(self):
         units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 0, "content")])
@@ -216,23 +208,78 @@ class UnitManagementTests(unittest.TestCase):
         sidecar = beta_report.with_name("beta.depends-on.json")
         sidecar.write_text(json.dumps(["alpha"]), encoding="utf-8")
         self.approve(units[1])
-        self.approve(units[2], spec=False)
+        self.approve(units[2])
 
         result = rename_unit(self.base, "alpha", "renamed-alpha", self.chapters)
         renamed = Unit(id="renamed-alpha", chapter=self.chapters[0], role="content")
         self.assertTrue(result["report_approval_preserved"])
-        self.assertTrue(result["spec_approval_preserved"])
-        self.assertTrue(refresh_unit_currency(self.base, renamed, project_root=self.root)["spec"]["current"])
+        self.assertTrue(refresh_unit_currency(self.base, renamed, project_root=self.root)["report"]["current"])
         self.assertTrue(refresh_unit_currency(self.base, units[2], project_root=self.root)["report"]["current"])
-        spec = unit_paths(self.base, "renamed-alpha").spec.read_text(encoding="utf-8")
-        page = unit_paths(self.base, "renamed-alpha").page.read_text(encoding="utf-8")
-        self.assertIn("页面 ID：renamed-alpha", spec)
-        self.assertIn('data-unit-id="renamed-alpha"', page)
         self.assertEqual(load_explicit_unit_deps(self.base, "beta"), ["renamed-alpha"])
         content = beta_report.read_text(encoding="utf-8")
         self.assertIn("(renamed-alpha.md#evidence)", content)
         self.assertIn("[AlphaRef]: renamed-alpha.md \"approved unit\"", content)
         self.assertIn("[example](../../reports/units/alpha.md)", content)
+
+    def test_remove_and_restore_carry_design_pages_and_deck_order(self):
+        units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 1, "content")])
+        slides = self.build_deck(units)
+        self.assertEqual(self.deck_json()["order"], ["cover", "alpha", "alpha_2", "beta"])
+        plan = remove_plan(self.base, "alpha", self.chapters)
+        page_paths = sorted(item["path"] for item in plan["artifacts"] if item["kind"] == "page")
+        self.assertEqual(page_paths, ["design/deck/slides/alpha.html", "design/deck/slides/alpha_2.html"])
+
+        removed = remove_unit(self.base, "alpha", self.chapters)
+        self.assertFalse((slides / "alpha.html").exists())
+        self.assertFalse((slides / "alpha_2.html").exists())
+        self.assertEqual(self.deck_json()["order"], ["cover", "beta"])
+        self.assertIn("design/deck/slides/alpha_2.html", removed["files"])
+
+        restored = restore_unit(self.base, removed["trash_id"], self.chapters)
+        self.assertEqual(sorted(restored["restored_pages"]), ["alpha", "alpha_2"])
+        self.assertIsNone(restored["deck_sync_error"])
+        self.assertIn("第二页", (slides / "alpha_2.html").read_text(encoding="utf-8"))
+        self.assertEqual(self.deck_json()["order"], ["cover", "alpha", "alpha_2", "beta"])
+
+    def test_rename_moves_design_pages_section_ids_and_deck_references(self):
+        units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 1, "content")])
+        slides = self.build_deck(units)
+        deck = self.deck_json()
+        deck["sections"]["custom"] = {"description": "手工分节", "start": "alpha_2"}
+        (deck_dir(self.base) / "deck.json").write_text(json.dumps(deck, ensure_ascii=False), encoding="utf-8")
+
+        result = rename_unit(self.base, "alpha", "renamed-alpha", self.chapters)
+        self.assertEqual(sorted(result["renamed_pages"]), ["renamed-alpha", "renamed-alpha_2"])
+        self.assertFalse((slides / "alpha.html").exists())
+        self.assertTrue((slides / "renamed-alpha.html").read_text(encoding="utf-8").startswith('<section id="renamed-alpha"'))
+        self.assertIn('id="renamed-alpha_2"', (slides / "renamed-alpha_2.html").read_text(encoding="utf-8"))
+        deck = self.deck_json()
+        self.assertEqual(deck["order"], ["cover", "renamed-alpha", "renamed-alpha_2", "beta"])
+        self.assertEqual(deck["sections"]["custom"]["start"], "renamed-alpha_2")
+
+    def test_rename_refuses_to_overwrite_existing_design_pages(self):
+        units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content")])
+        slides = self.build_deck(units)
+        (slides / "taken.html").write_text('<section id="taken"></section>', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "已有 taken 的页面"):
+            rename_unit(self.base, "alpha", "taken", self.chapters)
+        self.assertTrue((slides / "alpha.html").exists())
+
+    def test_remove_rolls_back_when_open_editor_conflicts(self):
+        units = self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content"), ("beta", 1, "content")])
+        slides = self.build_deck(units)
+        manifest = (self.base / "units.json").read_bytes()
+        conflict = (1, {"ok": False, "code": "conflict", "paths": [{"path": "project/slides/alpha.html"}]})
+        with patch("my_slides.design_deck.host_reachable", return_value=True), \
+             patch("my_slides.design_deck.run_agent", return_value=conflict) as engine:
+            with self.assertRaisesRegex(ValueError, "slides/alpha.html"):
+                remove_unit(self.base, "alpha", self.chapters)
+        batch_command = engine.call_args.args[0]
+        self.assertEqual(batch_command[:2], ["apply", "deck"])
+        self.assertEqual((self.base / "units.json").read_bytes(), manifest)
+        self.assertTrue(unit_paths(self.base, "alpha").report.is_file())
+        self.assertTrue((slides / "alpha.html").is_file())
+        self.assertEqual(list_trash(self.base), [])
 
     def test_trash_restore_refuses_path_collision_and_lists_orphans_not_trash(self):
         self.setup_units([("cover", 0, "cover"), ("alpha", 0, "content")])

@@ -24,7 +24,7 @@ def init_project(args: argparse.Namespace) -> int:
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", brand_color):
         raise ValueError("project.yaml 的 brand_color 必须是 #RRGGBB 格式")
     base.mkdir(parents=True, exist_ok=True)
-    for folder in ("research", "wiki", "reports", "specs", "slides", ".state"):
+    for folder in ("research", "wiki", "reports", ".state"):
         (base / folder).mkdir(parents=True, exist_ok=True)
     wiki_readme = base / "wiki" / "README.md"
     if not wiki_readme.exists():
@@ -34,13 +34,9 @@ def init_project(args: argparse.Namespace) -> int:
     log = base / "wiki" / "log.md"
     if not log.exists():
         log.write_text(f"# Wiki Log\n\n## {now()} | 初始化\n\n建立项目 Wiki 目录与章节索引。\n", encoding="utf-8")
-    for folder, title in (("reports", "投资报告"), ("specs", "Presentation Specs"), ("slides", "HTML Slides")):
-        readme = base / folder / "README.md"
-        if not readme.exists():
-            readme.write_text(
-                f"# {title}\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n",
-                encoding="utf-8",
-            )
+    readme = base / "reports" / "README.md"
+    if not readme.exists():
+        readme.write_text("# 投资报告\n\n由当前 agent 按项目 Wiki 与 units.json 单元清单生成内容。\n", encoding="utf-8")
     write_config(
         cfg_path, root, source_dirs, chapters, brand_color,
         approval_mode=existing.get("approval_mode"),

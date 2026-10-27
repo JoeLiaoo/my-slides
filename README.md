@@ -27,6 +27,30 @@ Issue #45 中“每页都必须有判断框和数字”的要求已被当前按�
 当前唯一内置主题是 `editorial-light`。主题 profile 约定字级、语义色、图表、脚注与版式节奏；`prepare spec` 和 `prepare slides` 会指出该 profile。主题只影响新产物的呈现，不改写已批准内容或 Spec。见 `skills/my-slides-workflow/references/editorial-light-theme.md`。
 
 
+## Design+Slides 试点（issue #58）
+
+[#58](https://github.com/JoeLiaoo/my-slides/issues/58) 正把写页迁到 Design+Slides：报告批准后不再写 Spec，Agent 直接写 Design deck（`deck.json` + `slides/*.html`），你在 `127.0.0.1:5173` 上看、手调，大改再口述给 Agent。迁移完成前它是可选路径；`project.yaml` 不写 `presentation: "design"` 的项目照旧走下文的 HTML 流程。计划见 [`docs/plans/design-slides-migration.md`](docs/plans/design-slides-migration.md)，试点结论见 [`docs/plans/spike-results.md`](docs/plans/spike-results.md)。
+
+Design+Slides 不随本仓库分发（BaoCut Community License，不是 MIT）。先在它的目录里装好并构建（Node 22.23+ / 24.22+），再用 `MY_SLIDES_DESIGN_ROOT` 指向它：
+
+```powershell
+cd <design-and-slides 目录>; npm install; npm run build
+$env:MY_SLIDES_DESIGN_ROOT = "<design-and-slides 目录>"    # macOS：export MY_SLIDES_DESIGN_ROOT=...
+my-slides init --project "<投资项目目录>" --presentation design   # 已有项目：在 project.yaml 加 presentation: "design"
+my-slides doctor --json                                          # design.ready 应为 true
+```
+
+报告批准后：
+
+```text
+my-slides prepare slides --unit <id>    # 交接材料：按已批准报告写 my-slides/design/deck/slides/<id>.html
+my-slides slides build --all            # 按 units.json 同步页序与分节；只给缺页的单元补占位页，不覆盖已有页面
+my-slides slides check --all [--strict] # Design 结构检查，并检查每个单元至少有一页
+my-slides slides open                   # 输出审阅链接和启动宿主的命令
+```
+
+宿主在 Design+Slides 目录里运行：`npm run dev -- --projects "<投资项目目录>/my-slides/design"`，然后打开 `http://127.0.0.1:5173/open/slides/deck`。同一单元的多页命名为 `<id>.html`、`<id>_2.html`……不属于任何单元的页（例如你手加的议程）保留在它原来的位置。宿主运行时，`slides check --browser` 会做一次真实浏览器渲染检查，`export` 导出离线 HTML 并记录交付。
+
 ## 目标工作流
 
 ```text

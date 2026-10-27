@@ -7,9 +7,10 @@ import json
 import sys
 
 from . import format_version
-from .commands import agent, approve, assemble, browser, chapters, clean, confirm, doctor, export, help, next_step, reject, renderer, review, revoke, slides, sources, status, units, validate, withdraw
+from .commands import agent, approve, assemble, chapters, clean, confirm, doctor, export, help, next_step, reject, review, revoke, slides, sources, status, units, validate, withdraw
 from .commands.init import init_project
 from .commands.prepare import prepare
+from .state import APPROVAL_KINDS
 
 
 class _PrintVersion(argparse.Action):
@@ -32,7 +33,7 @@ class _PrintVersion(argparse.Action):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="my-slides",
-        description="投资项目 Wiki、报告与 HTML Slides 本地工作流",
+        description="投资项目 Wiki、报告与 Design+Slides 本地工作流",
         epilog="首次使用请运行 my-slides help；具体参数请运行 my-slides <命令> --help。",
     )
     parser.add_argument("-V", "--version", action=_PrintVersion)
@@ -58,30 +59,30 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--all", dest="all_units", action="store_true", help="v2：处理全部单元")
 
     prep = sub.add_parser("prepare", help="生成 agent 阶段交接材料")
-    prep.add_argument("kind", choices=("wiki", "report", "evidence-research", "spec", "slides"))
+    prep.add_argument("kind", choices=("wiki", "report", "evidence-research", "slides"))
     prep.add_argument("--project")
     prep.add_argument("--json", action="store_true")
     prep.add_argument("--question", help="针对项目 Wiki 提出问题；省略时准备资料整理任务")
     add_unit_selectors(prep)
-    validate = sub.add_parser("validate", help="检查 Wiki、报告、证据数字清单或 Spec")
-    validate.add_argument("kind", choices=("wiki", "report", "evidence-research", "spec"))
+    validate = sub.add_parser("validate", help="检查 Wiki、报告或证据数字清单")
+    validate.add_argument("kind", choices=("wiki", "report", "evidence-research"))
     validate.add_argument("--project")
     validate.add_argument("--json", action="store_true")
     add_unit_selectors(validate)
-    approve = sub.add_parser("approve", help="提交报告或 Spec 单元供用户审批，不会直接批准")
-    approve.add_argument("kind", choices=("report", "spec"))
+    approve = sub.add_parser("approve", help="提交报告单元供用户审批，不会直接批准")
+    approve.add_argument("kind", choices=APPROVAL_KINDS)
     approve.add_argument("--project")
     approve.add_argument("--chapter", help="一次提交该大章节下的全部小章节")
     approve.add_argument("--json", action="store_true")
     add_unit_selectors(approve)
     review = sub.add_parser("review", help="展示待审批内容、差异和确认短语，供对话审阅")
-    review.add_argument("kind", choices=("report", "spec"))
+    review.add_argument("kind", choices=APPROVAL_KINDS)
     review.add_argument("--unit", metavar="ID")
     review.add_argument("--chapter")
     review.add_argument("--project")
     review.add_argument("--json", action="store_true")
     confirm = sub.add_parser("confirm", help="确认一个待审批小章节，或在对话中确认一整章")
-    confirm.add_argument("kind", choices=("report", "spec"))
+    confirm.add_argument("kind", choices=APPROVAL_KINDS)
     confirm.add_argument("--unit", metavar="ID", help="要确认的小章节；与 --chapter 二选一")
     confirm.add_argument("--chapter", help="确认该大章节下全部已提交的小章节；必须配合 --via chat")
     confirm.add_argument("--via", choices=("chat",), help="对话确认。需要 --phrase 和 --user-reply")
@@ -90,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     confirm.add_argument("--reviewer", help="审批人；省略时使用 project.yaml 的 reviewer")
     confirm.add_argument("--project")
     reject = sub.add_parser("reject", help="驳回一个待审批小章节，或在对话中驳回一整章")
-    reject.add_argument("kind", choices=("report", "spec"))
+    reject.add_argument("kind", choices=APPROVAL_KINDS)
     reject.add_argument("--unit", metavar="ID", help="要驳回的小章节；与 --chapter 二选一")
     reject.add_argument("--chapter", help="驳回该大章节下全部已提交的小章节；必须配合 --via chat")
     reject.add_argument("--reason", required=True, help="驳回原因")
@@ -101,12 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
     reject.add_argument("--json", action="store_true")
     reject.add_argument("--project")
     withdraw = sub.add_parser("withdraw", help="Agent 撤回自己提交的待审批申请")
-    withdraw.add_argument("kind", choices=("report", "spec"))
+    withdraw.add_argument("kind", choices=APPROVAL_KINDS)
     withdraw.add_argument("--unit", metavar="ID", required=True, help="要撤回的小章节")
     withdraw.add_argument("--project")
     withdraw.add_argument("--json", action="store_true")
-    revoke = sub.add_parser("revoke", help="用户撤回一个已有的报告或 Spec 批准")
-    revoke.add_argument("kind", choices=("report", "spec"))
+    revoke = sub.add_parser("revoke", help="用户撤回一个已有的报告批准")
+    revoke.add_argument("kind", choices=APPROVAL_KINDS)
     revoke.add_argument("--unit", metavar="ID", help="要撤回批准的小章节；与 --chapter 二选一")
     revoke.add_argument("--chapter", help="撤回该大章节下全部已批准的报告；必须配合 --via chat")
     revoke.add_argument("--reason", help="撤回原因；建议在 chat 模式下提供原文")
@@ -119,16 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
     assemble = sub.add_parser("assemble", help="v2：将报告单元组装为 reports/report.md")
     assemble.add_argument("--project")
     assemble.add_argument("--json", action="store_true")
-    renderer = sub.add_parser("renderer", help="检查或安装 ECharts 与 Lucide 本地渲染器")
-    renderer_sub = renderer.add_subparsers(dest="renderer_command", required=True)
-    for name, help_text in (("doctor", "检查 Node.js、npm 与锁定的渲染器版本"), ("install", "安装锁定版本的本地渲染依赖")):
-        command = renderer_sub.add_parser(name, help=help_text)
-        command.add_argument("--json", action="store_true")
-    browser = sub.add_parser("browser", help="检查或安装离线 Slides 浏览器验证环境")
-    browser_sub = browser.add_subparsers(dest="browser_command", required=True)
-    for name, help_text in (("doctor", "检查 Playwright 与 Chromium"), ("install", "安装 Playwright Chromium")):
-        command = browser_sub.add_parser(name, help=help_text)
-        command.add_argument("--json", action="store_true")
     agent = sub.add_parser("agent", help="安装或检查 agent 工作流指引")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
     agent_install = agent_sub.add_parser("install", help="安装项目级工作流技能，不覆盖现有文件")
@@ -137,22 +128,19 @@ def build_parser() -> argparse.ArgumentParser:
     agent_doctor = agent_sub.add_parser("doctor", help="检查已安装工作流指引是否缺失或与当前版本不同")
     agent_doctor.add_argument("--project", help="项目目录，默认当前目录")
     agent_doctor.add_argument("--json", action="store_true")
-    slides = sub.add_parser("slides", help="合并并检查 HTML Slides")
+    slides = sub.add_parser("slides", help="同步、检查并打开 Design+Slides 页面")
     slides_sub = slides.add_subparsers(dest="slides_command", required=True)
-    for name, help_text in (("build", "合并所选单元的 HTML 页面"), ("check", "检查所选单元和合并文件")):
-        command = slides_sub.add_parser(name, help=help_text)
+    slides_build = slides_sub.add_parser("build", help="按 units.json 同步 Design deck 页序与分节，给缺页单元补占位页")
+    slides_check = slides_sub.add_parser("check", help="运行 Design 结构检查，并核对每个单元都有页面")
+    slides_check.add_argument("--browser", action="store_true", help="同时运行 Design 渲染检查（需要宿主在运行）")
+    slides_check.add_argument("--strict", action="store_true", help="Design 检查的警告也算失败")
+    for command in (slides_build, slides_check):
         command.add_argument("--project")
         command.add_argument("--json", action="store_true")
-        command.add_argument("--browser", action="store_true", help="用桌面与手机视口运行 Chromium 验证")
-        if name == "check":
-            command.add_argument("--screenshots", action="store_true", help="浏览器检查同时保存三视口截图、contact sheets 和测量证据")
         add_unit_selectors(command)
-    visual = slides_sub.add_parser("visual-review", help="记录已看过的截图、问题与复查结论（与自动检查分开）")
-    visual.add_argument("--project")
-    visual.add_argument("--unit", required=True)
-    visual.add_argument("--images", nargs="+", required=True, help="实际打开审阅的截图或 contact sheet 文件名")
-    visual.add_argument("--notes", required=True, help="发现的问题、修复及未解决项")
-    visual.add_argument("--json", action="store_true")
+    slides_open = slides_sub.add_parser("open", help="给出 5173 审阅链接和启动宿主的命令")
+    slides_open.add_argument("--project")
+    slides_open.add_argument("--json", action="store_true")
     units = sub.add_parser("units", help="管理 v2 内容单元清单")
     units_sub = units.add_subparsers(dest="units_command", required=True)
     units_list = units_sub.add_parser("list", help="列出单元身份、章节与产物是否齐全")
@@ -224,7 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     placement.add_argument("--before", metavar="CHAPTER", help="放到该章节之前")
     chapters_move.add_argument("--project")
     chapters_move.add_argument("--json", action="store_true")
-    export_cmd = sub.add_parser("export", help="校验整套 Slides 后导出离线 HTML，并在 .state/deliveries.json 记录")
+    export_cmd = sub.add_parser("export", help="通过运行中的 Design 宿主导出离线 HTML，并在 .state/deliveries.json 记录")
     export_cmd.add_argument("--project")
     export_cmd.add_argument("--output", help="导出目录；省略时写到项目根")
     export_cmd.add_argument("--json", action="store_true")
@@ -244,7 +232,6 @@ def build_parser() -> argparse.ArgumentParser:
     next_command = sub.add_parser("next", help="查看下一步操作、目标单元和原因")
     next_command.add_argument("--project")
     next_command.add_argument("--all", action="store_true", help="列出当前全部待办，并按 Agent / 用户分组")
-    next_command.add_argument("--no-browser", action="store_true", help="仅以当前结构检查判断 Slides 是否完成；不改变交付门槛")
     next_command.add_argument("--json", action="store_true")
     clean = sub.add_parser("clean", help="预览或清理过期 work 交接文件与 Wiki 快照")
     clean.add_argument("--project")
@@ -280,8 +267,6 @@ def main() -> None:
         "doctor": doctor.run,
         "status": status.run,
         "next": next_step.run,
-        "renderer": renderer.run,
-        "browser": browser.run,
         "agent": agent.run,
         "clean": clean.run,
     }

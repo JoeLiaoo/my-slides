@@ -24,7 +24,6 @@ from my_slides.state import read_unit_state, refresh_unit_currency, write_unit_s
 from my_slides.unit_management import add_unit
 from my_slides.unit_workflow import (
     approve_unit_report,
-    approve_unit_spec,
     confirm_unit_approval,
 )
 from my_slides.units import Unit, load_units_manifest, unit_paths, write_units_manifest
@@ -64,7 +63,6 @@ class ChapterManagementTests(unittest.TestCase):
         before_index = (self.base / "wiki" / "index.md").read_text(encoding="utf-8")
         self.assertIn(f"## {self.chapters[0]}", before_index)
         report_sha_before = read_unit_state(self.base, "alpha")["report"].get("approved_sha256")
-        spec_sha_before = read_unit_state(self.base, "alpha")["spec"].get("approved_sha256")
 
         result = rename_chapter(self.root, self.chapters[0], "新章节名")
         self.assertTrue(result["renamed"])
@@ -82,14 +80,12 @@ class ChapterManagementTests(unittest.TestCase):
         # Approvals stay bound to content; only chapter relabel changed.
         after_state = read_unit_state(self.base, "alpha")
         self.assertEqual(after_state["report"].get("approved_sha256"), report_sha_before)
-        self.assertEqual(after_state["spec"].get("approved_sha256"), spec_sha_before)
         refreshed = refresh_unit_currency(
             self.base,
             Unit(id="alpha", chapter="新章节名", role="content"),
             project_root=self.root,
         )
         self.assertTrue(refreshed["report"]["current"])
-        self.assertTrue(refreshed["spec"]["current"])
 
     def test_rename_chapter_rejects_when_units_become_invalid(self) -> None:
         self._seed_units()
@@ -222,31 +218,14 @@ class ChapterManagementTests(unittest.TestCase):
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             paths.report.write_text(
                 f"# {unit.id}\n\nDetailed, evidence-backed analysis for {unit.id}. " * 3,
                 encoding="utf-8",
             )
-            paths.spec.write_text(self._spec_text(unit), encoding="utf-8")
-            paths.page.write_text(
-                f'<section class="slide" id="{unit.id}" data-unit-id="{unit.id}" '
-                f'data-page-role="{unit.role}"></section>',
-                encoding="utf-8",
-            )
         return units
-
-    def _spec_text(self, unit: Unit) -> str:
-        return (
-            f"## Slide 1 — {unit.id}\n单元 ID：{unit.id}\n页面角色：{unit.role}\n"
-            "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-            "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-            "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-        )
 
     def _approve(self, unit: Unit) -> None:
         approve_unit_report(self.base, unit, when="t1", project_root=self.root, **APPROVER)
-        approve_unit_spec(self.base, unit, when="t2", project_root=self.root, **APPROVER)
 
 
 if __name__ == "__main__":

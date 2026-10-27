@@ -9,24 +9,10 @@ from pathlib import Path
 
 from my_slides.commands.init import init_project
 from my_slides.state import read_unit_state
-from my_slides.unit_workflow import (
-    approve_unit_report,
-    approve_unit_spec,
-    validate_unit_report,
-    validate_unit_spec,
-)
+from my_slides.unit_workflow import approve_unit_report, prepare_report_handoff, validate_unit_report
 from my_slides.units import Unit, assemble_report, detect_format_version, unit_paths, write_units_manifest
 
 TEST_APPROVER = {"approved_by": "Fixture Reviewer", "approved_account": "fixture"}
-
-
-def _spec_body(unit_id: str, role: str) -> str:
-    return (
-        f"## Slide 1 — {unit_id}\n页面 ID：{unit_id}\n页面角色：{role}\n"
-        "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-        "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-        "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-    )
 
 
 class UnitWorkflowTests(unittest.TestCase):
@@ -53,47 +39,43 @@ class UnitWorkflowTests(unittest.TestCase):
     def test_init_v2_creates_units_and_directories(self):
         self.init_v2()
         self.assertTrue((self.base / "units.json").is_file())
-        self.assertTrue((self.base / "slides" / "pages").is_dir())
+        for retired in ("specs", "slides"):
+            self.assertFalse((self.base / retired).exists(), retired)
 
-    def test_unit_report_spec_approve_and_assemble(self):
+    def test_unit_report_approve_and_assemble(self):
         self.init_v2()
         units = [
             Unit(id="cover", chapter="投资概要", role="cover"),
-            Unit(id="summary-01", chapter="投资概要", role="content"),
+            Unit(id="summary-01", chapter="投资概要", role="content", title="摘要"),
         ]
         write_units_manifest(self.base, units)
         for unit in units:
             paths = unit_paths(self.base, unit.id)
             paths.report.parent.mkdir(parents=True, exist_ok=True)
-            paths.spec.parent.mkdir(parents=True, exist_ok=True)
-            paths.page.parent.mkdir(parents=True, exist_ok=True)
             paths.report.write_text(
                 f"# {unit.id}\n\n" + "Detailed investment analysis text. " * 3 + "\n",
                 encoding="utf-8",
             )
-            paths.spec.write_text(_spec_body(unit.id, unit.role), encoding="utf-8")
-            paths.page.write_text(
-                f'<section class="slide" data-unit-id="{unit.id}" data-page-role="{unit.role}"></section>',
-                encoding="utf-8",
-            )
         self.assertEqual(validate_unit_report(self.base, units[1]), [])
-        self.assertEqual(validate_unit_spec(self.base, units[1]), [])
         approve_unit_report(self.base, units[0], when="t0", project_root=self.root, **TEST_APPROVER)
         approve_unit_report(self.base, units[1], when="t0", project_root=self.root, **TEST_APPROVER)
         document, errors = assemble_report(self.base, units, write=True)
         self.assertEqual(errors, [])
         self.assertIn("summary-01", document)
-        approve_unit_spec(self.base, units[1], when="t1", project_root=self.root, **TEST_APPROVER)
         state = read_unit_state(self.base, "summary-01")
         self.assertTrue(state["report"]["current"])
-        self.assertTrue(state["spec"]["current"])
-        # Re-approving report must not auto-revive Spec.
-        paths = unit_paths(self.base, "summary-01")
-        paths.report.write_text(paths.report.read_text(encoding="utf-8") + "\nExtra.\n", encoding="utf-8")
-        approve_unit_report(self.base, units[1], when="t2", project_root=self.root, **TEST_APPROVER)
-        state = read_unit_state(self.base, "summary-01")
-        self.assertTrue(state["report"]["current"])
-        self.assertFalse(state["spec"]["current"])
+        self.assertEqual(set(state), {"unit_id", "report", "reasons"})
+
+    def test_report_handoff_names_only_the_report_file(self):
+        self.init_v2()
+        unit = Unit(id="summary-01", chapter="投资概要", role="content", title="摘要")
+        write_units_manifest(self.base, [Unit(id="cover", chapter="投资概要", role="cover"), unit])
+        [handoff] = prepare_report_handoff(self.base, self.root, [unit])
+        text = handoff.read_text(encoding="utf-8")
+        self.assertEqual(handoff, self.base / "work" / "report" / "summary-01.md")
+        self.assertIn("reports/units/summary-01.md", text)
+        self.assertNotIn("Spec", text)
+        self.assertNotIn("slides/pages", text)
 
     def test_cli_unit_approve_json(self):
         self.init_v2()
@@ -101,11 +83,7 @@ class UnitWorkflowTests(unittest.TestCase):
         write_units_manifest(self.base, units)
         paths = unit_paths(self.base, "cover")
         paths.report.parent.mkdir(parents=True, exist_ok=True)
-        paths.spec.parent.mkdir(parents=True, exist_ok=True)
-        paths.page.parent.mkdir(parents=True, exist_ok=True)
         paths.report.write_text("# cover\n\n" + "Cover narrative with enough length. " * 3, encoding="utf-8")
-        paths.spec.write_text(_spec_body("cover", "cover"), encoding="utf-8")
-        paths.page.write_text('<section class="slide" data-unit-id="cover" data-page-role="cover"></section>', encoding="utf-8")
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
         result = subprocess.run(
             [
