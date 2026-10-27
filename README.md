@@ -13,7 +13,7 @@ my-slides present --project "<项目目录>" --json
 my-slides present --project "<项目目录>" --target slides --json
 ```
 
-`present` 会逐目标输出状态和下一步。缺少可执行 provider 时是 Agent 交接，不会声称 CLI 自动生成成品；未完成时退出非零。Design 的 `succeeded` 只表示 `check --strict` 通过，仍需渲染、核对内容，并由你在 5173 审阅。使用 Design 时设置 `MY_SLIDES_DESIGN_ROOT`，宿主 projects 根为 `<项目>/my-slides/design`；在线编辑走引擎 `apply`，连接失败不直写。详细路径、示例配置、迁移和失败语义见 [薄壳契约](docs/remake-contract.md)。
+`present` 会逐目标输出状态和下一步。缺少可执行 provider 时是 Agent 交接，不会声称 CLI 自动生成成品；未完成时退出非零。beautiful 即使已有 HTML 仍为 `pending_agent`，由 Agent 核对后说明完成情况。Design 的 `succeeded` 只表示 `check --strict` 通过；内容同步状态始终为 `unknown`，仍需 Agent 对照正文、运行渲染检查，并由你在 5173 审阅。使用 Design 时设置 `MY_SLIDES_DESIGN_ROOT`，宿主 projects 根为配置输出 `deck` 的父目录（默认 `<项目>/my-slides/design`）；在线编辑走引擎 `apply`，连接失败不直写。详细路径、示例配置、迁移和失败语义见 [薄壳契约](docs/remake-contract.md)。
 
 以下章节记录保留的 0.7 单元工作流，仅供显式 `my-slides init --legacy` 的旧项目使用。新项目不运行其中的审批、`slides build` 或按单元交付命令。
 
