@@ -68,8 +68,8 @@ my-slides should wrap these so Agent still gets few high-level commands (e.g. `p
 | 1 — spike + thin CLI bridge behind `presentation: design` | done on `feat/design-slides-spike` (0.6.5); results in [spike-results.md](spike-results.md); real hand-edit on 5173 still needs Joe |
 | 2 — remove Spec, rewrite `next` / `status` | done on `feat/design-slides-spike` (0.7.0), together with phase 3 |
 | 3 — Design-only slides path | done (0.7.0): HTML pipeline removed; build/remove/restore/rename publish via host `apply` when it runs; check state recorded; delivery diffs use page hashes. Host-side `apply` success path verified only with mocks |
-| 4 — docs + skill overhaul | next, awaiting approval |
-| 5 — CI | pending (workflow still installs renderer/Playwright) |
+| 4 — docs + skill overhaul | done (0.7.0): README, agent help, skill + references rewritten for Design; three examples rewritten as Design pages (pass `--strict`), other five removed; README upgrade notes |
+| 5 — CI | done: CI runs Python suite on three OSes and checks skill mirrors; Design engine integration tests skip in CI (engine repo is private) and run in `scripts/run-full-tests.sh` locally. Real 5173 hand-edit and macOS run still need Joe |
 
 ## Implementation phases
 

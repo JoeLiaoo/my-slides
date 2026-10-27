@@ -20,7 +20,7 @@ from my_slides.commands.prepare import prepare
 from my_slides.commands.slides import run as slides_run
 from my_slides.delivery import export_delivery
 from my_slides.design_deck import deck_dir, page_unit, plan_order, publish_deck_files, sync_deck
-from my_slides.design_engine import design_status
+from my_slides.design_engine import design_status, run_agent
 from my_slides.design_workflow import check_deck, check_status, prepare_design_handoff
 from my_slides.project import read_config
 from my_slides.unit_workflow import approve_unit_report
@@ -332,6 +332,25 @@ class DesignEngineIntegrationTests(DesignFixture):
         result = check_deck(self.base, self.cfg, strict=False, render=False)
         self.assertFalse(result["valid"])
         self.assertTrue(any("team" in error for error in result["errors"]))
+
+    def test_skill_examples_pass_strict_design_check(self) -> None:
+        # skill 里的示例页面会被 Agent 直接复制，必须是严格检查下零警告的 Design 页面。
+        examples = Path(__file__).resolve().parents[1] / "skills" / "my-slides-workflow" / "examples"
+        pages = sorted(examples.glob("*/*/page.html"))
+        self.assertTrue(pages)
+        deck = self.root / "examples-deck" / "ex"
+        (deck / "slides").mkdir(parents=True)
+        order = []
+        for page in pages:
+            text = page.read_text(encoding="utf-8")
+            page_id = text.split('<section id="', 1)[1].split('"', 1)[0]
+            (deck / "slides" / f"{page_id}.html").write_text(text, encoding="utf-8")
+            order.append(page_id)
+        (deck / "deck.json").write_text(json.dumps({
+            "v": 4, "lists": "css", "title": "examples", "order": order, "cover": order[0],
+            "sections": {}, "faces": {}, "designSystems": []}), encoding="utf-8")
+        code, result = run_agent(["check", "ex", "--strict"], deck.parent)
+        self.assertEqual(code, 0, result.get("diagnostics"))
 
 
 if __name__ == "__main__":

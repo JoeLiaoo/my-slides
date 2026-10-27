@@ -4,7 +4,7 @@ Open when preparing, reviewing, or revising a unit report (`reports/units/<id>.m
 
 ## Workflow per unit
 
-1. `my-slides prepare report --unit <id>` → 写入 `my-slides/reports/units/<id>.md` 的交接材料（含单元 ID、大章节、角色、文件路径）。
+1. `my-slides prepare report --unit <id>` → 写入 `my-slides/work/report/<id>.md` 的交接材料（含单元 ID、大章节、角色、文件路径）。
 2. 按 Wiki 页面撰写论证；保持章节顺序与 `project.yaml` 一致。
 3. `my-slides validate report --unit <id>`：报告 ≥ 30 字符，本地 Markdown 链接全部解析。
 4. `my-slides approve report --unit <id>` 仅提交待审申请；`review` 同时给出 APPROVE / REJECT 短语；用户明确批准后 `confirm --via chat`。
@@ -24,5 +24,5 @@ Open when preparing, reviewing, or revising a unit report (`reports/units/<id>.m
 
 ## Boundaries
 
-- 报告不引用未批准的下游材料；图表与图标的具体数值会进入 Spec「展示内容」。
-- Spec 与 HTML 的具体排版不写在报告里；报告是论证与依据，Spec 才是页面决策。
+- 报告是页面的唯一内容来源：页面上的结论、数字、引语都要能在这里找到。报告批准后改结论或数字，要先改报告并重新审批。
+- 版式、配色和页面拆分不写在报告里，由写页阶段决定（`references/slides.md`）。

@@ -1,17 +1,15 @@
 # 检查备注
 
-## 期望通过的结构检查
+## 期望通过的检查
 
-- 单元 ID：`competition-dumbbell`。
-- 角色：`content`。
-- `slide-notes`：含 metric、highlight_company、main_call、as_of。
-- `mls-echarts-spec`：type = `dumbbell`；与 Spec 一致。
-- `mls-lucide-spec`：含 `minus` 与 `plus`；与 Spec 一致。
+- Design 严格检查：0 错误、0 警告；SVG 带 `width`、`height`、`viewBox` 与 `aria-label`，没有脚本和外部链接。
+- `<section id>` 等于单元 ID `competition-dumbbell`。
+- 图中每个数值与 `data.json` 一致；真实项目里应对应 `research/numbers.md` 的编号。
 
-## 期望通过的视觉自检
+## 视觉自检
 
-- 一页一个结论（aurora 增量最大）。
-- 字号档位：标题 36 px / 副标 18 px / 行内 Δpp 14 px / 脚注 12 px。
-- 数字带单位（pp）、日期范围、来源。
-- 关系类型 → 主视觉：对比 → 哑铃图，非并列柱。
-- 阅读顺序：标题 → 哑铃自上而下 → Aurora 高亮行 → 脚注。
+- 一页一个结论（Aurora 增量最大），高亮行只有 Aurora 一行。
+- 字号档位：标题 64px / 副标 30px / 图内标签 26–32px / 脚注 24px。
+- 数字带单位（pp、%）、日期范围、来源与口径（样本 5 家，合计不等于 100%）。
+- 关系类型 → 主视觉：对比 → 哑铃图，非并列柱；下滑的公司用灰色，不抢视线。
+- 阅读顺序：标题 → 高亮行 → 其余各行 → 脚注。
