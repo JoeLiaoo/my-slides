@@ -8,9 +8,9 @@ import sys
 
 from . import format_version
 from .commands import agent, approve, assemble, chapters, clean, confirm, doctor, export, help, next_step, reject, review, revoke, slides, sources, status, units, validate, withdraw
-from .commands.init import init_project
 from .commands.prepare import prepare
 from .state import APPROVAL_KINDS
+from . import thin
 
 
 class _PrintVersion(argparse.Action):
@@ -40,11 +40,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     guide = sub.add_parser("help", help="查看面向首次使用的 Agent 工作流指南（无需项目目录）")
     guide.add_argument("--json", action="store_true", help="以 JSON 输出指南")
-    init = sub.add_parser("init", help="初始化 v2 单元格式投资项目工作区")
+    init = sub.add_parser("init", help="创建薄壳 project.json 工作区")
     init.add_argument("--project", help="项目目录，默认当前目录")
     init.add_argument("--source-dir", action="append", help="资料目录（相对项目目录，可重复指定）")
     init.add_argument("--force", action="store_true", help="补全基础文件并重写项目配置")
+    init.add_argument("--legacy", action="store_true", help="显式创建旧 v2 单元工作区（仅供旧流程）")
     init.add_argument("--json", action="store_true")
+    present = sub.add_parser("present", help="逐目标校验或输出 Agent 呈现交接；未完成时退出非零")
+    present.add_argument("--project", help="项目目录，默认当前目录")
+    present.add_argument("--target", choices=("beautiful", "slides"), help="仅处理指定目标")
+    present.add_argument("--json", action="store_true")
     sources = sub.add_parser("sources", help="扫描或确认资料")
     source_sub = sources.add_subparsers(dest="sources_command", required=True)
     for name, help_text in (("scan", "扫描 Markdown 变化"), ("mark-ingested", "确认 agent 已整理当前变更资料")):
@@ -249,7 +254,8 @@ def main() -> None:
     args = build_parser().parse_args()
     handlers = {
         "help": help.run,
-        "init": init_project,
+        "init": thin.init,
+        "present": thin.present,
         "sources": sources.run,
         "prepare": prepare,
         "validate": validate.run,

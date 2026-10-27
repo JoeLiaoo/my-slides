@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "my-slides"
-version = "0.7.0"
-description = "Local agent workflow for investment project wikis, reports, and Design+Slides decks"
+version = "0.8.0"
+description = "Thin agent workspace for research articles and multiple presentations"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

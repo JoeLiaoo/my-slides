@@ -1,10 +1,14 @@
 # My Slides：给首次使用的 Agent
 
+0.8.0 新项目默认是薄壳：`my-slides init --project <项目>` 只创建 `my-slides/project.json`。在配置中选择 beautiful 与/或 slides，准备非空 `article.md`，运行 `my-slides present --json` 获取分目标交接和确定性检查。CLI 不自动写正文或页面；未完成返回非零。Design 结构检查通过后仍需渲染、事实核对和用户在 5173 审阅。具体见仓库 `docs/remake-contract.md` 和安装的 workflow skill。
+
+下文仅适用于用 `my-slides init --legacy` 显式建立的 0.7 单元项目；新项目不运行旧审批链。
+
 My Slides 是投资项目目录中的本地工作流工具。你（Codex、Claude Code 或其他 Agent）阅读项目资料，维护 Markdown Wiki，按小章节撰写投资报告；报告经用户批准后，在 Design+Slides 里写演示页面，用户在 `127.0.0.1:5173` 上审阅、手调，最后导出离线 HTML。CLI 负责初始化、提供阶段交接材料、检查产物、记录用户审批、同步 Design deck 和记录交付；CLI 本身不会替你撰写内容。
 
 开始前
 
-1. 在项目目录运行 `my-slides init`；若当前目录不是项目目录，各项目命令加 `--project <项目目录>`。
+1. 在项目目录运行 `my-slides init --legacy`；若当前目录不是项目目录，各项目命令加 `--project <项目目录>`。
 2. 运行 `my-slides agent install` 安装项目级 Agent 指引，阅读 `my-slides/project.yaml`、`my-slides/units.json` 和安装的工作流指引。
 3. 运行 `my-slides doctor`、`my-slides units list`、`my-slides status --json`、`my-slides next --json`，确认项目结构、单元状态和下一步。`next` 的 `actor: human` 表示必须交给用户本人。缺少 `units.json` 的旧项目需要重新初始化。
 4. 写页阶段需要 Design+Slides 引擎：环境变量 `MY_SLIDES_DESIGN_ROOT` 指向已 `npm install` 并 `npm run build` 的 design-and-slides 目录。`my-slides doctor` 的 `design.ready` 为真才算就绪。

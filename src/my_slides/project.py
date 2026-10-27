@@ -60,7 +60,7 @@ def project_root(value: str | None, *, discover: bool = True) -> Path:
         root = start
         if discover:
             for candidate in (start, *start.parents):
-                if (candidate / APP_DIR / "project.yaml").is_file():
+                if (candidate / APP_DIR / "project.json").is_file() or (candidate / APP_DIR / "project.yaml").is_file():
                     root = candidate
                     break
     if not root.is_dir():
