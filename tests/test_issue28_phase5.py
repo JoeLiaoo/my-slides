@@ -34,13 +34,15 @@ class Issue28Phase5Tests(unittest.TestCase):
         self.assertEqual(data["steps"], data["by_actor"]["agent"] + data["by_actor"]["human"])
         self.assertTrue(all(step["actor"] == "agent" for step in data["by_actor"]["agent"]))
 
-    def test_next_all_no_browser_omits_viewport_task(self):
-        args = build_parser().parse_args(["next", "--all", "--no-browser", "--json", "--project", str(self.root)])
+    def test_next_all_never_suggests_retired_browser_or_spec_steps(self):
+        args = build_parser().parse_args(["next", "--all", "--json", "--project", str(self.root)])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(next_step.run(args), 0)
         commands = [step["command"] for step in json.loads(out.getvalue())["steps"]]
-        self.assertFalse(any("browser doctor" in command or "browser install" in command or "--browser" in command for command in commands))
+        self.assertFalse(any("browser" in command or " spec" in command for command in commands))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            build_parser().parse_args(["next", "--no-browser"])
 
     def test_agent_doctor_reports_current_then_outdated_install(self):
         install_agent_workflow(self.root)

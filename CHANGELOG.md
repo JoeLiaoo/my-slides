@@ -6,6 +6,31 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.7.0] - Pending
+
+Slides are now authored and reviewed in Design+Slides (issue #58). The engine is located through `MY_SLIDES_DESIGN_ROOT`; the user reviews and hand-edits pages on the Design host at `127.0.0.1:5173`.
+
+### Breaking Changes
+
+- Remove the Presentation Spec stage: `prepare spec`, `validate spec`, and the `spec` kind of `approve` / `review` / `confirm` / `reject` / `withdraw` / `revoke` are gone. Only reports need a human approval; slides follow directly from approved reports.
+- Remove the HTML fragment pipeline (`slides/pages/<id>.html`, editorial-light shell assembly, ECharts/Lucide renderer, Playwright browser checks): the `renderer` and `browser` commands, `slides visual-review`, `slides check --screenshots`, `next --no-browser`, `init --presentation`, and the `[browser]` optional dependencies are removed. `slides build` / `check` / `open` and `export` always use the Design deck in `my-slides/design/deck`.
+- Unit state files keep only the report approval; stored Spec, HTML, and check records are dropped on the next read. Report approvals stay valid. Existing `my-slides/specs/` and `my-slides/slides/` folders are no longer read; `doctor` lists them so they can be archived.
+- The skill example library keeps three examples rewritten as Design pages (cover KPI cards, peer dumbbell chart as inline SVG, static mechanism diagram from Design shapes and connectors). The other five HTML-fragment examples, `examples/index/problems.yaml`, and the `spec.md` and `editorial-light-theme.md` references are removed.
+- `units add` creates only the report file. `units remove` / `restore` / `rename` now move, restore, or rename the unit's Design pages (`<id>.html`, `<id>_<n>.html`) and keep `deck.json` references in step.
+- `status --json` reports `approvals.report` only and a new `slides` block (deck present, units without pages, placeholder pages, last Design check). Delivery records store per-page hashes; "changed since last delivery" compares reports and Design pages.
+
+### Added
+
+- `prepare slides` writes a Design authoring handoff once the unit report is approved; `slides build` syncs `deck.json` order and chapter sections from `units.json` and adds placeholder pages without rewriting existing pages; `slides check [--strict] [--browser]` runs the Design structure (and render) checks and records the result; `slides open` prints the review link and host command; `export` writes an offline HTML through the running host and records it in `.state/deliveries.json`.
+- While the Design host is running, `slides build` and unit remove/restore/rename publish through the host's `apply` queue with `ifMatch` baselines, so an open editor refreshes and a concurrent hand edit is reported as a conflict instead of being overwritten.
+- `next` follows the new flow: reports → assemble → evidence numbers → Design pages (placeholders detected) → `slides build` → `slides check` → user review on 5173 → `export`.
+- `doctor` reports whether the engine is installed and built and whether the host is running.
+
+### Changed
+
+- README, `my-slides help`, the workflow skill, and its references describe only the Design+Slides path. Page format defers to Design's own slides skill; my-slides references keep the investment rules (one conclusion per page, sourced footnotes, numbers from `research/numbers.md`, respecting the user's hand edits). README adds an "upgrading from 0.6.x" section.
+- CI runs the Python suite on Linux, macOS, and Windows without the renderer or Playwright and checks that the skill mirrors match. `scripts/run-full-tests.sh` now requires a ready Design engine and also runs under Git Bash on Windows.
+
 ## [0.6.4] - Pending
 
 ### Added

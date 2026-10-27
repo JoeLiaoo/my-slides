@@ -3,7 +3,7 @@
 A chapter lives in three places: ``project.yaml`` (canonical order), every
 ``chapter`` field in ``units.json`` (per-unit assignment), and the Wiki
 ``index.md`` (navigation). The helpers below keep those three in sync while
-preserving existing report and Spec approvals: chapter renaming only relabels
+preserving existing report approvals: chapter renaming only relabels
 the chapter string, the unit content and dependency fingerprints stay
 identical, so ``refresh_unit_currency`` keeps the approvals current.
 """
@@ -183,7 +183,7 @@ def rename_chapter(root: Path, old: str, new: str) -> dict[str, Any]:
 
     Approvals stay bound to content hashes and dependency fingerprints, which
     do not change. We rebuild the ``chapter`` field on every affected unit and
-    leave the report and Spec approval state alone so currency is preserved.
+    leave the report approval state alone so currency is preserved.
     """
     cleaned_old = (old or "").strip()
     cleaned_new = (new or "").strip()
@@ -247,9 +247,9 @@ def rename_chapter(root: Path, old: str, new: str) -> dict[str, Any]:
         "affected_units": [unit.id for unit in affected],
         "approvals_preserved": True,
         "reason": (
-            "章节重命名只改 chapter 字段，不修改报告或 Spec 内容；"
+            "章节重命名只改 chapter 字段，不修改报告内容；"
             "批准绑定的内容哈希与依赖指纹未变，因此批准仍有效；"
-            "需要按新章节顺序重建整套 Slides 并重新检查。"
+            "需要运行 slides build 按新章节同步 Design deck 并重新检查。"
         ),
         "wiki_updated": wiki_updated,
         "refreshed_units": refreshed_ids,
@@ -298,7 +298,7 @@ def move_chapter(root: Path, name: str, *, after: str | None = None, before: str
     """Reorder chapters in project.yaml and the Wiki index.
 
     The order in units.json follows project.yaml at validation time, so we
-    rewrite both stores together. Report and Spec approvals stay bound to
+    rewrite both stores together. Report approvals stay bound to
     per-unit content hashes and do not depend on chapter order.
     """
     cleaned = (name or "").strip()

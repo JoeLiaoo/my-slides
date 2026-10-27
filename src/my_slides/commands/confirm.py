@@ -42,7 +42,7 @@ def run(args: argparse.Namespace) -> int:
     request = state[args.kind].get("pending_approval")
     if not state[args.kind]["pending_current"] or not isinstance(request, dict):
         raise ValueError(f"{unit.id}：没有有效的 {args.kind} 待审批申请，或申请后内容/依赖已变化；请重新提交审批")
-    artifact = unit_paths(base, unit.id).report if args.kind == "report" else unit_paths(base, unit.id).spec
+    artifact = unit_paths(base, unit.id).report
     digest = request["content_sha256"]
     context = request.get("review_context") or state[args.kind].get("reconfirmation_context")
     context_line = f"\n变更说明：{context}" if context else ""

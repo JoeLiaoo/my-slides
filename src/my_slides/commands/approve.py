@@ -1,4 +1,4 @@
-"""Submit report or Spec units for an explicit human review."""
+"""Submit report units for an explicit human review."""
 
 from __future__ import annotations
 

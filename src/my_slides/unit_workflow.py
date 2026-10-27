@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
-from .dependencies import fingerprint_file
-from .research import read_number_ids, validate_number_list
 from .state import (
     collect_units_status,
     mark_report_approved,
-    read_unit_state,
     refresh_unit_currency,
+    require_approval_kind,
     write_unit_state,
 )
 from .units import (
@@ -77,331 +74,30 @@ def validate_unit_report(base: Path, unit: Unit) -> list[str]:
     return errors
 
 
-MAX_CONTENT_PAGES = 8
-SLIDE_HEADING_RE = re.compile(r"^##\s+Slide\s+(\d+)\s+[—-]\s*(.*?)\s*$", re.MULTILINE)
-SPEC_ID_RE = re.compile(r"^(?:单元 ID|页面 ID)\s*[：:]\s*(\S+)\s*$", re.MULTILINE)
-SPEC_ROLE_RE = re.compile(r"^页面角色\s*[：:]\s*(cover|content)\s*$", re.MULTILINE | re.IGNORECASE)
-REQUIRED_SPEC_HEADINGS = ("目的", "核心结论", "展示内容", "证据与来源", "限定条件", "报告段落映射", "布局意图", "图标需求")
-CONTENT_TYPES = ("演进/时间线", "对比", "清单/矩阵", "趋势/图表", "案例", "判断/收束")
-LAYOUTS = (
-    "KPI卡片", "哑铃对比", "100%堆叠趋势", "漏斗流程", "静态机制图",
-    "敏感性热图", "单位经济折线",
-)
-CONTENT_TYPE_RE = re.compile(r"^内容类型\s*[：:]\s*(.+?)\s*$", re.MULTILINE)
-LAYOUT_RE = re.compile(r"^版式\s*[：:]\s*(.+?)\s*$", re.MULTILINE)
-INVESTMENT_JUDGMENT_HEADING = "我们的判断 / 对投资的含义"
-NUMBER_ID_RE = re.compile(r"\bN-\d{3,}\b")
-SOURCE_FOOTNOTE_RE = re.compile(r"^###\s+来源脚注\s*$\n(?P<body>.*?)(?=^###\s|\Z)", re.MULTILINE | re.DOTALL)
-INLINE_QUALIFIER_RE = re.compile(r"未核验|估计口径|统计口径|数据口径|按.{0,8}口径|估算值")
-# Issue #38 PR 1 (02): 布局意图 must be expanded into six sub-points.
-# Each sub-point is a level-three heading under `### 布局意图`.
-LAYOUT_INTENT_SUBPOINTS = (
-    "读者问题",
-    "唯一结论",
-    "关系类型",
-    "主视觉",
-    "阅读顺序",
-    "选这个形式的原因",
-)
-LAYOUT_INTENT_HEADING_RE = re.compile(
-    r"^###\s+布局意图\s*\n(?P<body>.*?)(?=^###\s|\Z)",
-    re.MULTILINE | re.DOTALL,
-)
-SUBPOINT_HEADING_RE = re.compile(r"^####\s+(?P<name>\S+)\s*$", re.MULTILINE)
-
-
-def _check_layout_intent(page_body: str, page_number: int, unit_id: str) -> list[str]:
-    """Validate that the 布局意图 section is filled in with all six sub-points.
-
-    Issue #38 PR 1 (02) requires each Spec page to plan the visual layout:
-    读者问题 / 唯一结论 / 关系类型 / 主视觉 / 阅读顺序 / 选这个形式的原因.
-    Empty sub-points or missing headings are rejected before approval.
-    """
-    errors: list[str] = []
-    match = LAYOUT_INTENT_HEADING_RE.search(page_body)
-    if match is None:
-        return [f"{unit_id}：第 {page_number} 页缺少 ### 布局意图"]
-    body = match.group("body")
-    if not body.strip():
-        errors.append(f"{unit_id}：第 {page_number} 页的布局意图不能为空")
-        return errors
-    headings = [m.group("name").strip() for m in SUBPOINT_HEADING_RE.finditer(body)]
-    if not headings:
-        errors.append(f"{unit_id}：第 {page_number} 页的布局意图缺少 #### 子标题")
-        return errors
-    seen: set[str] = set()
-    for expected in LAYOUT_INTENT_SUBPOINTS:
-        if expected not in headings:
-            errors.append(f"{unit_id}：第 {page_number} 页的布局意图缺少 #### {expected}")
-        else:
-            seen.add(expected)
-    extras = [name for name in headings if name not in LAYOUT_INTENT_SUBPOINTS]
-    if extras:
-        errors.append(
-            f"{unit_id}：第 {page_number} 页的布局意图含未识别的 #### 子标题：{'、'.join(extras)}"
-        )
-    # Each sub-point body must contain at least one non-heading line.
-    if seen == set(LAYOUT_INTENT_SUBPOINTS):
-        for name in LAYOUT_INTENT_SUBPOINTS:
-            pattern = (
-                r"^####\s+" + re.escape(name) + r"\s*\n(?P<body>.*?)(?=^####\s|\Z)"
-            )
-            section = re.search(pattern, body, flags=re.MULTILINE | re.DOTALL)
-            if section and not section.group("body").strip():
-                errors.append(f"{unit_id}：第 {page_number} 页的布局意图 → {name} 不能为空")
-    return errors
-
-
-def split_spec_pages(text: str) -> tuple[str, list[dict[str, Any]]]:
-    """Split a Spec into the preamble and ordered ``## Slide N —`` pages."""
-    matches = list(SLIDE_HEADING_RE.finditer(text))
-    if not matches:
-        return text, []
-    pages: list[dict[str, Any]] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        pages.append({
-            "number": int(match.group(1)),
-            "title": match.group(2).strip(),
-            "body": text[match.start():end],
-        })
-    return text[:matches[0].start()], pages
-
-
-def validate_unit_spec(base: Path, unit: Unit) -> list[str]:
-    path = unit_paths(base, unit.id).spec
-    errors: list[str] = []
-    if not path.is_file():
-        return [f"缺少 Spec 单元：specs/units/{unit.id}.md"]
-    text = path.read_text(encoding="utf-8").strip()
-    preamble, pages = split_spec_pages(text)
-    if not pages:
-        errors.append(f"{unit.id}：未找到分页标题（格式：## Slide 1 — 标题）")
-        return errors
-    numbers = [page["number"] for page in pages]
-    if numbers != list(range(1, len(pages) + 1)):
-        errors.append(f"{unit.id}：Slide 编号必须从 1 连续递增（当前为 {numbers}）")
-    if unit.role == "cover" and len(pages) != 1:
-        errors.append(f"{unit.id}：封面小章节只能有一页（当前 {len(pages)} 页）")
-    if len(pages) > MAX_CONTENT_PAGES:
-        errors.append(
-            f"{unit.id}：一个小章节最多 {MAX_CONTENT_PAGES} 页（当前 {len(pages)} 页）；请拆成多个小章节"
-        )
-    declared_ids = SPEC_ID_RE.findall(preamble)
-    for page in pages:
-        content_types = CONTENT_TYPE_RE.findall(page["body"])
-        layouts = LAYOUT_RE.findall(page["body"])
-        if len(content_types) != 1 or content_types[0] not in CONTENT_TYPES:
-            errors.append(f"{unit.id}：第 {page['number']} 页须声明一个有效内容类型（{'、'.join(CONTENT_TYPES)}）")
-        if len(layouts) != 1 or layouts[0] not in LAYOUTS:
-            errors.append(f"{unit.id}：第 {page['number']} 页须从可用版式中选择一个（{'、'.join(LAYOUTS)}）")
-        declared_ids.extend(SPEC_ID_RE.findall(page["body"]))
-    if not declared_ids:
-        errors.append(f"{unit.id}：缺少单元 ID（写法：单元 ID：{unit.id}，旧文件中的页面 ID 仍然有效）")
-    elif any(item != unit.id for item in declared_ids):
-        errors.append(f"{unit.id}：单元 ID / 页面 ID 必须与单元 ID 一致（当前为 {'、'.join(declared_ids)}）")
-    preamble_roles = [role.lower() for role in SPEC_ROLE_RE.findall(preamble)]
-    page_roles_found = False
-    number_ids = read_number_ids(base)
-    numbers_path = base / "research" / "numbers.md"
-    research_errors = validate_number_list(base) if numbers_path.exists() else []
-    if any(role != unit.role for role in preamble_roles):
-        errors.append(f"{unit.id}：页面角色与 units.json 中的 {unit.role} 不一致")
-    for page in pages:
-        roles = [role.lower() for role in SPEC_ROLE_RE.findall(page["body"])]
-        if roles:
-            page_roles_found = True
-        if any(role != unit.role for role in roles):
-            errors.append(f"{unit.id}：第 {page['number']} 页的页面角色与 units.json 中的 {unit.role} 不一致")
-        for heading in REQUIRED_SPEC_HEADINGS:
-            if not re.search(rf"^###\s+{re.escape(heading)}\s*$", page["body"], flags=re.MULTILINE):
-                errors.append(f"{unit.id}：第 {page['number']} 页缺少 ### {heading}")
-        if unit.role == "content":
-            judgment = re.search(
-                rf"^###\s+{re.escape(INVESTMENT_JUDGMENT_HEADING)}\s*$\n(?P<body>.*?)(?=^###\s|\Z)",
-                page["body"], flags=re.MULTILINE | re.DOTALL,
-            )
-            if judgment and not judgment.group("body").strip():
-                errors.append(f"{unit.id}：第 {page['number']} 页的判断框不能为空")
-            if not judgment and (re.search(r"关键页\s*[：:：]\s*(?:是|true|yes)", page["body"], re.IGNORECASE) or re.search(r"内容类型\s*[：:]\s*判断/收束", page["body"])):
-                errors.append(f"{unit.id}：第 {page['number']} 页须填写 ### {INVESTMENT_JUDGMENT_HEADING} 结论框")
-            footnote = SOURCE_FOOTNOTE_RE.search(page["body"])
-            if not footnote or not re.search(r".+《[^《》]+》\（?\d{4}[^）]*\）", footnote.group("body")):
-                errors.append(f"{unit.id}：第 {page['number']} 页须在 ### 来源脚注 使用“机构或作者《标题》（日期）”格式")
-            else:
-                content_sections = re.findall(
-                    r"^###\s+(?:目的|核心结论|展示内容|证据与来源|我们的判断 / 对投资的含义)\s*$\n(.*?)(?=^###\s|\Z)",
-                    page["body"], flags=re.MULTILINE | re.DOTALL,
-                )
-                if any(INLINE_QUALIFIER_RE.search(section) for section in content_sections):
-                    errors.append(f"{unit.id}：第 {page['number']} 页的估计/口径/未核验限定请移入来源脚注")
-            cited_ids = set(NUMBER_ID_RE.findall(page["body"]))
-            if cited_ids and research_errors:
-                errors.append(f"{unit.id}：第 {page['number']} 页引用数字前须先完成 `my-slides validate evidence-research`")
-            elif cited_ids and number_ids:
-                missing_ids = sorted(cited_ids - number_ids)
-                if missing_ids:
-                    errors.append(f"{unit.id}：第 {page['number']} 页引用了 numbers.md 不存在的编号：{'、'.join(missing_ids)}")
-            if "echarts-spec" in page["body"] and not re.search(r"数据编号\s*[：:]\s*(?:N-\d{3,})(?:\s*[,，、]\s*N-\d{3,})*", page["body"]):
-                errors.append(f"{unit.id}：第 {page['number']} 页图表须在展示内容中声明数据编号：N-001")
-        errors.extend(_check_layout_intent(page["body"], page["number"], unit.id))
-        mapping = re.search(
-            r"^###\s+报告段落映射\s*\n(.*?)(?=^###\s|\Z)",
-            page["body"],
-            flags=re.MULTILINE | re.DOTALL,
-        )
-        if mapping and not mapping.group(1).strip():
-            errors.append(f"{unit.id}：第 {page['number']} 页的报告段落映射不能为空")
-    if not preamble_roles and not page_roles_found:
-        errors.append(f"{unit.id}：页面角色必须填写 cover 或 content")
-    errors.extend(f"{unit.id}：{msg}" for msg in validate_local_markdown_links(text, path))
-    return errors
-
-
-def _validate_deck_layouts_and_number_reuse(base: Path) -> list[str]:
-    """Check cross-unit layout rhythm and ensure registered figure IDs are one-use per deck."""
-    try:
-        units, manifest_errors = load_units_manifest(base, chapters=None)
-    except UnitsError:
-        return []
-    if manifest_errors:
-        return []
-    layouts: list[tuple[str, str, int]] = []
-    uses: dict[str, list[str]] = {}
-    total_pages = 0
-    for unit in units:
-        path = unit_paths(base, unit.id).spec
-        if not path.is_file():
-            continue
-        _, pages = split_spec_pages(path.read_text(encoding="utf-8"))
-        for page in pages:
-            total_pages += 1
-            match = LAYOUT_RE.search(page["body"])
-            if match:
-                layout = match.group(1)
-                layouts.append((unit.id, layout, page["number"]))
-            for number_id in sorted(set(NUMBER_ID_RE.findall(page["body"]))):
-                uses.setdefault(number_id, []).append(f"{unit.id} 第 {page['number']} 页")
-    errors: list[str] = []
-    run: list[tuple[str, str, int]] = []
-    for item in layouts:
-        if run and item[1] == run[-1][1]:
-            run.append(item)
-        else:
-            if len(run) > 2:
-                errors.append("整套 deck 同一版式连续超过 2 页：" + "、".join(f"{u} 第 {n} 页" for u, _, n in run))
-            run = [item]
-    if len(run) > 2:
-        errors.append("整套 deck 同一版式连续超过 2 页：" + "、".join(f"{u} 第 {n} 页" for u, _, n in run))
-    minimum = min(3, total_pages) if total_pages else 0
-    unique_count = len({layout for _, layout, _ in layouts})
-    if unique_count < minimum:
-        errors.append(f"整套 deck 至少需要 {minimum} 种不同版式（当前 {unique_count} 种）")
-    for number_id, locations in uses.items():
-        if len(locations) > 1:
-            errors.append(f"数字编号 {number_id} 在整套 deck 中重复引用：{'、'.join(locations)}")
-    return errors
-
-
-def validate_deck_spec(base: Path) -> list[str]:
-    """Public deck-wide Spec checks used by the validate command."""
-    return _validate_deck_layouts_and_number_reuse(base)
-
-
-def prepare_unit_handoff(
-    base: Path,
-    root: Path,
-    units: list[Unit],
-    kind: str,
-) -> list[Path]:
+def prepare_report_handoff(base: Path, root: Path, units: list[Unit]) -> list[Path]:
+    """Write work/report/<id>.md telling the agent which report unit to write."""
     ensure_v2_directories(base)
-    out_dir = base / "work"
-    out_dir.mkdir(parents=True, exist_ok=True)
     outputs: list[Path] = []
-    if kind == "slides":
-        from importlib.resources import files
-
-        examples = files("my_slides").joinpath("slides_theme").joinpath("component-examples.md").read_text(encoding="utf-8")
-        component_examples = examples.strip()
-    else:
-        component_examples = ""
     for unit in units:
-        output = out_dir / kind / f"{unit.id}.md"
+        output = base / "work" / "report" / f"{unit.id}.md"
         output.parent.mkdir(parents=True, exist_ok=True)
-        lines = [
-            f"# {kind} 单元交接：{unit.id}",
+        output.write_text("\n".join([
+            f"# report 单元交接：{unit.id}",
             "",
             f"项目目录：{root}",
             f"工作区：{base}",
-            "规则：只改本单元对应的 reports/units、specs/units 或 slides/pages 文件；",
-            "不要编辑组装产物 reports/report.md（由 CLI 组装）。",
+            "规则：只改本单元对应的 reports/units 文件；不要编辑组装产物 reports/report.md（由 CLI 组装）。",
             "",
-        ]
-        if component_examples:
-            lines.extend([component_examples, ""])
-        paths = unit_paths(base, unit.id)
-        lines.extend(
-            [
-                f"## {unit.title or unit.id}",
-                f"- 单元 ID：{unit.id}",
-                f"- 大章节：{unit.chapter}",
-                f"- 小章节：{unit.title or '（未命名）'}",
-                f"- 角色：{unit.role}",
-                f"- 报告：{paths.report.relative_to(base).as_posix()}",
-                f"- Spec：{paths.spec.relative_to(base).as_posix()}",
-                f"- HTML：{paths.page.relative_to(base).as_posix()}",
-                "",
-            ]
-        )
-        if kind == "report":
-            lines.append("请撰写完整论证、证据与限定条件，并用普通 Markdown 链接引用 Wiki/资料。")
-        elif kind == "spec":
-            lines.extend([
-                "当前主题：editorial-light。编排约定见已安装 skill 的 `references/editorial-light-theme.md`；",
-                "只加载此主题 profile，并继续遵守通用的 example-index、charts 和 visual-rules。",
-            ])
-            lines.append(
-                "请按小章节写 Spec：文件顶部写一次“单元 ID”和“页面角色”；"
-                f"用连续的 ## Slide N — 标题描述每一页（封面只能一页，内容最多 {MAX_CONTENT_PAGES} 页）。"
-                "每页必须声明内容类型（演进/时间线、对比、清单/矩阵、趋势/图表、案例、判断/收束）和版式；"
-                "可用版式目录见 references/example-index.md。同版式最多连续两页，整套至少 min(3, 总页数) 种版式。"
-                "每个数字 ID 在整套 deck 只能引用一次；无合适数字时允许无数字页，用表格或结构图组织信息。"
-                "仅章节收束页或标注“关键页：是”时填写“我们的判断 / 对投资的含义”。"
-                "内容页保留规范来源脚注；嘉宾引语只作证据，估计/口径限定集中写在脚注。"
-                "先完成并校验 my-slides/research/numbers.md；图表数据放在该页自己的 echarts-spec 代码块，并在展示内容标明编号。"
-            )
-        else:
-            lines.append(
-                "请生成这个小章节的 HTML：Spec 有几页就写几个 <section class=\"slide\">，"
-                "每页设置 data-unit-id、data-page-role，并包含一个 slide-notes。"
-                "某一页的图表和图标只能使用该页 Spec 中声明的内容。"
-            )
-            lines.extend([
-                "当前主题：editorial-light。按已安装 skill 的 `references/editorial-light-theme.md` 编排；",
-                "沿用项目 brand_color，不写页面级主题覆盖。通用版式规则见 `references/example-index.md` 和 `references/visual-rules.md`。",
-                "",
-            ])
-            # Issue #38 PR 1 (06): surface 1–2 most relevant example paths.
-            from .examples_index import format_matches, read_unit_spec_text, select_examples
-            spec_path = paths.spec
-            spec_text = read_unit_spec_text(spec_path)
-            matches = select_examples(spec_text)
-            if matches:
-                lines.extend(
-                    [
-                        "## 相关参考案例",
-                        "",
-                        format_matches(matches),
-                        "",
-                        "完整案例在 `examples/<category>/<id>/`：",
-                        "拷贝目录到本地后按自己的数据替换 `data.json`；其余结构与 Spec 一致。",
-                        "完整索引见 `references/example-index.md`；",
-                        "反例与修正在 `references/visual-rules.md`。",
-                        "",
-                    ]
-                )
-        lines.append("")
-        output.write_text("\n".join(lines), encoding="utf-8")
+            f"## {unit.title or unit.id}",
+            f"- 单元 ID：{unit.id}",
+            f"- 大章节：{unit.chapter}",
+            f"- 小章节：{unit.title or '（未命名）'}",
+            f"- 角色：{unit.role}",
+            f"- 报告：{unit_paths(base, unit.id).report.relative_to(base).as_posix()}",
+            "",
+            "请撰写完整论证、证据与限定条件，并用普通 Markdown 链接引用 Wiki/资料。",
+            "",
+        ]), encoding="utf-8")
         outputs.append(output)
     return outputs
 
@@ -429,65 +125,6 @@ def approve_unit_report(
     return state
 
 
-def approve_unit_spec(
-    base: Path,
-    unit: Unit,
-    *,
-    when: str,
-    project_root: Path | None = None,
-    approved_by: str | None = None,
-    approved_account: str | None = None,
-    channel: str | None = None,
-    user_reply: str | None = None,
-) -> dict[str, Any]:
-    errors = validate_unit_spec(base, unit)
-    if errors:
-        raise UnitsError("；".join(errors))
-    state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
-    if not state["report"]["current"]:
-        raise UnitsError(f"{unit.id}：报告尚未批准或已失效，请先 approve report --unit {unit.id}")
-    paths = unit_paths(base, unit.id)
-    spec_sha = fingerprint_file(paths.spec)
-    report_sha = state["report"]["approved_sha256"]
-    report_input = state["report"]["approved_input_fingerprint"]
-    prior_history = list(state["spec"].get("decision_history") or [])
-    prior_history.append({
-        "decision": "approved",
-        "approved_by": approved_by,
-        "approved_account": approved_account,
-        "approved_at": when,
-        "channel": channel,
-        "user_reply": user_reply,
-        "approved_sha256": spec_sha,
-    })
-    state["spec"] = {
-        "content_sha256": spec_sha,
-        "report_sha256": report_sha,
-        "report_input_fingerprint": report_input,
-        "approved_sha256": spec_sha,
-        "approved_at": when,
-        "approved_by": approved_by,
-        "approved_account": approved_account,
-        "pending_approval": None,
-        "pending_current": False,
-        "approval_channel": channel,
-        "user_reply": user_reply,
-        "latest_decision": "approved",
-        "latest_rejection": state["spec"].get("latest_rejection"),
-        "decision_history": prior_history,
-        "current": bool(approved_by and approved_account),
-    }
-    # HTML must be rebuilt against the new Spec — never auto-revive.
-    if state["html"].get("build_sha256"):
-        state["html"]["current"] = False
-        state["check"]["current"] = False
-        state["reasons"] = ["Spec 已重新批准，HTML 需按新 Spec 更新"]
-    else:
-        state["reasons"] = []
-    write_unit_state(base, unit.id, state)
-    return state
-
-
 def request_unit_approval(
     base: Path,
     unit: Unit,
@@ -496,24 +133,17 @@ def request_unit_approval(
     when: str,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Record exactly which report or Spec version awaits human review."""
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
-    errors = validate_unit_report(base, unit) if kind == "report" else validate_unit_spec(base, unit)
+    """Record exactly which report version awaits human review."""
+    require_approval_kind(kind)
+    errors = validate_unit_report(base, unit)
     if errors:
         raise UnitsError("；".join(errors))
     state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
-    if kind == "spec" and not state["report"]["current"]:
-        raise UnitsError(f"{unit.id}：报告尚未批准或已失效，请先完成报告审批")
     request = {
         "requested_at": when,
         "content_sha256": state[kind]["content_sha256"],
+        "input_fingerprint": state[kind]["input_fingerprint"],
     }
-    if kind == "report":
-        request["input_fingerprint"] = state["report"]["input_fingerprint"]
-    else:
-        request["report_sha256"] = state["report"]["approved_sha256"]
-        request["report_input_fingerprint"] = state["report"]["approved_input_fingerprint"]
     state[kind]["pending_approval"] = request
     state[kind]["pending_current"] = True
     # Reset latest_decision so a re-submission after rejection no longer looks
@@ -537,28 +167,20 @@ def confirm_unit_approval(
     user_reply: str | None = None,
 ) -> dict[str, Any]:
     """Apply a current review request after terminal or chat confirmation."""
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     if not approved_by.strip() or not approved_account.strip():
         raise ValueError("审批人和本机账户不能为空")
     state = refresh_unit_currency(base, unit, project_root=project_root or base.parent)
     if not state[kind]["pending_current"]:
         raise UnitsError(f"{unit.id}：没有有效的 {kind} 待审批申请，或申请后内容/依赖已变化；请重新运行 approve {kind} --unit {unit.id}")
-    if kind == "report":
-        state = approve_unit_report(
-            base, unit, when=when, project_root=project_root,
-            approved_by=approved_by.strip(), approved_account=approved_account.strip(),
-            channel=channel, user_reply=user_reply,
-        )
-    else:
-        state = approve_unit_spec(
-            base, unit, when=when, project_root=project_root,
-            approved_by=approved_by.strip(), approved_account=approved_account.strip(),
-            channel=channel, user_reply=user_reply,
-        )
+    state = approve_unit_report(
+        base, unit, when=when, project_root=project_root,
+        approved_by=approved_by.strip(), approved_account=approved_account.strip(),
+        channel=channel, user_reply=user_reply,
+    )
     from .approval_review import archive_approved_copy
 
-    path = unit_paths(base, unit.id).report if kind == "report" else unit_paths(base, unit.id).spec
+    path = unit_paths(base, unit.id).report
     approved_sha = state[kind].get("approved_sha256")
     if isinstance(approved_sha, str) and approved_sha and path.is_file():
         archive_approved_copy(base, kind, unit.id, approved_sha, path.read_text(encoding="utf-8"))
@@ -581,8 +203,7 @@ def reject_unit_approval(
     """Record a user rejection for a pending request."""
     from .state import record_rejection
 
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     if not rejected_by.strip() or not rejected_account.strip():
         raise ValueError("驳回人和本机账户不能为空")
     if not (reason or "").strip():
@@ -610,8 +231,7 @@ def withdraw_unit_approval(
     """Cancel a pending approval request the agent itself submitted."""
     from .state import withdraw_approval
 
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     return withdraw_approval(
         base, unit, kind, project_root=project_root or base.parent, when=when,
     )
@@ -633,8 +253,7 @@ def revoke_unit_approval(
     """Drop a current approval; preserve approved copies and invalidate dependents."""
     from .state import revoke_approval
 
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     if not revoked_by.strip() or not revoked_account.strip():
         raise ValueError("撤回人和本机账户不能为空")
     return revoke_approval(

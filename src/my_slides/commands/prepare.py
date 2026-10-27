@@ -5,10 +5,11 @@ import argparse
 from datetime import datetime
 
 from ..command_output import emit
+from ..design_workflow import prepare_design_handoff
 from ..project import ensure_project, project_root, require_v2_project
 from ..research import number_list_path
 from ..sources import scan_sources
-from ..unit_workflow import prepare_unit_handoff, resolve_unit_selection
+from ..unit_workflow import prepare_report_handoff, resolve_unit_selection
 from ..wiki import snapshot_wiki, validate_wiki
 
 
@@ -36,13 +37,13 @@ def prepare(args: argparse.Namespace) -> int:
             "围绕当前报告待证明的投资判断，允许查阅公开网络资料，整理可复核的硬数字（如市场规模、融资、ARR、成本曲线）。"
             "将每个数字或图表数据集登记到 `research/numbers.md`，赋唯一编号 N-001 起；记录数值/序列、单位、期间、"
             "标准来源名 `机构或作者《标题》（日期）`、可访问 URL，以及估计值和口径说明。优先使用公司披露、监管文件、"
-            "论文及可信研究机构原始资料；注明市场估算、推算方法和发布日期。不要把未登记的数字写进 Spec 或图表。\n\n"
+            "论文及可信研究机构原始资料；注明市场估算、推算方法和发布日期。不要把未登记的数字写进页面或图表。\n\n"
             "完成后运行 `my-slides validate evidence-research`。\n",
             encoding="utf-8",
         )
         emit(args, {"task_file": str(output), "numbers_file": str(numbers), "kind": kind}, f"已生成证据研究任务：{output}\n数字清单：{numbers}")
         return 0
-    if kind in {"report", "spec", "slides"}:
+    if kind in {"report", "slides"}:
         units = resolve_unit_selection(
             base,
             cfg,
@@ -57,10 +58,11 @@ def prepare(args: argparse.Namespace) -> int:
             wiki_errors = validate_wiki(base, cfg)
             if wiki_errors:
                 raise ValueError("请先修复 Wiki 链接：" + "；".join(wiki_errors))
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         if kind == "report":
-            snapshot_wiki(base, stamp)
-        outputs = prepare_unit_handoff(base, root, units, kind)
+            snapshot_wiki(base, datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+            outputs = prepare_report_handoff(base, root, units)
+        else:
+            outputs = prepare_design_handoff(base, root, units)
         emit(
             args,
             {

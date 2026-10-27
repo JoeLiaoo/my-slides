@@ -1,8 +1,11 @@
-"""Per-unit approval / build / check state for v2 projects.
+"""Per-unit report approval state for v2 projects.
 
 Each unit stores `.state/units/<id>.json` with content fingerprints (not mtimes).
 Invalidation follows real local + explicit unit dependencies (see dependencies.py).
 Changing an unlinked Wiki page does **not** revoke approvals for unrelated units.
+
+Slides are not tracked per unit: they live in the Design deck and are reviewed
+by the user on the Design host, so only the report carries an approval.
 """
 
 from __future__ import annotations
@@ -22,9 +25,16 @@ from .dependencies import (
 )
 from .units import Unit, UnitsError, load_units_manifest, unit_paths
 
+APPROVAL_KINDS = ("report",)
+
 
 def unit_state_path(base: Path, unit_id: str) -> Path:
     return unit_paths(base, unit_id).state
+
+
+def require_approval_kind(kind: str) -> None:
+    if kind not in APPROVAL_KINDS:
+        raise ValueError(f"未知审批类型：{kind}")
 
 
 def default_unit_state(unit_id: str) -> dict[str, Any]:
@@ -49,39 +59,12 @@ def default_unit_state(unit_id: str) -> dict[str, Any]:
             "decision_history": [],
             "current": False,
         },
-        "spec": {
-            "content_sha256": None,
-            "report_sha256": None,
-            "report_input_fingerprint": None,
-            "approved_sha256": None,
-            "approved_at": None,
-            "approved_by": None,
-            "approved_account": None,
-            "pending_approval": None,
-            "pending_current": False,
-            "approval_channel": None,
-            "user_reply": None,
-            "latest_decision": None,
-            "latest_rejection": None,
-            "decision_history": [],
-            "current": False,
-        },
-        "html": {
-            "content_sha256": None,
-            "spec_sha256": None,
-            "build_sha256": None,
-            "current": False,
-        },
-        "check": {
-            "input_fingerprint": None,
-            "result": None,
-            "current": False,
-        },
         "reasons": [],
     }
 
 
 def read_unit_state(base: Path, unit_id: str) -> dict[str, Any]:
+    """Read a unit state; fields from the retired Spec/HTML pipeline are dropped."""
     path = unit_state_path(base, unit_id)
     if not path.is_file():
         return default_unit_state(unit_id)
@@ -92,21 +75,19 @@ def read_unit_state(base: Path, unit_id: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise UnitsError(f"单元状态必须是对象：{path.name}")
     merged = default_unit_state(unit_id)
-    for key in ("report", "spec", "html", "check"):
-        if isinstance(data.get(key), dict):
-            merged[key].update(data[key])
+    if isinstance(data.get("report"), dict):
+        merged["report"].update(data["report"])
     if isinstance(data.get("reasons"), list):
         merged["reasons"] = [str(item) for item in data["reasons"]]
     if isinstance(data.get("identity_migrations"), list):
         merged["identity_migrations"] = data["identity_migrations"]
-    for key in ("report", "spec"):
-        bucket = merged[key]
-        if not isinstance(bucket.get("decision_history"), list):
-            bucket["decision_history"] = []
-        if bucket.get("latest_decision") not in {None, "approved", "rejected"}:
-            bucket["latest_decision"] = None
-        if bucket.get("latest_rejection") is not None and not isinstance(bucket["latest_rejection"], dict):
-            bucket["latest_rejection"] = None
+    bucket = merged["report"]
+    if not isinstance(bucket.get("decision_history"), list):
+        bucket["decision_history"] = []
+    if bucket.get("latest_decision") not in {None, "approved", "rejected"}:
+        bucket["latest_decision"] = None
+    if bucket.get("latest_rejection") is not None and not isinstance(bucket["latest_rejection"], dict):
+        bucket["latest_rejection"] = None
     return merged
 
 
@@ -118,24 +99,6 @@ def write_unit_state(base: Path, unit_id: str, state: dict[str, Any]) -> Path:
     tmp.write_text(payload, encoding="utf-8")
     tmp.replace(path)
     return path
-
-
-def check_input_fingerprint(
-    html_sha: str | None,
-    spec_sha: str | None,
-    *,
-    deck_sha: str | None = None,
-) -> str:
-    """Browser check currency uses this exact shape when saving and when refreshing.
-
-    ``html`` is the built page version that was measured (build_sha256), not a
-    possibly-edited live source file. ``deck`` is the formal index.html that
-    check_deck actually opened.
-    """
-    payload: dict[str, str | None] = {"html": html_sha, "spec": spec_sha}
-    if deck_sha is not None:
-        payload["deck"] = deck_sha
-    return fingerprint_json(payload)
 
 
 def compute_report_input_fingerprint(base: Path, unit: Unit, project_root: Path | None = None) -> str:
@@ -173,17 +136,6 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and state["report"].get("approved_account")
         and not reconfirmation_required
     )
-    # A chapter-only move explicitly asks for a context reconfirmation, while an
-    # unchanged report remains a valid binding for its already approved Spec.
-    unchanged_reconfirmation = bool(
-        reconfirmation_required
-        and approved
-        and report_sha == approved
-        and approved_input
-        and approved_input == input_fp
-        and state["report"].get("approved_by")
-        and state["report"].get("approved_account")
-    )
     if approved and not report_current:
         if not state["report"].get("approved_by") or not state["report"].get("approved_account"):
             reasons.append("报告旧批准缺少审阅者记录，需重新审阅")
@@ -198,75 +150,6 @@ def refresh_unit_currency(base: Path, unit: Unit, *, project_root: Path | None =
         and report_request.get("content_sha256") == report_sha
         and report_request.get("input_fingerprint") == input_fp
     )
-
-    spec_sha = fingerprint_file(paths.spec)
-    state["spec"]["content_sha256"] = spec_sha
-    bound_report = state["spec"].get("report_sha256")
-    # Spec 必须绑到批准时的依赖版本；只比报告正文哈希会在依赖变后重批正文时误复活旧 Spec。
-    bound_report_input = state["spec"].get("report_input_fingerprint")
-    spec_approved = state["spec"].get("approved_sha256")
-    spec_current = bool(
-        spec_approved
-        and spec_sha
-        and spec_approved == spec_sha
-        and (report_current or unchanged_reconfirmation)
-        and bound_report
-        and bound_report == approved
-        and bound_report_input
-        and bound_report_input == approved_input
-        and state["spec"].get("approved_by")
-        and state["spec"].get("approved_account")
-    )
-    if spec_approved and not spec_current:
-        if not state["spec"].get("approved_by") or not state["spec"].get("approved_account"):
-            reasons.append("Spec 旧批准缺少审阅者记录，需重新审阅")
-        else:
-            reasons.append("Spec 与已批准报告版本不一致或 Spec 已改动")
-    state["spec"]["current"] = spec_current
-    spec_request = state["spec"].get("pending_approval")
-    state["spec"]["pending_current"] = bool(
-        isinstance(spec_request, dict)
-        and spec_request.get("content_sha256") == spec_sha
-        and report_current
-        and spec_request.get("report_sha256") == approved
-        and spec_request.get("report_input_fingerprint") == approved_input
-    )
-
-    html_sha = fingerprint_file(paths.page)
-    state["html"]["content_sha256"] = html_sha
-    build_sha = state["html"].get("build_sha256")
-    from .theme import shell_fingerprint
-
-    # 主题或外壳变了只让 HTML 和检查过期，不撤销报告和 Spec 的批准。
-    shell_ok = state["html"].get("shell_fingerprint") == shell_fingerprint()
-    content_ok = bool(
-        build_sha
-        and html_sha
-        and build_sha == html_sha
-        and spec_current
-        and state["html"].get("spec_sha256") == spec_approved
-    )
-    html_current = bool(content_ok and shell_ok)
-    if build_sha and not content_ok:
-        reasons.append("HTML 片段或绑定 Spec 已变化")
-    elif build_sha and not shell_ok:
-        reasons.append("幻灯片主题或外壳已变化，需重新构建")
-    state["html"]["current"] = html_current
-
-    deck_path = base / "slides" / "index.html"
-    deck_sha = fingerprint_file(deck_path) if deck_path.is_file() else None
-    check_current = bool(
-        state["check"].get("result") == "pass"
-        and state["check"].get("input_fingerprint")
-        and deck_sha
-        and build_sha
-        and state["check"]["input_fingerprint"]
-        == check_input_fingerprint(build_sha, spec_sha, deck_sha=deck_sha)
-        and html_current
-    )
-    if state["check"].get("result") and not check_current:
-        reasons.append("页面检查结果已过期")
-    state["check"]["current"] = check_current
     state["reasons"] = reasons
     return state
 
@@ -278,7 +161,9 @@ def collect_units_status(
     chapters: list[str] | None = None,
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Skeleton for `status --unit … --json` (human copy filled in Phase 4)."""
+    """Per-unit report status plus the Design pages each unit owns."""
+    from .design_deck import unit_pages
+
     units, errors = load_units_manifest(base, chapters)
     if errors:
         raise UnitsError("；".join(errors))
@@ -305,36 +190,25 @@ def collect_units_status(
     for unit in units:
         state = refresh_unit_currency(base, unit, project_root=project_root)
         write_unit_state(base, unit.id, state)
+        report = state["report"]
         row = {
             "id": unit.id,
             "chapter": unit.chapter,
             "title": unit.title,
             "role": unit.role,
-            "report_current": state["report"]["current"],
-            "report_pending": state["report"]["pending_current"],
-            "report_reconfirmation_context": state["report"].get("reconfirmation_context"),
-            "report_approved_by": state["report"].get("approved_by"),
-            "report_approved_account": state["report"].get("approved_account"),
-            "report_approved_at": state["report"].get("approved_at"),
-            "report_approval_channel": state["report"].get("approval_channel"),
-            "report_user_reply": state["report"].get("user_reply"),
-            "report_unattributed": bool(state["report"].get("approved_sha256"))
-            and (not state["report"].get("approved_by") or not state["report"].get("approved_account")),
-            "report_latest_decision": state["report"].get("latest_decision"),
-            "report_latest_rejection": state["report"].get("latest_rejection"),
-            "spec_current": state["spec"]["current"],
-            "spec_pending": state["spec"]["pending_current"],
-            "spec_approved_by": state["spec"].get("approved_by"),
-            "spec_approved_account": state["spec"].get("approved_account"),
-            "spec_approved_at": state["spec"].get("approved_at"),
-            "spec_approval_channel": state["spec"].get("approval_channel"),
-            "spec_user_reply": state["spec"].get("user_reply"),
-            "spec_unattributed": bool(state["spec"].get("approved_sha256"))
-            and (not state["spec"].get("approved_by") or not state["spec"].get("approved_account")),
-            "spec_latest_decision": state["spec"].get("latest_decision"),
-            "spec_latest_rejection": state["spec"].get("latest_rejection"),
-            "html_current": state["html"]["current"],
-            "check_current": state["check"]["current"],
+            "report_current": report["current"],
+            "report_pending": report["pending_current"],
+            "report_reconfirmation_context": report.get("reconfirmation_context"),
+            "report_approved_by": report.get("approved_by"),
+            "report_approved_account": report.get("approved_account"),
+            "report_approved_at": report.get("approved_at"),
+            "report_approval_channel": report.get("approval_channel"),
+            "report_user_reply": report.get("user_reply"),
+            "report_unattributed": bool(report.get("approved_sha256"))
+            and (not report.get("approved_by") or not report.get("approved_account")),
+            "report_latest_decision": report.get("latest_decision"),
+            "report_latest_rejection": report.get("latest_rejection"),
+            "pages": unit_pages(base, unit.id),
             "reasons": state["reasons"],
             "depends_on": graph.get(unit.id, []),
         }
@@ -378,11 +252,8 @@ def mark_report_approved(
         raise UnitsError(f"缺少报告单元：{unit.id}")
     sha = fingerprint_file(paths.report)
     input_fp = compute_report_input_fingerprint(base, unit, project_root=project_root)
-    prior_sha = state["report"].get("approved_sha256")
-    prior_input = state["report"].get("approved_input_fingerprint")
-    report_changed = prior_sha != sha or prior_input != input_fp
     prior_history = list(state["report"].get("decision_history") or [])
-    approval_entry = {
+    prior_history.append({
         "decision": "approved",
         "approved_by": approved_by,
         "approved_account": approved_account,
@@ -390,8 +261,7 @@ def mark_report_approved(
         "channel": channel,
         "user_reply": user_reply,
         "approved_sha256": sha,
-    }
-    prior_history.append(approval_entry)
+    })
     state["report"] = {
         "content_sha256": sha,
         "input_fingerprint": input_fp,
@@ -411,13 +281,7 @@ def mark_report_approved(
         "decision_history": prior_history,
         "current": bool(approved_by and approved_account),
     }
-    # A context-only reconfirmation keeps a Spec bound to the identical report.
-    # Substantive report or dependency changes still require a new Spec approval.
-    if report_changed and state["spec"].get("approved_sha256"):
-        state["spec"]["current"] = False
-        state["reasons"] = ["报告已重新批准，Spec 需按新报告版本更新后重审"]
-        state["spec"]["pending_approval"] = None
-        state["spec"]["pending_current"] = False
+    state["reasons"] = []
     write_unit_state(base, unit.id, state)
     return state
 
@@ -440,9 +304,6 @@ def invalidate_for_changed_file(
         if reason not in state["reasons"]:
             state["reasons"].append(reason)
         state["report"]["current"] = False
-        state["spec"]["current"] = False
-        state["html"]["current"] = False
-        state["check"]["current"] = False
         write_unit_state(base, unit.id, state)
     return impact
 
@@ -465,15 +326,10 @@ def record_rejection(
 
     Keeps the rejection in history; clears only the pending request. The
     rejection does **not** invalidate an existing approval: only the pending
-    new version is declined, so already approved ``approved_sha256`` and
-    Spec approvals remain in place. ``refresh_unit_currency`` then decides
-    whether the current approval is still valid against the on-disk files.
-
-    Returns the refreshed unit state. ``clear_pending=False`` is used by
-    ``revoke`` when there is no pending request to drop.
+    new version is declined. ``refresh_unit_currency`` then decides whether
+    the current approval is still valid against the on-disk files.
     """
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     state = refresh_unit_currency(base, unit, project_root=project_root)
     bucket = state[kind]
     if not reason or not str(reason).strip():
@@ -495,7 +351,7 @@ def record_rejection(
         bucket["pending_approval"] = None
         bucket["pending_current"] = False
     reasons = list(state.get("reasons") or [])
-    message = f"用户驳回了{ '报告' if kind == 'report' else 'Spec' }：{rejection_entry['reason']}"
+    message = f"用户驳回了报告：{rejection_entry['reason']}"
     if message not in reasons:
         reasons.append(message)
     state["reasons"] = reasons
@@ -516,20 +372,16 @@ def revoke_approval(
     channel: str,
     user_reply: str | None = None,
 ) -> dict[str, Any]:
-    """Drop a current approval and invalidate dependent artifacts.
+    """Drop a current approval.
 
     Approved copies in ``.state/approved/`` are preserved so previous versions
-    stay in history. A report revoke also invalidates the bound Spec and the
-    HTML/check chain for the same unit.
+    stay in history.
     """
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     state = refresh_unit_currency(base, unit, project_root=project_root)
     bucket = state[kind]
     if not bucket.get("approved_sha256"):
         raise UnitsError(f"{unit.id}：{kind} 还没有有效的批准；无需撤回")
-    approved_sha = bucket.get("approved_sha256")
-    approved_at = bucket.get("approved_at")
     history = list(bucket.get("decision_history") or [])
     history.append({
         "decision": "revoked",
@@ -539,51 +391,35 @@ def revoke_approval(
         "revoked_at": when,
         "channel": channel,
         "user_reply": user_reply,
-        "previously_approved_sha256": approved_sha,
-        "previously_approved_at": approved_at,
+        "previously_approved_sha256": bucket.get("approved_sha256"),
+        "previously_approved_at": bucket.get("approved_at"),
     })
-    bucket["approved_sha256"] = None
-    bucket["approved_input_fingerprint"] = None
-    bucket["approved_at"] = None
-    bucket["approved_by"] = None
-    bucket["approved_account"] = None
-    bucket["approval_channel"] = None
-    bucket["user_reply"] = None
-    bucket["current"] = False
-    bucket["reconfirmation_required"] = False
-    bucket["reconfirmation_context"] = None
-    bucket["pending_approval"] = None
-    bucket["pending_current"] = False
-    bucket["latest_decision"] = "rejected"
-    bucket["latest_rejection"] = {
-        "reason": (reason or "").strip() or "用户撤回了批准",
-        "rejected_by": revoked_by,
-        "rejected_account": revoked_account,
-        "rejected_at": when,
-        "channel": channel,
-        "user_reply": user_reply,
-    }
-    bucket["decision_history"] = history
-    state["html"]["current"] = False
-    state["check"]["current"] = False
-    if kind == "report":
-        # Report revoke cascades down: the bound Spec approval is no longer
-        # backed by an approved report, so its approved_sha256 is dropped.
-        state["spec"]["current"] = False
-        state["spec"]["approved_sha256"] = None
-        state["spec"]["report_sha256"] = None
-        state["spec"]["report_input_fingerprint"] = None
-        state["spec"]["approved_at"] = None
-        state["spec"]["approved_by"] = None
-        state["spec"]["approved_account"] = None
-        state["spec"]["approval_channel"] = None
-        state["spec"]["user_reply"] = None
-        state["spec"]["pending_approval"] = None
-        state["spec"]["pending_current"] = False
-        state["spec"]["reconfirmation_required"] = False
-        state["spec"]["reconfirmation_context"] = None
+    bucket.update({
+        "approved_sha256": None,
+        "approved_input_fingerprint": None,
+        "approved_at": None,
+        "approved_by": None,
+        "approved_account": None,
+        "approval_channel": None,
+        "user_reply": None,
+        "current": False,
+        "reconfirmation_required": False,
+        "reconfirmation_context": None,
+        "pending_approval": None,
+        "pending_current": False,
+        "latest_decision": "rejected",
+        "latest_rejection": {
+            "reason": (reason or "").strip() or "用户撤回了批准",
+            "rejected_by": revoked_by,
+            "rejected_account": revoked_account,
+            "rejected_at": when,
+            "channel": channel,
+            "user_reply": user_reply,
+        },
+        "decision_history": history,
+    })
     reasons = list(state.get("reasons") or [])
-    note = f"用户撤回了{ '报告' if kind == 'report' else 'Spec' }批准"
+    note = "用户撤回了报告批准"
     if reason:
         note += f"：{str(reason).strip()}"
     if note not in reasons:
@@ -602,8 +438,7 @@ def withdraw_approval(
     when: str,
 ) -> dict[str, Any]:
     """Agent cancels its own pending approval request; no user gate required."""
-    if kind not in {"report", "spec"}:
-        raise ValueError(f"未知审批类型：{kind}")
+    require_approval_kind(kind)
     state = refresh_unit_currency(base, unit, project_root=project_root)
     bucket = state[kind]
     if not bucket.get("pending_approval"):
@@ -624,7 +459,7 @@ def withdraw_approval(
 
 # Re-export fingerprint helpers for tests / callers.
 __all__ = [
-    "check_input_fingerprint",
+    "APPROVAL_KINDS",
     "collect_units_status",
     "compute_report_input_fingerprint",
     "content_fingerprint",
@@ -636,6 +471,7 @@ __all__ = [
     "read_unit_state",
     "record_rejection",
     "refresh_unit_currency",
+    "require_approval_kind",
     "revoke_approval",
     "unit_state_path",
     "withdraw_approval",

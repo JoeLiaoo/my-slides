@@ -13,11 +13,6 @@ from my_slides.commands.init import init_project
 from my_slides.state import read_unit_state, refresh_unit_currency
 from my_slides.units import Unit, unit_paths, write_units_manifest
 
-HEADINGS = (
-    "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-    "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-    "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n"
-)
 
 
 class ChatApprovalTests(unittest.TestCase):
@@ -36,14 +31,7 @@ class ChatApprovalTests(unittest.TestCase):
         write_units_manifest(self.base, self.units)
         for unit in self.units:
             report = f"# {unit.title}\n\nEnough report text for {unit.id} to pass validation.\n"
-            spec = (
-                f"单元 ID：{unit.id}\n页面角色：{unit.role}\n\n"
-                f"## Slide 1 — 其一\n{HEADINGS}\n## Slide 2 — 其二\n{HEADINGS}\n"
-            )
-            if unit.role == "cover":
-                spec = f"单元 ID：{unit.id}\n页面角色：cover\n\n## Slide 1 — 封面\n{HEADINGS}\n"
             unit_paths(self.base, unit.id).report.write_text(report, encoding="utf-8")
-            unit_paths(self.base, unit.id).spec.write_text(spec, encoding="utf-8")
 
     def tearDown(self):
         self.temp.cleanup()
@@ -110,31 +98,16 @@ class ChatApprovalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "terminal"):
             self.confirm_chat("report", "APPROVE REPORT 行业分析 000000000000", chapter="行业分析")
 
-    def test_spec_review_names_the_changed_page_and_one_edit_stays_local(self):
+    def test_chapter_approval_then_one_edit_stays_local(self):
         self.approve_chapter()
-        report_packet = self.review_json(chapter="行业分析")
-        self.confirm_chat("report", report_packet["phrase"], chapter="行业分析")
-        self.approve_chapter("spec")
-        first = self.review_json("spec", chapter="行业分析")
-        self.assertIn("没有可对比", first["units"][0]["changes"]["summary"])
-        self.confirm_chat("spec", first["phrase"], reply="两节 Spec 都批准", chapter="行业分析")
-        spec = unit_paths(self.base, "demand").spec
-        spec.write_text(spec.read_text(encoding="utf-8").replace("## Slide 2 — 其二", "## Slide 2 — 调整后"), encoding="utf-8")
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(approve.run(argparse.Namespace(
-                project=str(self.root), kind="spec", units=["demand"], changed=False,
-                all_units=False, chapter=None, json=True,
-            )), 0)
-        second = self.review_json("spec", unit="demand")
-        self.assertIn("第 2 页：修改", second["units"][0]["changes"]["summary"])
-        self.assertIn("其二", second["units"][0]["changes"]["diff"])
-        self.assertIn("调整后", second["units"][0]["changes"]["diff"])
-        self.confirm_chat("spec", second["phrase"], reply="第二页可以，批准", unit="demand")
-        spec.write_text(spec.read_text(encoding="utf-8").replace("Conclusion.", "Conclusion revised."), encoding="utf-8")
+        packet = self.review_json(chapter="行业分析")
+        self.confirm_chat("report", packet["phrase"], chapter="行业分析")
+        report = unit_paths(self.base, "demand").report
+        report.write_text(report.read_text(encoding="utf-8") + "补充一句。\n", encoding="utf-8")
         demand = refresh_unit_currency(self.base, self.units[1], project_root=self.root)
         other = refresh_unit_currency(self.base, self.units[2], project_root=self.root)
-        self.assertFalse(demand["spec"]["current"])
-        self.assertTrue(other["spec"]["current"])
+        self.assertFalse(demand["report"]["current"])
+        self.assertTrue(other["report"]["current"])
 
     def test_next_asks_for_review_in_chat_mode(self):
         out = io.StringIO()
@@ -215,31 +188,6 @@ class ChatApprovalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "短语"):
             self.confirm_chat("report", first, unit="competition")
         self.assertEqual(self.confirm_chat("report", second, reply="依赖更新后批准", unit="competition"), 0)
-
-    def test_old_spec_phrase_rejects_a_newer_report_version(self):
-        self.approve_chapter()
-        report_packet = self.review_json(chapter="行业分析")
-        self.confirm_chat("report", report_packet["phrase"], chapter="行业分析")
-        self.approve_chapter("spec")
-        first = self.review_json("spec", unit="demand")["phrase"]
-        report = unit_paths(self.base, "demand").report
-        report.write_text(report.read_text(encoding="utf-8") + "报告补了一句。\n", encoding="utf-8")
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(approve.run(argparse.Namespace(
-                project=str(self.root), kind="report", units=["demand"], changed=False,
-                all_units=False, chapter=None, json=True,
-            )), 0)
-        report_phrase = self.review_json(unit="demand")["phrase"]
-        self.confirm_chat("report", report_phrase, reply="报告新版本批准", unit="demand")
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(approve.run(argparse.Namespace(
-                project=str(self.root), kind="spec", units=["demand"], changed=False,
-                all_units=False, chapter=None, json=True,
-            )), 0)
-        second = self.review_json("spec", unit="demand")["phrase"]
-        self.assertNotEqual(first, second)
-        with self.assertRaisesRegex(ValueError, "短语"):
-            self.confirm_chat("spec", first, unit="demand")
 
     def test_init_force_keeps_approval_settings(self):
         from my_slides.project import read_config

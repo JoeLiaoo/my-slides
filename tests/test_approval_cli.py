@@ -92,25 +92,15 @@ class ApprovalCliTests(unittest.TestCase):
                 self.assertIsNone(state["approved_sha256"])
                 self.assertIsNotNone(state["pending_approval"])
 
-    def test_spec_confirmation_is_a_separate_human_step(self):
+    def test_approved_report_leads_straight_to_design_pages(self):
         request = self.request()
         self.confirm(["Reviewer", f"APPROVE REPORT cover {request['content_sha256'][:12]}"])
         _, errors = assemble_after_report_approvals(self.base)
         self.assertEqual(errors, [])
-        self.paths.spec.write_text(
-            "## Slide 1 — Cover\n页面 ID：cover\n页面角色：cover\n"
-            "### 目的\nExplain.\n### 核心结论\nConclusion.\n内容类型：案例\n版式：KPI卡片\n关键页：是\n### 我们的判断 / 对投资的含义\nOur investment judgment.\n### 展示内容\nContent.\n数据编号：N-001\n"
-            "### 证据与来源\nSource. 数据编号：N-001\n### 限定条件\nLimits.\n### 报告段落映射\nMap.\n"
-            "### 布局意图\n#### 读者问题\nQ.\n#### 唯一结论\nA.\n#### 关系类型\nType.\n#### 主视觉\nChart.\n#### 阅读顺序\nOrder.\n#### 选这个形式的原因\nReason.\n### 图标需求\n无\n### 来源脚注\nResearch Org《Fixture Dataset》（2026-01）；口径：fixture。\n",
-            encoding="utf-8",
-        )
-        self.assertIn("approve spec --unit cover", self.next_action()["command"])
-        request = self.request("spec")
-        self.assertEqual(self.next_action()["actor"], "human")
-        self.assertIn("review spec --unit cover", self.next_action()["command"])
-        self.confirm(["Reviewer", f"APPROVE SPEC cover {request['content_sha256'][:12]}"], kind="spec")
-        self.assertTrue(read_unit_state(self.base, "cover")["spec"]["current"])
-        self.assertIn("prepare slides --unit cover", self.next_action()["command"])
+        action = self.next_action()
+        self.assertEqual(action["actor"], "agent")
+        self.assertIn("prepare slides --unit cover", action["command"])
+        self.assertNotIn("spec", action["command"])
 
     def test_changed_report_or_dependency_invalidates_request(self):
         for changed_dependency in (False, True):

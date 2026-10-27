@@ -2,7 +2,6 @@
 
 Same gate as ``confirm``/``reject``: chat mode requires ``--via chat`` with
 ``--phrase`` and ``--user-reply``; terminal mode requires an interactive TTY.
-Revoking a report also invalidates the bound Spec and built HTML/checks.
 Approved copies are kept in ``.state/approved/`` for history.
 """
 
@@ -57,7 +56,6 @@ def run(args: argparse.Namespace) -> int:
                     "approved_by": state[args.kind].get("approved_by"),
                     "approved_account": state[args.kind].get("approved_account"),
                     "approval_channel": state[args.kind].get("approval_channel"),
-                    "bound_report_sha256": state["spec"].get("report_sha256") if args.kind == "spec" else None,
                 })
             digest = bindings_digest(entries, chapter_scope=not getattr(args, "unit", None))
             phrase = revoke_phrase(args.kind, target, digest)
@@ -71,16 +69,12 @@ def run(args: argparse.Namespace) -> int:
             }
             human_lines = [f"待撤回批准：{args.kind} / {target}"]
             for row in approved_rows:
-                bound_line = (
-                    f"\n绑定报告 SHA-256：{row['bound_report_sha256']}"
-                    if row["bound_report_sha256"] else ""
-                )
                 human_lines.append(
                     f"\n{row['chapter']} / {row['title']}（{row['id']}）\n"
                     f"批准人：{row['approved_by']}（{row['approved_account']}）\n"
                     f"批准时间：{row['approved_at']}\n"
                     f"通道：{row['approval_channel']}\n"
-                    f"已批准 SHA-256：{row['approved_sha256']}{bound_line}"
+                    f"已批准 SHA-256：{row['approved_sha256']}"
                 )
             human_lines.append(f"\n确认短语：{phrase}")
             human_lines.append("用户需在对话中明确表示要撤回该批准。Agent 再用 --phrase 和 --user-reply 执行一次；不得自动提交。")
@@ -123,7 +117,6 @@ def run(args: argparse.Namespace) -> int:
     print(
         f"待撤回批准：{args.kind} / {unit.id}\n"
         f"SHA-256：{approved_sha}\n"
-        f"绑定报告 SHA-256：{state['spec'].get('report_sha256') or '（无）'}\n"
         f"原因：{reason or '（未提供原因）'}"
     )
     reviewer = input("审批人姓名：").strip()

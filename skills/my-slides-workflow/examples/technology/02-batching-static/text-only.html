@@ -1,7 +1,0 @@
-<section class="slide" data-unit-id="batching-static" data-page-role="content">
-  <h1>请求先组合，再集中执行</h1>
-  <p>多个请求到达服务后会短暂排队。调度器把兼容请求组合成批次，送往设备执行，再分别返回结果。</p>
-  <p>这样可能提高设备利用率；部分请求也可能因此增加等待。这里没有实测的吞吐或时延。</p>
-  <p>机制省略了连续批处理、缓存与优先级；每个请求的实际行为要用项目资料验证。</p>
-  <script type="application/json" class="slide-notes">{"claim":"批处理可能提升利用率，也可能增加部分请求等待","source":"wiki.md（虚构）","limitations":"文字版无真实比例、时延或吞吐"}</script>
-</section>

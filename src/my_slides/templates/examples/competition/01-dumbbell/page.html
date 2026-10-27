@@ -1,37 +1,45 @@
-<section class="slide" data-unit-id="competition-dumbbell" data-page-role="content" data-unit-page="5">
-  <header class="slide-title">
-    <h1>Aurora 是 5 家中同期增量最大者</h1>
-    <p class="slide-subtitle">2022 → 2024 市占率变化（pp）</p>
-  </header>
-  <div class="chart-area">
-    <div id="dumbbell"></div>
+<section id="competition-dumbbell" style="background:#faf9f6;color:#1f2328;font-family:Arial, 'Microsoft YaHei', 'PingFang SC', sans-serif;padding:128px 128px 96px;display:flex;flex-direction:column;gap:40px">
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <h2 style="font-size:64px;font-weight:700;line-height:1.15">Aurora 是 5 家中同期增量最大者</h2>
+    <p style="font-size:30px;color:#5b6168">2022 → 2024 金额市占率（%）：空心点为 2022，实心点为 2024</p>
   </div>
-  <footer class="slide-foot">
-    <span>数据口径：金额市占率；样本：5 家代表性企业；来源：行业研究简报 2024-11（虚构）</span>
-  </footer>
-  <script type="application/json" class="slide-notes">
-    {
-      "metric": "市占率（金额，%）",
-      "highlight_company": "Aurora",
-      "main_call": "Aurora 同期市占率 +3.7pp，是 5 家中增量最大者。",
-      "as_of": "2024-12-31"
-    }
-  </script>
-  <script type="application/json" class="mls-echarts-spec">
-    {
-      "type": "dumbbell",
-      "metric": "市占率（金额，%）",
-      "points": [
-        {"name": "Aurora", "values": [7.5, 11.2], "delta": 3.7, "highlight": true},
-        {"name": "Beacon", "values": [12.0, 13.5], "delta": 1.5},
-        {"name": "Coastal", "values": [9.0, 9.8], "delta": 0.8},
-        {"name": "Drift", "values": [6.0, 5.5], "delta": -0.5},
-        {"name": "Echo", "values": [5.0, 4.0], "delta": -1.0}
-      ],
-      "title": "2022 vs 2024 市占率（金额，%）"
-    }
-  </script>
-  <script type="application/json" class="mls-lucide-spec">
-    {"icons": [{"name": "minus", "size": 14}, {"name": "plus", "size": 14}]}
-  </script>
+  <svg width="1664" height="500" viewBox="0 0 1664 500" font-family="Arial, Microsoft YaHei, PingFang SC, sans-serif" aria-label="哑铃图：5 家公司 2022 与 2024 年金额市占率。Aurora 从 7.5% 升至 11.2%，增加 3.7 个百分点，为 5 家中最大；Beacon 12.0% 至 13.5%；Coastal 9.0% 至 9.8%；Drift 6.0% 至 5.5%；Echo 5.0% 至 4.0%。" xmlns="http://www.w3.org/2000/svg">
+    <line x1="260" y1="10" x2="260" y2="440" stroke="#d4d4d8" stroke-width="2"/>
+    <line x1="640" y1="10" x2="640" y2="440" stroke="#e4e4e7" stroke-width="2"/>
+    <line x1="1020" y1="10" x2="1020" y2="440" stroke="#e4e4e7" stroke-width="2"/>
+    <line x1="1400" y1="10" x2="1400" y2="440" stroke="#e4e4e7" stroke-width="2"/>
+    <text x="260" y="482" text-anchor="middle" font-size="26" fill="#5b6168">0%</text>
+    <text x="640" y="482" text-anchor="middle" font-size="26" fill="#5b6168">5%</text>
+    <text x="1020" y="482" text-anchor="middle" font-size="26" fill="#5b6168">10%</text>
+    <text x="1400" y="482" text-anchor="middle" font-size="26" fill="#5b6168">15%</text>
+    <rect x="0" y="12" width="1664" height="76" rx="10" fill="#f8e9ec"/>
+    <text x="230" y="60" text-anchor="end" font-size="32" font-weight="700" fill="#a6192e">Aurora</text>
+    <line x1="830" y1="50" x2="1111" y2="50" stroke="#a6192e" stroke-width="8"/>
+    <circle cx="830" cy="50" r="16" fill="#faf9f6" stroke="#a6192e" stroke-width="5"/>
+    <circle cx="1111" cy="50" r="18" fill="#a6192e"/>
+    <text x="1460" y="60" font-size="32" font-weight="700" fill="#a6192e">+3.7pp</text>
+    <text x="230" y="150" text-anchor="end" font-size="30" fill="#1f2328">Beacon</text>
+    <line x1="1172" y1="140" x2="1286" y2="140" stroke="#2563a6" stroke-width="6"/>
+    <circle cx="1172" cy="140" r="14" fill="#faf9f6" stroke="#2563a6" stroke-width="4"/>
+    <circle cx="1286" cy="140" r="16" fill="#2563a6"/>
+    <text x="1460" y="150" font-size="30" fill="#1f2328">+1.5pp</text>
+    <text x="230" y="240" text-anchor="end" font-size="30" fill="#1f2328">Coastal</text>
+    <line x1="944" y1="230" x2="1005" y2="230" stroke="#2563a6" stroke-width="6"/>
+    <circle cx="944" cy="230" r="14" fill="#faf9f6" stroke="#2563a6" stroke-width="4"/>
+    <circle cx="1005" cy="230" r="16" fill="#2563a6"/>
+    <text x="1460" y="240" font-size="30" fill="#1f2328">+0.8pp</text>
+    <text x="230" y="330" text-anchor="end" font-size="30" fill="#1f2328">Drift</text>
+    <line x1="678" y1="320" x2="716" y2="320" stroke="#71717a" stroke-width="6"/>
+    <circle cx="716" cy="320" r="14" fill="#faf9f6" stroke="#71717a" stroke-width="4"/>
+    <circle cx="678" cy="320" r="16" fill="#71717a"/>
+    <text x="1460" y="330" font-size="30" fill="#5b6168">−0.5pp</text>
+    <text x="230" y="420" text-anchor="end" font-size="30" fill="#1f2328">Echo</text>
+    <line x1="564" y1="410" x2="640" y2="410" stroke="#71717a" stroke-width="6"/>
+    <circle cx="640" cy="410" r="14" fill="#faf9f6" stroke="#71717a" stroke-width="4"/>
+    <circle cx="564" cy="410" r="16" fill="#71717a"/>
+    <text x="1460" y="420" font-size="30" fill="#5b6168">−1.0pp</text>
+  </svg>
+  <div style="flex:1"></div>
+  <p style="font-size:24px;color:#5b6168">行业研究简报《中国物流 SaaS 竞争格局》（2024-11，虚构）。口径：金额市占率；样本为 5 家代表性企业，合计不等于 100%。</p>
+  <aside>先看红色高亮行：Aurora 两年市占率提升 3.7 个百分点，是 5 家里最多的。Beacon 份额最高但增量只有 1.5 个百分点；Drift 和 Echo 在下滑。</aside>
 </section>
