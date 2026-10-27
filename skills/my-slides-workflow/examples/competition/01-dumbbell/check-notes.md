@@ -3,8 +3,8 @@
 ## 期望通过的检查
 
 - Design 严格检查：0 错误、0 警告；SVG 带 `width`、`height`、`viewBox` 与 `aria-label`，没有脚本和外部链接。
-- `<section id>` 等于单元 ID `competition-dumbbell`。
-- 图中每个数值与 `data.json` 一致；真实项目里应对应 `research/numbers.md` 的编号。
+- `<section id>` 为页面 ID `competition-dumbbell`。
+- 图中每个数值与 `data.json` 一致；真实项目里应核对正文与来源。
 
 ## 视觉自检
 

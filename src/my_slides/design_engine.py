@@ -10,12 +10,10 @@ import json
 import os
 import shutil
 import subprocess
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 DESIGN_ROOT_ENV = "MY_SLIDES_DESIGN_ROOT"
-DEFAULT_BASE_URL = "http://127.0.0.1:5173"
 AGENT_ENTRY = Path("apps") / "local-host" / "src" / "main.ts"
 SLIDES_COMPILER = Path("apps") / "slides-editor" / "dist" / "node" / "compiler.cjs"
 
@@ -61,15 +59,12 @@ def run_agent(
     command: list[str],
     projects_root: Path,
     *,
-    base_url: str | None = None,
     timeout: int = 600,
 ) -> tuple[int, dict[str, Any]]:
     """Run one Design agent CLI command and return (exit code, JSON payload)."""
     root, node = require_engine()
     argv = [node, "--experimental-strip-types", str(root / AGENT_ENTRY), "agent", *command,
             "--projects", str(projects_root), "--json"]
-    if base_url:
-        argv.extend(["--base-url", base_url])
     result = subprocess.run(argv, cwd=root, capture_output=True, text=True,
                             encoding="utf-8", errors="replace", timeout=timeout)
     try:
@@ -80,17 +75,3 @@ def run_agent(
     if not isinstance(data, dict):
         raise ValueError("Design CLI 输出不是 JSON 对象")
     return result.returncode, data
-
-
-def host_reachable(base_url: str = DEFAULT_BASE_URL) -> bool:
-    """Probe the Design host over HTTP without starting Node."""
-    try:
-        with urllib.request.urlopen(f"{base_url}/projects.json", timeout=1.5) as response:
-            return 200 <= response.status < 300
-    except (OSError, ValueError):
-        return False
-
-
-def host_command(projects_root: Path) -> str:
-    """The command a human runs (in the engine root) to review the deck on 5173."""
-    return f'npm run dev -- --projects "{projects_root}"'

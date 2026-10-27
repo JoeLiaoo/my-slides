@@ -1,4 +1,4 @@
-# 0.8.0 薄壳契约
+# 薄壳契约（0.9.0）
 
 my-slides 是 Agent 驱动工作区及确定性 CLI 辅助。CLI 不会自己写文章、长文 HTML 或幻灯内容；外部 skill 是给当前 Agent 的指令，不是可直接执行的子进程。未找到真实 runner 时，`present` 输出交接任务、`pending_agent` 或 `failed`，退出码非零。
 
@@ -8,7 +8,7 @@ my-slides 是 Agent 驱动工作区及确定性 CLI 辅助。CLI 不会自己写
 <项目>/
   materials/raw/                 # 可用既有原材料位置；原资料只读
   my-slides/
-    project.json                 # 新模式唯一配置
+    project.json                 # 唯一配置
     article.md                   # 默认共享内容基准；可引用项目内既有正文
     beautiful/article.html       # 可选，外部 skill 制作
     design/deck/deck.json        # 可选，Design 项目
@@ -17,7 +17,7 @@ my-slides 是 Agent 驱动工作区及确定性 CLI 辅助。CLI 不会自己写
     exports/                     # 可选离线导出
 ```
 
-`init` 只创建 `my-slides/project.json`，其中 `present` 为 `{}`；`--force` 与 `--source-dir` 仅用于 `init --legacy`。所有配置路径均相对**项目根**，不相对配置文件或当前工作目录。输入须在项目内；新输出须在 `my-slides/` 内，不能与输入、配置或另一目标重叠。工作区不得通过符号链接或 junction 重定向，产物目录内的链接也会被拒绝。`schema_version` 与包版本不同；首版仅接受 1 和以下两个 provider。
+`init` 只创建 `my-slides/project.json`，其中 `present` 为 `{}`，不会覆盖已有配置。所有配置路径均相对**项目根**，不相对配置文件或当前工作目录。输入须在项目内；新输出须在 `my-slides/` 内，不能与输入、配置或另一目标重叠。工作区不得通过符号链接或 junction 重定向，产物目录内的链接也会被拒绝。`schema_version` 与包版本不同；首版仅接受 1 和以下两个 provider。
 
 已核对外部入口：`writing-shape` 与 `writing-beats` 各接收原料 Markdown，由 Agent 与用户逐段成文，没有 CLI runner；`beautiful-article` 接收 Markdown 等素材，经其自身计划、确认和构建步骤交付单文件 `article.html`，没有供本壳直接调用的生成 CLI；Design slides skill 指导 Agent 创作 deck，Design Agent CLI 提供 `check <project> --strict`、`apply`、`render-check` 和 `export` 等确定性动作。Agent 应先阅读实际安装版本的 skill，再把完成的 beautiful 文件安全交接到配置输出路径；若输出已有手改，先核对差异，不直接覆盖。
 
@@ -32,7 +32,7 @@ my-slides 是 Agent 驱动工作区及确定性 CLI 辅助。CLI 不会自己写
 }
 ```
 
-目标键存在即启用；删除键不删除已有成果。`present` 处理全部启用目标，`present --target NAME` 只处理该目标且不改配置。空目标集报错。已有非空正文可直接使用，写作 skill、Wiki、Report、`research/numbers.md`、固定章节和旧审批都不是新路径的前置条件。正文保留来源、日期、数字口径和待补项；呈现继承引用，不编造缺失证据。
+目标键存在即启用；删除键不删除已有成果。`present` 处理全部启用目标，`present --target NAME` 只处理该目标且不改配置。空目标集报错。已有非空正文可直接使用，写作 skill、Wiki 或报告整理可作为外部准备，但不是 CLI 前置条件。正文保留来源、日期、数字口径和待补项；呈现继承引用，不编造缺失证据。
 
 ## 内容与完成语义
 
@@ -44,7 +44,7 @@ Design 根目录继续由 `MY_SLIDES_DESIGN_ROOT` 提供。`slides.output` 必�
 
 ## 迁移与回退
 
-先复制 0.7 项目，盘点文章候选、完整 Design deck、素材、页序、用户手改及旧审批。只在复制件添加 `project.json`，引用现有正文或由 Agent 明确编写新正文；保留 `project.yaml`、`units.json`、Wiki、Report、`.state` 及全部历史成果。旧报告审批不自动批准新正文，旧 deck 与新正文的一致性初始为未知。新模式不调用旧 `slides build` 同步器；不要让两版本共写同一 deck。复制件验收通过后才切换日常项目。回退使用未改动的 0.7 副本与对应工具版本；新增成果需单独复制核对。
+旧链已删。先复制 0.7 项目，盘点文章候选、完整 Design deck、素材、页序、用户手改及旧审批。把正文迁入非空 `article.md`（或在 `project.json` 中引用项目内既有正文），再添加 `my-slides/project.json` 并配置目标。保留旧 `project.yaml`、`units.json`、Wiki、Report、`.state` 及历史成果作存档；本版本不读取或执行旧链。旧报告审批不自动批准新正文，旧 deck 与新正文的一致性初始为未知。核对正文、页序、素材和手改后再切换日常项目。回退使用未改动的 0.7 副本与对应旧版本工具。
 
 ## RSI 样例七条验收（Phase B，尚未完成）
 
@@ -56,4 +56,4 @@ Design 根目录继续由 `MY_SLIDES_DESIGN_ROOT` 提供。`slides.output` 必�
 6. 离线导出由引擎完成，不覆盖同名文件；断网且宿主停止后仍能阅读和翻页。
 7. 0.7 复制件迁移与重复迁移不丢页序、附加页、素材、手改或历史；旧副本可回退，并验证 Windows 与另一系统的中文/空格路径和不同 cwd。
 
-本 PR 交付契约与最小壳。RSI 端到端样例和删除旧 CLI 另行实施。
+RSI 七条端到端样例仍待实施。本版本已删除旧 CLI。

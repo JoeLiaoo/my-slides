@@ -2,11 +2,9 @@
 
 Open when picking a chart type or sanity-checking the numbers behind a page. Design+Slides has no chart library: draw charts as inline `<svg>` in the page (format limits in `<MY_SLIDES_DESIGN_ROOT>/skills/slides/references/format.md` §5), or import an image rendered elsewhere with `npm run slides:import-asset`.
 
-## 数字证据清单
+## 数字与来源
 
-报告组装后、写页前运行 `my-slides prepare evidence-research`。公开网络可用于查市场规模、融资、ARR、成本曲线等硬数字；将值、单位、期间、出处 URL 和估计/口径写入 `my-slides/research/numbers.md`，再运行 `my-slides validate evidence-research`。每条记录用稳定编号（如 `N-001`），来源名称写成 `机构或作者《标题》（日期）`。缺少可靠数字时继续研究并记下数据缺口，不要补造数字。
-
-所有图表数据只能取自该文件的记录。仅在数字直接支撑本页结论时引用；同一个数字编号在整套 deck 只出现一次。无合适数字时允许无数字页，用表格或结构图组织定性证据。图中的值、单位和期间要与对应记录一致；数据更新时先改清单，再改页面。禁止从未登记的报告段落、访谈记忆或网页临时复制数字。
+图表数据须来自 `article.md` 或其中可核对的来源，并保留值、单位、期间、出处 URL 和估计口径。公开网络可用于补查市场规模、融资、ARR 或成本曲线等数字；先核实并更新正文，再写入页面。缺少可靠数字时记下证据缺口，不补造。仅在数字直接支撑本页结论时引用；无合适数字可用表格或结构图组织定性证据。数据变化时核对正文及所有受影响目标。
 
 ## 关系 → 图形
 
@@ -49,6 +47,6 @@ Open when picking a chart type or sanity-checking the numbers behind a page. Des
 
 ## 边界
 
-- 图中每一个数值都必须能追溯到 `research/numbers.md` 的编号；没有编号或口径不一致的值不得进入图表。
+- 图中每一个数值都必须能追溯到正文或其来源；口径不一致的值不得进入图表。
 - 不用 CDN、网上图片地址或外部字体文件；导入的图片走 `import-asset`。
 - 视觉规则（字号、留白、对比）见 `references/visual-rules.md`。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full local regression: also runs the Design+Slides engine integration tests.
+# Thin-workspace suite with Design+Slides engine readiness and skill mirror checks.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

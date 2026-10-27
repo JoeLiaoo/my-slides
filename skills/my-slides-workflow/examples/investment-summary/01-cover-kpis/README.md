@@ -12,9 +12,7 @@
 
 ```text
 project            : Aurora Logistics
-unit_id            : cover-kpis
-chapter            : 投资概要
-role               : cover
+page_id            : cover-kpis
 purpose            : 一句话说投 / 不投
 inputs             : 3–5 个 KPI（估值、增速、回本、集中度、风险）
 bounds             : 数据日期 2024-12-31；货币 CNY；不考虑跨境税务
@@ -26,8 +24,7 @@ layout             : 标题写结论 + 五列 KPI 卡片（支持理由蓝色、
 
 ```text
 data.json         虚构 KPI 数据
-wiki.md           假想 wiki 索引片段
-report-excerpt.md 报告「投资摘要」段落摘录
+article.md        虚构正文「投资摘要」段落
 page.html         Design 页面（1920×1080，单个 <section>，样式全部写在 style 属性）
 check-notes.md    期望通过的检查与视觉自检
 ```
@@ -38,4 +35,4 @@ check-notes.md    期望通过的检查与视觉自检
 
 ## 复用
 
-把 `page.html` 复制为 deck 的 `slides/<单元 ID>.html`，把 `<section id>` 改成同一个 ID，再按已批准报告替换文字和数字。卡片数量可在 3–5 之间增减，`grid-template-columns` 跟着改。
+把 `page.html` 复制进目标 deck 的 `slides/`，按 Design skill 修改页面 ID，再依据项目正文替换文字和数字。卡片数量可在 3–5 之间增减，`grid-template-columns` 跟着改。

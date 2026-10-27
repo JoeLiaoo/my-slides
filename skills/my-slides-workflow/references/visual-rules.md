@@ -1,6 +1,6 @@
 # Visual rules
 
-Open before handing the deck to the user for review on 5173. These rules apply per page; `my-slides slides check` does not enforce them — Design checks only format and layout fit. The agent catches them by rereading each page against its approved report; the user makes the final call on 5173. For Design's own layout and height-estimation rules, see `<MY_SLIDES_DESIGN_ROOT>/skills/slides/references/design.md`.
+Open before handing the deck to the user for review on 5173. These rules apply per page; `my-slides present --target slides` only runs Design `check --strict`, which does not enforce content or visual quality. The agent catches those issues by comparing each page with `article.md`; the user makes the final call on 5173. For Design's own layout and height-estimation rules, see `<MY_SLIDES_DESIGN_ROOT>/skills/slides/references/design.md`.
 
 ## 一、每页一个唯一结论
 
@@ -28,7 +28,7 @@ Open before handing the deck to the user for review on 5173. These rules apply p
 
 - 每个关键数字旁带单位（亿元 / % / 万 / 倍）；日期口径写在数字附近或脚注。
 - 外部来源用一行统一格式：`机构或作者《标题》（日期）`；估计和口径紧接该来源说明一次。
-- 图表数字必须对应 `my-slides/research/numbers.md` 的编号；清单未收录的数字不能用于图表。
+- 图表数字必须能在正文或其可核对来源中找到，单位、期间和口径一致。
 - 反例：所有来源集中堆在一个「参考资料」框里，正文数字都没有出处。
 
 ## 四、先拆页，再缩字号
@@ -72,7 +72,7 @@ Open before handing the deck to the user for review on 5173. These rules apply p
 - [ ] 阅读顺序与停留点存在
 - [ ] 只有 1–2 处强调
 - [ ] 留白充足，没有元素重叠或出界
-- [ ] 每个数字都能在报告或 `research/numbers.md` 里找到；缺的写成 `[待补：…]`
+- [ ] 每个数字都能在正文或其来源中找到；缺的写成 `[待补：…]`
 
 ## 版式多样性与单页信息密度评分
 

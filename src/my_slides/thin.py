@@ -40,8 +40,6 @@ def _path(root: Path, value: str, *, output: bool) -> Path:
 def read_project(root: Path) -> dict[str, Any]:
     path = _path(root, "my-slides/project.json", output=True)
     if not path.is_file():
-        if (root / "my-slides" / "project.yaml").exists():
-            raise ValueError("仅发现旧 project.yaml；请在旧项目复制件上添加 project.json，勿将旧审批视为新正文批准")
         raise ValueError(f"缺少 {path}；先运行 my-slides init")
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
@@ -72,18 +70,11 @@ def read_project(root: Path) -> dict[str, Any]:
 
 
 def init(args: argparse.Namespace) -> int:
-    if getattr(args, "legacy", False):
-        from .commands.init import init_project
-        return init_project(args)
-    if getattr(args, "force", False) or getattr(args, "source_dir", None):
-        raise ValueError("--force 和 --source-dir 仅适用于 init --legacy；薄壳不覆盖现有配置")
     root = project_root(args.project, discover=False)
     base = _workspace(root)
     target = base / "project.json"
     if target.exists() or target.is_symlink():
         raise ValueError(f"配置已存在，未覆盖：{target}")
-    if (base / "project.yaml").exists():
-        raise ValueError("发现旧 project.yaml；请先复制旧项目并按 docs/remake-contract.md 迁移")
     base.mkdir(exist_ok=True)
     with target.open("x", encoding="utf-8") as stream:
         stream.write(json.dumps(DEFAULT, ensure_ascii=False, indent=2) + "\n")

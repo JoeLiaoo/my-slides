@@ -1,8 +1,6 @@
 {
   "industry": "物流 SaaS（中国市场，虚构）",
-  "unit_id": "competition-dumbbell",
-  "chapter": "竞争分析",
-  "role": "content",
+  "page_id": "competition-dumbbell",
   "as_of": "2024-12-31",
   "metric": "市占率（金额，%）",
   "companies": [
@@ -13,7 +11,7 @@
     {"name": "Echo", "year_2022": 5.0, "year_2024": 4.0}
   ],
   "sources": [
-    "wiki/competition/logistics-saas.md（虚构）",
+    "行业同业调查（虚构）",
     "行业研究简报 2024-11（虚构）"
   ]
 }
