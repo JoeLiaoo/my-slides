@@ -6,6 +6,12 @@ Notable user-facing changes to My Slides.
 
 No unreleased changes.
 
+## [0.9.1] - Pending
+
+### Removed
+
+- Remove obsolete Wiki/Report/units-era design documents, the old user acceptance test plan, and migration plans that conflict with the current thin workspace.
+
 ## [0.9.0] - Pending
 
 ### Breaking Changes
